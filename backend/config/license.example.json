@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "plan": "dev",
+  "issued_to": "Local Dev Station",
+  "expires": "2099-01-01T00:00:00Z",
+  "entitlements": {
+    "modules":  { "hello": true },
+    "variants": { "hello": ["default"] },
+    "features": {},
+    "limits":   { "max_stations": 1, "max_users": 1 }
+  },
+  "signature": "dev-unsigned"
+}

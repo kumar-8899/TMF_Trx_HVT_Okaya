@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ---- Python platform: lint + tests + PyInstaller sidecar ----
+  python:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q
+      - name: Build PyInstaller sidecar
+        run: pyinstaller --onefile --name tmf-sidecar run.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmf-sidecar
+          path: backend/dist/tmf-sidecar.exe
+
+  # ---- Broker: validate the station broker config boots ----
+  broker:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Mosquitto
+        run: choco install mosquitto --no-progress -y
+      - name: Smoke-test config
+        shell: pwsh
+        run: |
+          $exe = "C:\Program Files\mosquitto\mosquitto.exe"
+          $p = Start-Process $exe -ArgumentList "-c","deploy/mosquitto.conf","-v" -PassThru
+          Start-Sleep -Seconds 3
+          if ($p.HasExited) { throw "broker exited early (bad config)" }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "broker config OK"
+      # Full LabVIEW <-> Python round-trip test wired in P4/P6.
+
+  # ---- Tauri installer ----
+  tauri:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        shell: pwsh
+        run: Write-Host "::warning::Tauri shell scaffold pending — wired in a later phase."
+      # Real build: setup node + rust, `tauri build`, upload installer.
+
+  # ---- LabVIEW EXE (g-cli) ----
+  labview:
+    # FLAG (work-rule 5): hosted runners have NO LabVIEW. Needs a self-hosted
+    # Windows runner with LabVIEW + g-cli. Placeholder until that runner exists.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        shell: pwsh
+        run: Write-Host "::warning::LabVIEW build needs self-hosted runner (LabVIEW + g-cli). Stub built in P6."
+      # Real build: g-cli to build labview/bridge -> EXE, upload artifact.

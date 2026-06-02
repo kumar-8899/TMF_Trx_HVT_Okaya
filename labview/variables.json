@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "variables": [
+    { "name": "vbus_main", "units": "V", "description": "Main bus voltage" }
+  ]
+}

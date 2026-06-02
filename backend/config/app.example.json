@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "station": "st1",
+  "license": "config/license.json",
+  "modules": [
+    { "id": "hello", "variant": "default" }
+  ]
+}

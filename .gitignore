@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.spec.bak
+src-tauri/target/
+node_modules/
+
+# Live config — copied from *.example.json on first run (PRINCIPLES §4)
+backend/config/app.json
+backend/config/license.json
+
+# Local DB / data
+*.sqlite
+*.sqlite3
+data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

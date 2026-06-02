@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "stations": [
+    { "id": "st1", "broker": "tcp://127.0.0.1:1883" }
+  ]
+}
