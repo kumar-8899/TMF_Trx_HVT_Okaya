@@ -41,3 +41,15 @@ def test_request_id_echoed(config_dir):
     with _client(config_dir) as client:
         resp = client.get("/healthz", headers={"X-Request-ID": "abc123"})
         assert resp.headers["X-Request-ID"] == "abc123"
+
+
+def test_modules_status_reports_gate(config_dir):
+    # No real modules registered yet (hello lands in P5); the example app.json
+    # lists hello, so the gate skips it and /modules/status shows the reason.
+    with _client(config_dir) as client:
+        resp = client.get("/modules/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "modules" in body and "loaded" in body and "skipped" in body
+        skipped_ids = [s["id"] for s in body["skipped"]]
+        assert "hello" in skipped_ids

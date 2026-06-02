@@ -80,13 +80,18 @@ class ConfigService:
         return self.validate(data, self.schemas_dir / "app.schema.json", what="app config")
 
     def load_license(self, path: Path | str | None = None) -> dict:
+        """The license lives beside app.json in the config dir; the directory part
+        of the configured path is ignored (only the file name matters)."""
         if path is None:
-            path = self.ensure_live("license")
+            live = self.ensure_live("license")
         else:
-            path = Path(path)
-            if not path.is_absolute():
-                path = self.config_dir / path
-        data = self.load_json(path)
+            p = Path(path)
+            if p.is_absolute():
+                live = p
+            else:
+                target = self.config_dir / p.name
+                live = target if target.exists() else self.ensure_live(p.stem)
+        data = self.load_json(live)
         return self.validate(data, self.schemas_dir / "license.schema.json", what="license")
 
     def load_module(self, module_id: str, raw: dict, schema_path: Path | str | None) -> dict:

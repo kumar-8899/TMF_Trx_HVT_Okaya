@@ -13,9 +13,15 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from core import __version__
+from core.framework.contract import Core
+from core.framework.gate import ActivationResult, activate_modules
+from core.framework.manifest import ManifestLoader
+from core.framework.registry import default_registry, discover
+from core.services.auth_verify import TokenVerifier
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
+from core.services.licensing import Licensing
 from core.services.web import install_web
 
 DEFAULT_DB_PATH = Path(DEFAULT_CONFIG_DIR).parent / "data" / "tmf.sqlite"
@@ -39,6 +45,8 @@ def create_app(
         db = Database(db_path, station=station, source_version=__version__)
         await db.connect()
 
+        auth = TokenVerifier()
+
         app.state.config = config
         app.state.app_config = app_cfg
         app.state.station = station
@@ -46,11 +54,33 @@ def create_app(
         app.state.db = db
 
         web.add_ready_check("db", lambda: _check(db.connected))
+
+        # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
+        # bridge is None until P4; modules needing it are skipped + logged.
+        core = Core(db=db, bridge=None, config=config, auth=auth, diag=diag, web=web, station=station)
+        license = Licensing(config, diag).load_and_verify(app_cfg.get("license"))
+        discover()
+        result: ActivationResult = await activate_modules(
+            core=core,
+            registry=default_registry,
+            manifests=ManifestLoader(),
+            app_config=app_cfg,
+            license=license,
+            diag=diag,
+        )
+        app.state.core = core
+        app.state.modules = result
+
         diag.info("core", "core services up", station=station, version=__version__)
         try:
             yield
         finally:
             # 5. Shutdown, reverse order (CORE.md §5 step 5).
+            for mid, inst in reversed(list(result.active.items())):
+                try:
+                    await inst.stop()
+                except Exception as exc:  # noqa: BLE001 — keep tearing down
+                    diag.exception("core", "module stop failed", exc, module=mid)
             await db.close()
             diag.info("core", "core services down")
             diag.stop()
@@ -75,6 +105,12 @@ def create_app(
             {"ready": ready, "checks": results},
             status_code=200 if ready else 503,
         )
+
+    @app.get("/modules/status")
+    async def modules_status() -> dict:
+        """Loaded vs skipped + reason — debug surface + entitlement mirror (CORE.md §4)."""
+        result: ActivationResult = app.state.modules
+        return result.status_payload()
 
     return app
 
