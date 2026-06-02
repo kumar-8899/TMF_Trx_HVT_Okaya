@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:core/license.schema.json",
+  "title": "License / entitlements (license.json)",
+  "description": "CORE.md §3.3 — per-customer entitlements. Absent entitlements = off (fail-closed).",
+  "type": "object",
+  "required": ["schema_version", "plan", "issued_to", "expires", "entitlements"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "plan": { "type": "string", "minLength": 1 },
+    "issued_to": { "type": "string", "minLength": 1 },
+    "expires": { "type": "string", "format": "date-time" },
+    "entitlements": {
+      "type": "object",
+      "required": ["modules"],
+      "additionalProperties": true,
+      "properties": {
+        "modules":  { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "variants": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+        "features": { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "limits":   { "type": "object" }
+      }
+    },
+    "signature": { "type": "string" }
+  }
+}

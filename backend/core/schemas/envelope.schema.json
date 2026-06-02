@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:core/envelope.schema.json",
+  "title": "RAG metadata envelope",
+  "description": "PRINCIPLES.md §5 / CORE.md §7 — every persisted record carries this.",
+  "type": "object",
+  "required": ["id", "type", "ts", "station", "source_version", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "minLength": 1 },
+    "ts": { "type": "number" },
+    "station": { "type": "string", "minLength": 1 },
+    "source_version": { "type": "string", "minLength": 1 },
+    "summary": { "type": ["string", "null"] },
+    "data": { "type": "object" }
+  }
+}
