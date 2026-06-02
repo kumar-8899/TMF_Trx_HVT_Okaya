@@ -6,7 +6,7 @@ from core.app import create_app
 
 
 def _client(config_dir):
-    app = create_app(config_dir=config_dir, db_path=":memory:")
+    app = create_app(config_dir=config_dir, db_path=":memory:", enable_bridge=False)
     return TestClient(app, raise_server_exceptions=False)
 
 

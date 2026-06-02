@@ -18,6 +18,7 @@ from core.framework.gate import ActivationResult, activate_modules
 from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry, discover
 from core.services.auth_verify import TokenVerifier
+from core.services.bridge import BridgeClient
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
@@ -31,6 +32,9 @@ def create_app(
     *,
     config_dir: Path | str = DEFAULT_CONFIG_DIR,
     db_path: Path | str = DEFAULT_DB_PATH,
+    enable_bridge: bool = True,
+    broker_host: str = "127.0.0.1",
+    broker_port: int = 1883,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -47,17 +51,24 @@ def create_app(
 
         auth = TokenVerifier()
 
+        # bridge.connect before the gate so modules needing it get it (CORE.md §5).
+        bridge: BridgeClient | None = None
+        if enable_bridge:
+            bridge = BridgeClient(station, host=broker_host, port=broker_port, diag=diag)
+            await bridge.connect()
+            web.add_ready_check("bridge", lambda: _check(bridge.online))
+
         app.state.config = config
         app.state.app_config = app_cfg
         app.state.station = station
         app.state.diag = diag
         app.state.db = db
+        app.state.bridge = bridge
 
         web.add_ready_check("db", lambda: _check(db.connected))
 
         # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
-        # bridge is None until P4; modules needing it are skipped + logged.
-        core = Core(db=db, bridge=None, config=config, auth=auth, diag=diag, web=web, station=station)
+        core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web, station=station)
         license = Licensing(config, diag).load_and_verify(app_cfg.get("license"))
         discover()
         result: ActivationResult = await activate_modules(
@@ -81,6 +92,8 @@ def create_app(
                     await inst.stop()
                 except Exception as exc:  # noqa: BLE001 — keep tearing down
                     diag.exception("core", "module stop failed", exc, module=mid)
+            if bridge is not None:
+                await bridge.disconnect()
             await db.close()
             diag.info("core", "core services down")
             diag.stop()

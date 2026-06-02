@@ -20,6 +20,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      - name: Install Mosquitto (round-trip tests spin a broker)
+        shell: pwsh
+        run: choco install mosquitto --no-progress -y
       - name: Lint
         run: ruff check .
       - name: Test
