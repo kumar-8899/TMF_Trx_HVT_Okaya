@@ -71,5 +71,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Placeholder
         shell: pwsh
-        run: Write-Host "::warning::LabVIEW build needs self-hosted runner (LabVIEW + g-cli). Stub built in P6."
-      # Real build: g-cli to build labview/bridge -> EXE, upload artifact.
+        run: Write-Host "::warning::LabVIEW build needs a self-hosted runner (LabVIEW + g-cli). On such a runner this step runs labview/bridge/build.ps1. Stub contract: backend/tools/lv_stub.py."
+      # On a self-hosted runner, replace the step above with:
+      #   - name: Build Bridge EXE
+      #     run: ./labview/bridge/build.ps1
+      #   - uses: actions/upload-artifact@v4
+      #     with: { name: bridge-exe, path: dist }
