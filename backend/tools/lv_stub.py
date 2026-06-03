@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 import json
 import math
+import sys
 import time
 
 import aiomqtt
@@ -193,6 +194,10 @@ def main() -> None:
     p.add_argument("--stream-hz", type=float, default=10.0)
     p.add_argument("--status-period", type=float, default=5.0)
     args = p.parse_args()
+    # aiomqtt (paho) needs a selector loop; Windows defaults to Proactor, which
+    # does not implement socket add_reader/remove_writer.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:
         asyncio.run(_main_async(args))
     except KeyboardInterrupt:
