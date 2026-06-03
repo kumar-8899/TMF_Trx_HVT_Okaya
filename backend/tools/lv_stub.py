@@ -9,7 +9,7 @@ Behaviour (BRIDGE §12):
   - connect MQTT5; LWT = status {"state":"offline"} retained.
   - publish status {"state":"online", ...} retained; republish periodically with
     uptime / publish counters / cmd_pending.
-  - subscribe cmd/+; reply to hello.echo via response-topic + correlation-data.
+  - subscribe cmd/+; reply to hello.echo via the payload's reply_to + id (3.1.1).
   - publish stream/ai ~10 Hz (QoS 0, not retained): {t, seq, values:{ai0}}.
   - publish value/vbus_main retained: {value, ts}.
   - emit a diag event periodically so the bus is visible alongside the rest.
@@ -152,8 +152,9 @@ class LabviewStub:
             req = json.loads(msg.payload)
         except (json.JSONDecodeError, TypeError):
             return
+        # 3.1.1 path: reply_to + id come from the payload. V5 props are a fallback.
         props = msg.properties
-        reply_topic = getattr(props, "ResponseTopic", None)
+        reply_topic = req.get("reply_to") or getattr(props, "ResponseTopic", None)
         corr = getattr(props, "CorrelationData", None)
 
         if req.get("op") == "hello.echo":

@@ -93,10 +93,13 @@ already forwards to the frontend.
 
 **Command** (Py → LV, `cmd/{op}`):
 ```json
-{ "id": "c7f1…", "op": "hello.echo", "args": { "msg": "hi" } }
+{ "id": "c7f1…", "op": "hello.echo", "args": { "msg": "hi" },
+  "reply_to": "tmf/st1/cmd/resp/<python-client>" }
 ```
+`reply_to` and `id` are carried **in the payload** so a 3.1.1 responder needs no
+MQTT-5 features (see §5).
 
-**Reply** (LV → Py, to the response-topic):
+**Reply** (LV → Py, to `reply_to`, carrying the same `id`):
 ```json
 { "id": "c7f1…", "ok": true,  "result": { "echoed": { "msg": "hi" }, "station": "st1", "ts": 1748513761.234 } }
 { "id": "c7f1…", "ok": false, "error":  { "code": "daq_not_connected",
@@ -138,8 +141,19 @@ Python uses receipt time, not a payload timestamp, for the offline transition.
 
 ## 5. Commands (request / reply)
 
-- **Envelope:** `cmd {id, op, args}` → `reply {id, ok, result}` or `{id, ok:false, error:{code, message, detail}}`.
-- **Transport (MQTT 5):** Python publishes to `cmd/{op}` with `Response-Topic` set to a per-client reply topic and `Correlation-Data` set to the `id`; the Bridge replies to that topic carrying the same correlation data. **3.1.1 fallback:** a fixed reply topic `cmd/{op}/resp/{client}` plus the `id` in the payload — same shape, slightly more manual.
+- **Envelope:** `cmd {id, op, args, reply_to}` → `reply {id, ok, result}` or `{id, ok:false, error:{code, message, detail}}`.
+- **Transport — primary (MQTT 3.1.1-safe).** The LabVIEW MQTT library speaks
+  **3.1.1**, so the contract MUST NOT rely on MQTT-5 features. Python publishes to
+  `cmd/{op}` with `reply_to` (a fixed per-client reply topic, e.g.
+  `tmf/{station}/cmd/resp/{client}`) and `id` **in the JSON payload**. The Bridge
+  reads `reply_to` + `id` from the payload and publishes the reply to that topic
+  carrying the same `id`. Python is subscribed to its reply topic and matches on
+  `id`. This is the only mechanism a responder must implement.
+- **Transport — optional optimization (MQTT 5).** Python (a V5 client) also sets
+  `Response-Topic` + `Correlation-Data` on the publish; a V5 responder may use
+  them instead. Mosquitto strips these for a 3.1.1 subscriber, which is why the
+  payload-carried fields above are authoritative. Never depend on V5-only props
+  across the seam.
 - **Naming:** `{domain}.{action}`, dotted. Phase-0: `hello.echo`. Foreshadowed as modules land: `daq.ai.read`, `daq.ai.stream.start` / `stop`, `daq.di.read`, `variable.read`, `variable.write`, `run.start`, `run.abort`. The full catalogue is documented per controller/module as built.
 - **Errors → RFC 7807 in Python.** The Bridge returns a structured `error`; Python maps `code` → `type`/`title` and `message`/`detail` → the ProblemDetail body (`DATA_TRANSFER.md` §2.2). A `bridge.request` timeout maps to **502** (the doc's "driver / external dependency").
 
@@ -262,7 +276,7 @@ A non-LabVIEW controller that wants to keep this contract MUST:
 1. Provide one publish path that is safe to call from any thread (the Bridge pattern) onto MQTT.
 2. Honour the topic tree (§3), the QoS/retain table, and the envelopes (§4) verbatim — adding fields is fine, removing them is not.
 3. Register the LWT on `status` and keep `status` retained; publish `online` on connect.
-4. Implement cmd/reply with correlation (MQTT-5 response-topic, or the 3.1.1 convention).
+4. Implement cmd/reply by reading `reply_to` + `id` from the command payload and replying there with the same `id` (the 3.1.1-safe contract, §5). MQTT-5 response-topic/correlation are optional.
 5. Keep `stream/#` local; bridge only `event/#`, `status`, and `value/#` to the central broker.
 
 Honour these and the existing Python platform and React frontend work unchanged.

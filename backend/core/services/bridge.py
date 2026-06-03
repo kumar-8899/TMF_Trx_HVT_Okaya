@@ -4,8 +4,9 @@ One MQTT client exposing publish / request / subscribe to the rest of the
 platform. Topics are scoped `tmf/{station}/…` (BRIDGE §3); callers pass the
 sub-topic (e.g. "value/vbus_main", "cmd" via request) and this prefixes it.
 
-Request/reply uses MQTT 5 response-topic + correlation-data (BRIDGE §5); the
-payload also carries the id so a 3.1.1 responder can reply the same way. Link
+Request/reply is 3.1.1-safe: the command payload carries `reply_to` + `id`, so a
+3.1.1 responder (LabVIEW) needs no MQTT-5 features (BRIDGE §5). Python is a V5
+client and also sets response-topic/correlation as an optional optimization. Link
 liveness comes from the retained `status` topic: ready only when status=online
 (BRIDGE §7, CORE.md §5).
 """
@@ -234,9 +235,12 @@ class BridgeClient:
         props.ResponseTopic = self._resp_topic
         props.CorrelationData = rid.encode()
 
+        # reply_to + id travel in the payload so a 3.1.1 responder (LabVIEW) can
+        # reply without MQTT-5 response-topic/correlation (BRIDGE §5). The V5
+        # properties above stay as an optional optimization.
         await self._client.publish(
             self._full(f"cmd/{op}"),
-            json.dumps({"id": rid, "op": op, "args": args}),
+            json.dumps({"id": rid, "op": op, "args": args, "reply_to": self._resp_topic}),
             qos=1,
             properties=props,
         )

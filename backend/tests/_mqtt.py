@@ -149,8 +149,9 @@ class FakeLabview:
 
     async def _handle_cmd(self, client, msg) -> None:
         req = json.loads(msg.payload)
+        # 3.1.1 path: reply_to + id from payload; V5 props are a fallback.
         props = msg.properties
-        reply_topic = getattr(props, "ResponseTopic", None)
+        reply_topic = req.get("reply_to") or getattr(props, "ResponseTopic", None)
         corr = getattr(props, "CorrelationData", None)
         if req.get("op") == "hello.echo":
             result = {"echoed": req.get("args"), "station": self.station, "ts": time.time()}
