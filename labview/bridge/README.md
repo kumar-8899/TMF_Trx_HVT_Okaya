@@ -66,7 +66,7 @@ The automated equivalent of (1)–(4) runs in CI against the Python stub
 
 ## Build
 
-[`build.ps1`](build.ps1) builds the EXE with g-cli. It needs a **Windows runner
-with LabVIEW + g-cli installed** — hosted CI runners do not have these, so the
-CI `labview` job is a placeholder until a self-hosted runner is wired (work-rule
-5, flagged in P1).
+Build the EXE by hand for now: open the project and use the LabVIEW
+**Application Builder** build spec. LabVIEW CI is deferred — when it is wanted,
+add a g-cli build script + a self-hosted Windows runner (LabVIEW + g-cli) and a
+`labview.yml` workflow (work-rule 5).
