@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "daq",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "DAQ Instruments",
+    "description": "Analog/digital streaming + reads and station variables, backed by the LabVIEW controller."
+  },
+  "entitlement_key": "daq",
+  "variants": ["default"],
+  "core_dependencies": ["bridge", "diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": ["stream/ai", "stream/di"],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": null
+}
