@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "runs",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Runs",
+    "description": "Controller run control proxy and run-record persistence from event/run-* (CORE.md §7)."
+  },
+  "entitlement_key": "runs",
+  "variants": ["default"],
+  "core_dependencies": ["bridge", "db", "diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": ["event/#"],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": null
+}
