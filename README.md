@@ -34,7 +34,22 @@ python run.py            # serves http://127.0.0.1:8000 ; GET /healthz
 Live config (`config/app.json`, `config/license.json`) is gitignored — copy from
 the `*.example.json` on first run.
 
-## Build status by phase
-P1 (this commit): repo skeleton + CI spine. Web shell + `/healthz` only.
-Later phases add core services, module framework + gate, bridge client, the
-`hello` module, and the LabVIEW stub — see [docs/CORE.md](docs/CORE.md) §10.
+## Phase 0 — walking skeleton (complete)
+
+End to end: core services + module framework + activation gate + MQTT bridge
+client + the `hello` reference module + a runnable LabVIEW Bridge stub, all in
+CI. See [docs/PHASE0_ACCEPTANCE.md](docs/PHASE0_ACCEPTANCE.md) for the §10
+criteria walk and a one-command local demo:
+
+```pwsh
+./deploy/run-local.ps1     # broker + app + stub; watch tmf/# in MQTT Explorer
+```
+
+One open item remains, on the LabVIEW desk: build the real DQMH Bridge VI per
+[labview/bridge/README.md](labview/bridge/README.md) and register a self-hosted
+runner. Until then the Python reference stub
+([backend/tools/lv_stub.py](backend/tools/lv_stub.py)) stands in as the §12 wire
+contract.
+
+Next: Build order step 1 — the DAQ / stream + controller vertical
+([docs/PRINCIPLES.md](docs/PRINCIPLES.md) build order).
