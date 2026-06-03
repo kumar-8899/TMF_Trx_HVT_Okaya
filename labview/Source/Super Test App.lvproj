@@ -11,10 +11,10 @@
 		<Property Name="server.vi.propertiesEnabled" Type="Bool">true</Property>
 		<Property Name="specify.custom.address" Type="Bool">false</Property>
 		<Item Name="Modules" Type="Folder">
-			<Item Name="MQTT Bridge.lvlib" Type="Library" URL="../../Source/Modules/MQTT Bridge/MQTT Bridge.lvlib"/>
+			<Item Name="MQTT Bridge.lvlib" Type="Library" URL="../Modules/MQTT Bridge/MQTT Bridge.lvlib"/>
 		</Item>
 		<Item Name="Testers" Type="Folder">
-			<Item Name="Test MQTT Bridge API.vi" Type="VI" URL="../../Source/Modules/MQTT Bridge/Test MQTT Bridge API.vi"/>
+			<Item Name="Test MQTT Bridge API.vi" Type="VI" URL="../Modules/MQTT Bridge/Test MQTT Bridge API.vi"/>
 		</Item>
 		<Item Name="Dependencies" Type="Dependencies">
 			<Item Name="vi.lib" Type="Folder">

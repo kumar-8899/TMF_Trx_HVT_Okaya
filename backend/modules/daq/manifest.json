@@ -13,7 +13,7 @@
   "contract_dependencies": [],
   "contributes": {
     "api_prefix": "",
-    "mqtt_subscriptions": ["stream/ai", "stream/di"],
+    "mqtt_subscriptions": ["stream/ai", "stream/di", "value/#"],
     "migrations": null,
     "frontend_flags": []
   },

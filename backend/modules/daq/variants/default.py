@@ -24,6 +24,9 @@ class DefaultDaq:
         self._running: dict[str, bool] = {s: False for s in SIGNALS}
         self.router = build_router(self)
         self.mqtt_handlers = [(f"stream/{s}", self._make_handler(s)) for s in SIGNALS]
+        # Subscribe value/# so the bridge receives + caches retained values
+        # (snapshot-on-join, BRIDGE §6). The bridge caches; the handler is a no-op.
+        self.mqtt_handlers.append(("value/#", self._on_value))
 
     @classmethod
     def construct(cls, core: CoreServices, config: dict) -> "DefaultDaq":
@@ -54,6 +57,10 @@ class DefaultDaq:
 
         return handler
 
+    def _on_value(self, _topic: str, _payload: dict | None) -> None:
+        # Subscription exists so the bridge receives + caches value/# (BRIDGE §6).
+        pass
+
     # --- contract ----------------------------------------------------------
 
     async def _stream(self, signal: str, action: str, args: dict | None) -> dict:
@@ -80,6 +87,23 @@ class DefaultDaq:
 
     def is_running(self, signal: str) -> bool:
         return self._running.get(signal, False)
+
+    # --- variables (BRIDGE §6 last-value) ----------------------------------
+
+    async def variable_read(self, name: str) -> dict:
+        """Prefer the retained value/{name} snapshot; else a variable.read cmd."""
+        cached = self.core.bridge.latest(f"value/{name}")
+        if cached is not None:
+            return cached
+        reply = await self.core.bridge.request("variable.read", {"name": name})
+        if not reply.get("ok"):
+            raise ValueError((reply.get("error") or {}).get("message", "variable.read failed"))
+        return reply.get("result", {})
+
+    async def variable_write(self, name: str, value: object) -> dict:
+        reply = await self.core.bridge.request("variable.write", {"name": name, "value": value})
+        self.core.diag.info("daq", "variable write", name=name, ok=reply.get("ok"))
+        return reply
 
     # --- WS relay ----------------------------------------------------------
 

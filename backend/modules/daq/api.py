@@ -50,4 +50,21 @@ def build_router(module) -> APIRouter:
     for sig in ("ai", "di"):
         add_signal(sig)
 
+    @router.get("/variables/{name}/value")
+    async def read_variable(name: str) -> dict:
+        try:
+            return await module.variable_read(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except BridgeTimeout as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except BridgeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @router.put("/variables/{name}/value")
+    async def write_variable(name: str, body: dict) -> dict:
+        if "value" not in body:
+            raise HTTPException(status_code=422, detail="body must include 'value'")
+        return await _guard(module.variable_write(name, body["value"]))
+
     return router

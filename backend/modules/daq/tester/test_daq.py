@@ -2,8 +2,10 @@
 
 import asyncio
 
+import httpx
 import pytest
 from fastapi import FastAPI, WebSocketDisconnect
+from httpx import ASGITransport
 from starlette.testclient import TestClient
 
 from core.framework.contract import CoreServices
@@ -18,10 +20,11 @@ class FakeBridge:
     def __init__(self):
         self.requests = []
         self._latest = {}
+        self.replies = {}  # op -> reply dict
 
     async def request(self, op, args, timeout=None):
         self.requests.append((op, args))
-        return {"id": "x", "ok": True, "result": {}}
+        return self.replies.get(op, {"id": "x", "ok": True, "result": {}})
 
     def latest(self, sub_topic):
         return self._latest.get(sub_topic)
@@ -131,3 +134,60 @@ def test_ws_route_snapshot_real_transport():
     client = TestClient(app)
     with client.websocket_connect("/instruments/daq/ai/stream/ws") as ws:
         assert ws.receive_json() == {"snap": 1}
+
+
+# --- variables -------------------------------------------------------------
+
+
+async def test_variable_read_prefers_retained_cache():
+    module, bridge = _module()
+    bridge._latest["value/vbus_main"] = {"value": 264.0, "ts": 1.0}
+    assert await module.variable_read("vbus_main") == {"value": 264.0, "ts": 1.0}
+    assert bridge.requests == []  # no command needed
+
+
+async def test_variable_read_falls_back_to_command():
+    module, bridge = _module()
+    bridge.replies["variable.read"] = {"ok": True, "result": {"value": 5.0, "ts": 2.0}}
+    assert await module.variable_read("missing") == {"value": 5.0, "ts": 2.0}
+    assert bridge.requests[-1] == ("variable.read", {"name": "missing"})
+
+
+async def test_variable_read_failure_raises():
+    module, bridge = _module()
+    bridge.replies["variable.read"] = {"ok": False, "error": {"message": "no such variable"}}
+    with pytest.raises(ValueError, match="no such variable"):
+        await module.variable_read("nope")
+
+
+async def test_variable_write_sends_command():
+    module, bridge = _module()
+    reply = await module.variable_write("setpoint", 12.5)
+    assert bridge.requests[-1] == ("variable.write", {"name": "setpoint", "value": 12.5})
+    assert reply["ok"] is True
+
+
+def _client(app):
+    return httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t")
+
+
+async def test_variable_rest_read_and_write():
+    app, module, bridge = _app()
+    bridge._latest["value/vbus_main"] = {"value": 264.0, "ts": 1.0}
+    async with _client(app) as c:
+        r = await c.get("/variables/vbus_main/value")
+        assert r.status_code == 200 and r.json() == {"value": 264.0, "ts": 1.0}
+
+        w = await c.put("/variables/setpoint/value", json={"value": 9})
+        assert w.status_code == 200
+        assert bridge.requests[-1] == ("variable.write", {"name": "setpoint", "value": 9})
+
+
+async def test_variable_rest_errors():
+    app, module, bridge = _app()
+    bridge.replies["variable.read"] = {"ok": False, "error": {"message": "unknown"}}
+    async with _client(app) as c:
+        bad = await c.get("/variables/ghost/value")
+        assert bad.status_code == 502
+        missing = await c.put("/variables/x/value", json={"nope": 1})
+        assert missing.status_code == 422
