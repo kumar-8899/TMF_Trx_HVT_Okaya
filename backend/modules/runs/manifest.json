@@ -13,7 +13,7 @@
   "contract_dependencies": [],
   "contributes": {
     "api_prefix": "",
-    "mqtt_subscriptions": ["event/#"],
+    "mqtt_subscriptions": ["event/#", "diag"],
     "migrations": null,
     "frontend_flags": []
   },

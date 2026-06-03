@@ -51,5 +51,20 @@ runner. Until then the Python reference stub
 ([backend/tools/lv_stub.py](backend/tools/lv_stub.py)) stands in as the §12 wire
 contract.
 
-Next: Build order step 1 — the DAQ / stream + controller vertical
-([docs/PRINCIPLES.md](docs/PRINCIPLES.md) build order).
+## Phase 1 — DAQ / stream + controller vertical (Python half complete)
+
+Core latest-frame cache + StreamHub; the `daq` module (ai/di streaming, WS
+relays, variables) and the `runs` module (run control, run records,
+`/ws/station` + `/diagnostics/stream`). Command/reply is 3.1.1-safe (payload
+`reply_to` + `id`). See [docs/PHASE1_ACCEPTANCE.md](docs/PHASE1_ACCEPTANCE.md);
+contracts in [docs/contracts/](docs/contracts/).
+
+Live acceptance is gated on the real LabVIEW DAQ + controller implementing the
+LABVIEW_BRIDGE.md §5.1 command catalogue:
+
+```pwsh
+cd backend; python -m tools.check_phase1 --no-stub
+```
+
+Next: Build order step 2 — business modules (Auth → Logs → Recipe →
+Report/Analytics → harden Licensing).

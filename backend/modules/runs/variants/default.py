@@ -8,7 +8,10 @@ record is upserted per run_id for the run list.
 
 from __future__ import annotations
 
+from fastapi import WebSocket, WebSocketDisconnect
+
 from core.framework.contract import CoreServices, Health, HealthStatus
+from core.services.streaming import StreamHub
 from modules.runs.api import build_router
 
 # Event types this module persists (LABVIEW_BRIDGE.md §4 event envelope).
@@ -19,8 +22,10 @@ class DefaultRuns:
     def __init__(self, core: CoreServices, config: dict) -> None:
         self.core = core
         self.config = config
+        self._station_hub = StreamHub()   # event/* -> /ws/station
+        self._diag_hub = StreamHub()      # diag    -> /diagnostics/stream
         self.router = build_router(self)
-        self.mqtt_handlers = [("event/#", self._on_event)]
+        self.mqtt_handlers = [("event/#", self._on_event), ("diag", self._on_diag)]
 
     @classmethod
     def construct(cls, core: CoreServices, config: dict) -> "DefaultRuns":
@@ -59,6 +64,7 @@ class DefaultRuns:
     async def _on_event(self, topic: str, payload: dict | None) -> None:
         if not payload:
             return
+        self._station_hub.broadcast(payload)  # all events -> /ws/station (BRIDGE §9)
         etype = payload.get("type") or topic.rsplit("/", 1)[-1]
         if not any(etype.startswith(p) for p in RUN_EVENT_PREFIXES):
             return
@@ -94,3 +100,24 @@ class DefaultRuns:
 
     async def get_run(self, run_id: str) -> dict | None:
         return await self.core.db.repo.get("run", run_id)
+
+    # --- WS fan-out (BRIDGE §9) --------------------------------------------
+
+    def _on_diag(self, _topic: str, payload: dict | None) -> None:
+        if payload is not None:
+            self._diag_hub.broadcast(payload)
+
+    async def _fanout_ws(self, ws: WebSocket, hub: StreamHub) -> None:
+        await ws.accept()
+        async with hub.subscription() as q:
+            try:
+                while True:
+                    await ws.send_json(await q.get())
+            except WebSocketDisconnect:
+                pass
+
+    async def station_ws(self, ws: WebSocket) -> None:
+        await self._fanout_ws(ws, self._station_hub)
+
+    async def diag_ws(self, ws: WebSocket) -> None:
+        await self._fanout_ws(ws, self._diag_hub)

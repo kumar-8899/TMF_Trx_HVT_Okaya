@@ -157,6 +157,27 @@ Python uses receipt time, not a payload timestamp, for the offline transition.
 - **Naming:** `{domain}.{action}`, dotted. Phase-0: `hello.echo`. Foreshadowed as modules land: `daq.ai.read`, `daq.ai.stream.start` / `stop`, `daq.di.read`, `variable.read`, `variable.write`, `run.start`, `run.abort`. The full catalogue is documented per controller/module as built.
 - **Errors → RFC 7807 in Python.** The Bridge returns a structured `error`; Python maps `code` → `type`/`title` and `message`/`detail` → the ProblemDetail body (`DATA_TRANSFER.md` §2.2). A `bridge.request` timeout maps to **502** (the doc's "driver / external dependency").
 
+### 5.1 Phase-1 command catalogue (pinned)
+
+All replies use `{id, ok, result}` or `{id, ok:false, error:{code,message,detail}}`.
+LabVIEW reads `reply_to` + `id` from each command payload (§5).
+
+| op | args | result on ok |
+|---|---|---|
+| `daq.ai.stream.start` / `daq.di.stream.start` | `{ rate?, channels? }` | `{ started: true }` |
+| `daq.ai.stream.stop` / `daq.di.stream.stop` | `{}` | `{ started: false }` |
+| `daq.ai.read` / `daq.di.read` | `{ channels? }` | `{ values: { ai0: … } }` |
+| `variable.read` | `{ name }` | `{ value, ts }` |
+| `variable.write` | `{ name, value }` | `{ written: true }` |
+| `run.start` | `{ recipe?, params? }` | `{ run_id }` |
+| `run.abort` | `{}` | `{ aborted: true }` |
+
+Controller events (LV → Py, `event/{kind}`, envelope `{type, ts, payload}`) the
+`runs` module persists: `run-started` `{run_id, recipe}`, `step-started` /
+`step-completed` `{run_id, step_id, status, …}`, `run-finished`
+`{run_id, result}`, `safety-trip` `{reason}`. `run_id` is required for a record
+to join the current-state run.
+
 ---
 
 ## 6. Streaming & last-value

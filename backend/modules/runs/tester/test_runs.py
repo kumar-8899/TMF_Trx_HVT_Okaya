@@ -1,5 +1,7 @@
 """runs standalone tester (CORE.md §6.2, §7). Core + runs + stub bridge + real db."""
 
+import asyncio
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -113,3 +115,42 @@ async def test_rest_surface(ctx):
 
         missing = await c.get("/runs/none")
         assert missing.status_code == 404
+
+
+# --- WS fan-out ------------------------------------------------------------
+
+
+class FakeWS:
+    def __init__(self):
+        self.sent = []
+
+    async def accept(self):
+        pass
+
+    async def send_json(self, data):
+        self.sent.append(data)
+
+    async def close(self, code=1000, reason=""):
+        pass
+
+
+async def test_station_ws_fans_out_events(ctx):
+    module, _, _ = ctx
+    ws = FakeWS()
+    task = asyncio.create_task(module.station_ws(ws))
+    await asyncio.sleep(0.02)
+    await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="R1"))
+    await asyncio.sleep(0.02)
+    task.cancel()
+    assert any(e["type"] == "run-started" for e in ws.sent)
+
+
+async def test_diag_ws_fans_out_diag(ctx):
+    module, _, _ = ctx
+    ws = FakeWS()
+    task = asyncio.create_task(module.diag_ws(ws))
+    await asyncio.sleep(0.02)
+    module._on_diag("tmf/st1/diag", {"level": "warning", "message": "hi"})
+    await asyncio.sleep(0.02)
+    task.cancel()
+    assert ws.sent[-1] == {"level": "warning", "message": "hi"}

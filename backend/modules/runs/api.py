@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket
 
 from core.services.bridge import BridgeError, BridgeTimeout
 
@@ -38,5 +38,13 @@ def build_router(module) -> APIRouter:
         if run is None:
             raise HTTPException(status_code=404, detail=f"no run '{run_id}'")
         return run
+
+    @router.websocket("/ws/station")
+    async def station_ws(websocket: WebSocket) -> None:
+        await module.station_ws(websocket)
+
+    @router.websocket("/diagnostics/stream")
+    async def diagnostics_ws(websocket: WebSocket) -> None:
+        await module.diag_ws(websocket)
 
     return router
