@@ -341,8 +341,12 @@ repo/
       license.example.json
     pyproject.toml
   labview/                       # the controller + DQMH modules
-    bridge/                      # the single DQMH Bridge module (MQTT)
-    controller/                  # sequence / execution
+    src/                         # LabVIEW project (Super Test App.lvproj)
+    Source/
+      Modules/
+        MQTT Bridge/             # the single DQMH Bridge module (MQTT)
+        # controller / DAQ / safety DQMH modules land here
+    bridge/                      # README: the Bridge wire contract (pinned to backend/tools/lv_stub.py)
     drivers/  hardware-catalog/  stations.json  variables.json   # the HAL, JSON
   frontend/                      # React shell (unchanged)
   src-tauri/                     # Tauri shell + installer

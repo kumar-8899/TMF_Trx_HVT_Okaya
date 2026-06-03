@@ -36,6 +36,21 @@ runs in CI (`python.yml` installs Mosquitto).
 Both are environment tasks, not platform code; the Python platform and the
 React frontend work unchanged once they land (`LABVIEW_BRIDGE.md` §13).
 
+## Live verifier (objective PASS/FAIL against a running broker)
+
+With a broker already up on `127.0.0.1:1883`:
+
+```pwsh
+cd backend
+python -m tools.check_phase0            # responder = Python stub
+python -m tools.check_phase0 --no-stub  # responder = your real LabVIEW Bridge
+```
+
+It boots the app against the live broker and walks §10, printing PASS/FAIL per
+criterion (exit code 0 = all pass). `--no-stub` skips starting the Python stub so
+the responder is whatever LabVIEW Bridge you have running — the way to confirm
+the real VI satisfies the contract.
+
 ## See it by hand (MQTT Explorer)
 
 Phase 0 is graphical-first debuggable (PRINCIPLES §6). One command brings up the
