@@ -1,0 +1,27 @@
+name: LabVIEW CI
+
+# Separate from Python CI: the LabVIEW build needs a self-hosted Windows runner
+# with LabVIEW + g-cli (work-rule 5, flagged in P1). It triggers only on changes
+# under labview/ or manually, so ordinary Python commits never queue it.
+
+on:
+  push:
+    paths:
+      - "labview/**"
+      - ".github/workflows/labview.yml"
+  workflow_dispatch:
+
+jobs:
+  labview:
+    # Register a self-hosted runner with these labels, then this runs for real.
+    # Until then, dispatch manually when a runner is available.
+    runs-on: [self-hosted, Windows, labview]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Bridge EXE (g-cli)
+        shell: pwsh
+        run: ./labview/bridge/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bridge-exe
+          path: dist

@@ -1,11 +1,15 @@
-name: CI
+name: Python CI
 
 on:
   push:
+    paths-ignore:
+      - "labview/**"
   pull_request:
+    paths-ignore:
+      - "labview/**"
 
 jobs:
-  # ---- Python platform: lint + tests + PyInstaller sidecar ----
+  # ---- Python platform: lint + tests (incl. broker round-trip) + sidecar ----
   python:
     runs-on: windows-latest
     defaults:
@@ -50,7 +54,6 @@ jobs:
           if ($p.HasExited) { throw "broker exited early (bad config)" }
           Stop-Process -Id $p.Id -Force
           Write-Host "broker config OK"
-      # Full LabVIEW <-> Python round-trip test wired in P4/P6.
 
   # ---- Tauri installer ----
   tauri:
@@ -61,19 +64,3 @@ jobs:
         shell: pwsh
         run: Write-Host "::warning::Tauri shell scaffold pending — wired in a later phase."
       # Real build: setup node + rust, `tauri build`, upload installer.
-
-  # ---- LabVIEW EXE (g-cli) ----
-  labview:
-    # FLAG (work-rule 5): hosted runners have NO LabVIEW. Needs a self-hosted
-    # Windows runner with LabVIEW + g-cli. Placeholder until that runner exists.
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Placeholder
-        shell: pwsh
-        run: Write-Host "::warning::LabVIEW build needs a self-hosted runner (LabVIEW + g-cli). On such a runner this step runs labview/bridge/build.ps1. Stub contract: backend/tools/lv_stub.py."
-      # On a self-hosted runner, replace the step above with:
-      #   - name: Build Bridge EXE
-      #     run: ./labview/bridge/build.ps1
-      #   - uses: actions/upload-artifact@v4
-      #     with: { name: bridge-exe, path: dist }
