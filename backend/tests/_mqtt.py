@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import time
+from pathlib import Path
 
 import aiomqtt
 from paho.mqtt.packettypes import PacketTypes
@@ -20,9 +21,20 @@ from paho.mqtt.properties import Properties
 
 
 def find_mosquitto() -> str | None:
+    # 1. explicit override
+    env = os.environ.get("MOSQUITTO_EXE")
+    if env and os.path.exists(env):
+        return env
+    # 2. the broker we vendor for bundling (deploy/vendor/...), repo-relative
+    repo_root = Path(__file__).resolve().parents[2]
+    vendored = repo_root / "deploy" / "vendor" / "mosquitto" / "win64" / "mosquitto.exe"
+    if vendored.exists():
+        return str(vendored)
+    # 3. PATH
     found = shutil.which("mosquitto")
     if found:
         return found
+    # 4. default install locations
     for candidate in (
         r"C:\Program Files\mosquitto\mosquitto.exe",
         r"C:\Program Files (x86)\mosquitto\mosquitto.exe",

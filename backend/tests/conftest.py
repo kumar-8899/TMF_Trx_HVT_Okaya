@@ -1,11 +1,18 @@
 """Shared fixtures. Isolate config + db so tests never touch repo state."""
 
+import asyncio
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
 
 from core.services.config import DEFAULT_CONFIG_DIR
+
+# aiomqtt (paho) needs a selector loop; Windows defaults to Proactor, which does
+# not implement socket add_reader/remove_writer. Force the selector policy.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @pytest.fixture

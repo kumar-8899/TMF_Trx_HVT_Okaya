@@ -15,16 +15,22 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $backend = Join-Path $root "backend"
 
-# Locate Mosquitto.
-$mosq = (Get-Command mosquitto -ErrorAction SilentlyContinue).Source
-if (-not $mosq) {
-    foreach ($c in @("C:\Program Files\mosquitto\mosquitto.exe",
-                     "C:\Program Files (x86)\mosquitto\mosquitto.exe")) {
-        if (Test-Path $c) { $mosq = $c; break }
+# Locate Mosquitto: prefer the vendored (bundled) broker, then PATH, then installs.
+$vendored = Join-Path $PSScriptRoot "vendor/mosquitto/win64/mosquitto.exe"
+$mosq = $null
+if (Test-Path $vendored) {
+    $mosq = $vendored
+} else {
+    $mosq = (Get-Command mosquitto -ErrorAction SilentlyContinue).Source
+    if (-not $mosq) {
+        foreach ($c in @("C:\Program Files\mosquitto\mosquitto.exe",
+                         "C:\Program Files (x86)\mosquitto\mosquitto.exe")) {
+            if (Test-Path $c) { $mosq = $c; break }
+        }
     }
 }
 if (-not $mosq) {
-    Write-Error "mosquitto not found. Install it (e.g. choco install mosquitto)."
+    Write-Error "mosquitto not found. Run ./deploy/fetch-mosquitto.ps1 to vendor it."
     exit 1
 }
 
