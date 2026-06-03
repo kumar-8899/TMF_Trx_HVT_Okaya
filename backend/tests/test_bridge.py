@@ -39,6 +39,29 @@ async def test_publish_request_require_connection():
         await bridge.request("hello.echo", {})
 
 
+class _FakeTopic:
+    def __init__(self, value):
+        self.value = value
+
+
+class _FakeMsg:
+    def __init__(self, topic, payload):
+        self.topic = _FakeTopic(topic)
+        self.payload = payload
+        self.properties = None
+
+
+def test_latest_frame_cache():
+    # _dispatch caches the latest payload per topic (BRIDGE §6) for snapshot-on-join.
+    bridge = BridgeClient("st1")
+    assert bridge.latest("stream/ai") is None
+    bridge._dispatch(_FakeMsg("tmf/st1/stream/ai", b'{"seq": 1, "values": {"ai0": 5.0}}'))
+    bridge._dispatch(_FakeMsg("tmf/st1/stream/ai", b'{"seq": 2, "values": {"ai0": 6.0}}'))
+    bridge._dispatch(_FakeMsg("tmf/st1/value/vbus_main", b'{"value": 264.0}'))
+    assert bridge.latest("stream/ai") == {"seq": 2, "values": {"ai0": 6.0}}
+    assert bridge.latest("value/vbus_main") == {"value": 264.0}
+
+
 # --- integration (real broker) --------------------------------------------
 
 pytestmark_broker = pytest.mark.skipif(

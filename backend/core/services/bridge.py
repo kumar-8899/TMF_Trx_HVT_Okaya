@@ -85,11 +85,17 @@ class BridgeClient:
         self._connected_event = asyncio.Event()
         self._pending: dict[str, asyncio.Future] = {}
         self._subs: list[_Sub] = []
+        self._latest: dict[str, dict] = {}  # full_topic -> last payload (BRIDGE §6)
 
     # --- topic helpers -----------------------------------------------------
 
     def _full(self, sub_topic: str) -> str:
         return f"tmf/{self.station}/{sub_topic}"
+
+    def latest(self, sub_topic: str) -> dict | None:
+        """Last payload seen on a subscribed topic (e.g. 'stream/ai',
+        'value/vbus_main'). Snapshot-on-join for WS + REST (BRIDGE §6)."""
+        return self._latest.get(self._full(sub_topic))
 
     # --- link state --------------------------------------------------------
 
@@ -182,6 +188,10 @@ class BridgeClient:
             if was != self._link_online:
                 self._log("info", "bridge link status", state=state)
             return
+
+        # Keep only the latest frame per topic (BRIDGE §6) for snapshot-on-join.
+        if payload is not None:
+            self._latest[topic] = payload
 
         for sub in self._subs:
             if topic_matches(sub.full_topic, topic):
