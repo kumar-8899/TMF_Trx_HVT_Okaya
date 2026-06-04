@@ -64,6 +64,7 @@ def create_app(
         app.state.diag = diag
         app.state.db = db
         app.state.bridge = bridge
+        app.state.auth = auth  # the core.auth port (CORE.md §6.4); Auth module fills it
 
         web.add_ready_check("db", lambda: _check(db.connected))
 
