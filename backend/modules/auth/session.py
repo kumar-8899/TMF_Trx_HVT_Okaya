@@ -59,6 +59,10 @@ class SessionManager:
             data["revoked"] = True
             await self._db.repo.put("session", data, id=token, summary=f"session {data['username']}")
 
+    async def revoke_user(self, username: str) -> None:
+        """Revoke all of a user's sessions (on lock/deactivate/reset)."""
+        await self._revoke_user_sessions(username)
+
     async def _revoke_user_sessions(self, username: str) -> None:
         for token, data in list(self._sessions.items()):
             if data["username"] == username:

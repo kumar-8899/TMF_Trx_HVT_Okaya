@@ -13,13 +13,17 @@ from core.services.auth_verify import AuthError
 from modules.auth.api import build_router
 from modules.auth.authenticators import make_authenticator
 from modules.auth.authenticators.password import hash_password, verify_password
-from modules.auth.policy import PasswordPolicy
+from modules.auth.policy import PasswordPolicy, generate_temp_password
 from modules.auth.session import SessionManager
 from modules.auth.users import (
     ACTIVE,
+    INACTIVE,
+    LOCKED,
     LOGIN_BLOCKED,
     PASSWORD_RESET_REQUIRED,
     CredentialStore,
+    DuplicateUser,
+    UserNotFound,
     UserStore,
 )
 
@@ -124,3 +128,62 @@ class LocalDbAuth:
     async def whoami(self, token: str) -> dict:
         p = self.sessions.verify(token)
         return {"username": p.subject, "role": p.role, "permissions": sorted(p.permissions)}
+
+    # --- user management (gated AUTH.MANAGE_USERS in the router) ------------
+
+    async def list_users(self) -> list[dict]:
+        return await self.users.list()  # user records carry no secret
+
+    async def _require_user(self, username: str) -> dict:
+        user = await self.users.get(username)
+        if user is None:
+            raise UserNotFound(username)
+        return user
+
+    async def get_user(self, username: str) -> dict:
+        return await self._require_user(username)
+
+    async def create_user(self, username: str, password: str, role: str) -> dict:
+        if await self.users.exists(username):
+            raise DuplicateUser(username)
+        self.policy.validate(password)
+        user = await self.users.create(username, role)
+        await self.creds.set(username, "password", {"argon2_hash": hash_password(password)})
+        self.core.diag.info("auth", "user created", user=username, role=role)
+        return user
+
+    async def set_user_role(self, username: str, role: str) -> dict:
+        await self._require_user(username)
+        user = await self.users.set_role(username, role)
+        self.core.diag.info("auth", "user role changed", user=username, role=role)
+        return user
+
+    async def _set_state(self, username: str, state: str, event: str, revoke: bool) -> dict:
+        await self._require_user(username)
+        user = await self.users.set_state(username, state)
+        if revoke:
+            await self.sessions.revoke_user(username)
+        self.core.diag.info("auth", event, user=username)
+        return user
+
+    async def lock(self, username: str) -> dict:
+        return await self._set_state(username, LOCKED, "user locked", revoke=True)
+
+    async def unlock(self, username: str) -> dict:
+        return await self._set_state(username, ACTIVE, "user unlocked", revoke=False)
+
+    async def activate(self, username: str) -> dict:
+        return await self._set_state(username, ACTIVE, "user activated", revoke=False)
+
+    async def deactivate(self, username: str) -> dict:
+        return await self._set_state(username, INACTIVE, "user deactivated", revoke=True)
+
+    async def admin_reset_password(self, username: str, temp_password: str | None = None) -> dict:
+        await self._require_user(username)
+        temp = temp_password or generate_temp_password()
+        await self.creds.set(username, "password", {"argon2_hash": hash_password(temp)})
+        await self.users.set_state(username, PASSWORD_RESET_REQUIRED)
+        await self.users.mark_password_updated(username)
+        await self.sessions.revoke_user(username)
+        self.core.diag.warning("auth", "admin reset password", user=username)
+        return {"temp_password": temp}

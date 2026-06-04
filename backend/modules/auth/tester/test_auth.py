@@ -136,10 +136,17 @@ async def test_no_auth_authenticator_accepts_anything():
 # --- REST ------------------------------------------------------------------
 
 
-def _client(module):
+def _client(module, core=None):
     app = FastAPI()
+    if core is not None:
+        app.state.auth = core.auth  # required for the AUTH.MANAGE_USERS gate
     app.include_router(module.router)
     return httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t")
+
+
+async def _bearer(c, username, password):
+    r = await c.post("/auth/login", json={"username": username, "credential": {"password": password}})
+    return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
 async def test_rest_login_me_logout(ctx):
@@ -165,3 +172,62 @@ async def test_rest_login_bad_credentials(ctx):
     async with _client(module) as c:
         r = await c.post("/auth/login", json={"username": "admin", "credential": {"password": "x"}})
         assert r.status_code == 401
+
+
+# --- user management (gated AUTH.MANAGE_USERS) -----------------------------
+
+
+async def test_user_management_full_flow(ctx):
+    module, core, _ = ctx
+    async with _client(module, core) as c:
+        admin = await _bearer(c, "admin", "admin123")
+
+        # create
+        created = await c.post("/auth/users", headers=admin,
+                               json={"username": "bob", "password": "bobpass12", "role": "operator"})
+        assert created.status_code == 201
+
+        # list + get
+        listed = await c.get("/auth/users", headers=admin)
+        assert "bob" in [u["username"] for u in listed.json()]
+        assert (await c.get("/auth/users/bob", headers=admin)).json()["role"] == "operator"
+
+        # assign role
+        rr = await c.put("/auth/users/bob/role", headers=admin, json={"role": "engineer"})
+        assert rr.json()["role"] == "engineer"
+
+        # lock -> bob cannot login; unlock -> can
+        await c.post("/auth/users/bob/lock", headers=admin)
+        assert (await c.post("/auth/login", json={"username": "bob", "credential": {"password": "bobpass12"}})).status_code == 401
+        await c.post("/auth/users/bob/unlock", headers=admin)
+        assert (await c.post("/auth/login", json={"username": "bob", "credential": {"password": "bobpass12"}})).status_code == 200
+
+        # reset-password -> temp returned, RESET state, old password dead
+        reset = await c.post("/auth/users/bob/reset-password", headers=admin, json={})
+        temp = reset.json()["temp_password"]
+        assert temp
+        relog = await c.post("/auth/login", json={"username": "bob", "credential": {"password": temp}})
+        assert relog.status_code == 200 and relog.json()["principal"]["must_change_password"] is True
+
+
+async def test_user_management_errors(ctx):
+    module, core, _ = ctx
+    async with _client(module, core) as c:
+        admin = await _bearer(c, "admin", "admin123")
+        dup = await c.post("/auth/users", headers=admin,
+                           json={"username": "admin", "password": "whatever1", "role": "operator"})
+        assert dup.status_code == 409
+        assert (await c.get("/auth/users/ghost", headers=admin)).status_code == 404
+        weak = await c.post("/auth/users", headers=admin,
+                            json={"username": "x", "password": "short", "role": "operator"})
+        assert weak.status_code == 422
+
+
+async def test_user_management_permission_gated(ctx):
+    module, core, _ = ctx
+    async with _client(module, core) as c:
+        # operator lacks AUTH.MANAGE_USERS -> 403
+        op = await _bearer(c, "op", "oppass12")
+        assert (await c.get("/auth/users", headers=op)).status_code == 403
+        # no token -> 401
+        assert (await c.get("/auth/users")).status_code == 401

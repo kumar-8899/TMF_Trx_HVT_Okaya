@@ -17,6 +17,14 @@ PASSWORD_RESET_REQUIRED = "PASSWORD_RESET_REQUIRED"
 LOGIN_BLOCKED = {LOCKED, INACTIVE}
 
 
+class DuplicateUser(Exception):
+    """Username already exists. Maps to HTTP 409."""
+
+
+class UserNotFound(Exception):
+    """Unknown username. Maps to HTTP 404."""
+
+
 class UserStore:
     def __init__(self, db) -> None:
         self._db = db
