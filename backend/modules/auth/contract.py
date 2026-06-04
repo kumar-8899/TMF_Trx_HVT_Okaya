@@ -25,8 +25,12 @@ class Authenticator(Protocol):
     method_id: str  # "password" | "no_auth" | "biometric"
 
     async def authenticate(
-        self, username: str, credential: dict, user_record: dict | None
-    ) -> bool: ...
+        self, username: str, submitted: dict, stored: dict | None
+    ) -> bool:
+        """`submitted` = the credential from the request ({"password": ...} /
+        {"template": ...}); `stored` = the user's stored secret for this method
+        ({"argon2_hash": ...}) or None. The module owns everything after."""
+        ...
 
 
 class AuthContract(Protocol):

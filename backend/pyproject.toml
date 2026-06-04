@@ -9,6 +9,7 @@ dependencies = [
     "aiomqtt>=2.0",        # async MQTT client, MQTT5 (response-topic + correlation-id)
     "aiosqlite>=0.20",     # per-station embedded DB
     "jsonschema>=4.21",    # JSON Schema validation (PRINCIPLES §4)
+    "argon2-cffi>=23.1",   # password hashing for the Auth module (CORE §6.4)
 ]
 
 [project.optional-dependencies]

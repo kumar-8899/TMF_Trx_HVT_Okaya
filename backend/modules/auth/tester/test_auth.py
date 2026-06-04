@@ -1,0 +1,167 @@
+"""auth standalone tester (CORE.md §6.2) — core + auth + real :memory: db. No broker."""
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport
+
+from core.framework.contract import CoreServices
+from core.services.auth_verify import AuthError, TokenVerifier
+from core.services.db import Database
+from core.services.diagnostics import Diagnostics
+from modules.auth.policy import PolicyError
+from modules.auth.users import LOCKED, PASSWORD_RESET_REQUIRED
+from modules.auth.variants.default import LocalDbAuth
+
+USERS = [
+    {"username": "admin", "password": "admin123", "role": "super_admin"},
+    {"username": "op", "password": "oppass12", "role": "operator"},
+]
+
+
+async def _build(authenticator="password", users=USERS):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(
+        db=db, auth=TokenVerifier(),
+        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
+    )
+    config = {
+        "authenticator": authenticator,
+        "session_ttl_min": 480,
+        "password_policy": {"min_length": 8},
+        "roles": {"super_admin": ["AUTH.*", "TEST.*"], "operator": ["TEST.RUN"]},
+        "users": users,
+    }
+    module = LocalDbAuth.construct(core, config)
+    await module.init()
+    return module, core, db
+
+
+@pytest.fixture
+async def ctx():
+    module, core, db = await _build()
+    yield module, core, db
+    await db.close()
+
+
+# --- login / verify / permissions -----------------------------------------
+
+
+async def test_login_resolves_permissions_and_fills_port(ctx):
+    module, core, _ = ctx
+    res = await module.login("admin", {"password": "admin123"})
+    assert res["principal"]["role"] == "super_admin"
+    assert "AUTH.*" in res["principal"]["permissions"]
+    # the core.auth port now verifies the issued token
+    principal = core.auth.verify(res["token"])
+    assert principal.subject == "admin"
+    assert principal.has_permission("AUTH.MANAGE_USERS")  # via AUTH.* wildcard
+    assert principal.has_permission("TEST.RUN")
+
+
+async def test_wrong_password_rejected(ctx):
+    module, _, _ = ctx
+    with pytest.raises(AuthError):
+        await module.login("admin", {"password": "nope"})
+
+
+async def test_unknown_user_rejected(ctx):
+    module, _, _ = ctx
+    with pytest.raises(AuthError):
+        await module.login("ghost", {"password": "x"})
+
+
+async def test_logout_revokes(ctx):
+    module, core, _ = ctx
+    res = await module.login("op", {"password": "oppass12"})
+    await module.logout(res["token"])
+    with pytest.raises(AuthError):
+        core.auth.verify(res["token"])
+
+
+async def test_single_active_session(ctx):
+    module, core, _ = ctx
+    first = await module.login("admin", {"password": "admin123"})
+    second = await module.login("admin", {"password": "admin123"})
+    with pytest.raises(AuthError):
+        core.auth.verify(first["token"])          # prior revoked
+    assert core.auth.verify(second["token"]).subject == "admin"
+
+
+async def test_expired_session_rejected(ctx):
+    module, core, _ = ctx
+    res = await module.login("op", {"password": "oppass12"})
+    module.sessions._sessions[res["token"]]["expires"] = 0  # force-expire
+    with pytest.raises(AuthError):
+        core.auth.verify(res["token"])
+
+
+async def test_locked_user_cannot_login(ctx):
+    module, _, _ = ctx
+    await module.users.set_state("op", LOCKED)
+    with pytest.raises(AuthError):
+        await module.login("op", {"password": "oppass12"})
+
+
+async def test_reset_state_forces_change_then_clears(ctx):
+    module, _, _ = ctx
+    await module.users.set_state("op", PASSWORD_RESET_REQUIRED)
+    res = await module.login("op", {"password": "oppass12"})
+    assert res["principal"]["must_change_password"] is True
+    await module.change_password(res["token"], "oppass12", "newpass12")
+    assert (await module.users.get("op"))["state"] == "ACTIVE"
+    # new password works, old does not
+    await module.login("op", {"password": "newpass12"})
+    with pytest.raises(AuthError):
+        await module.login("op", {"password": "oppass12"})
+
+
+async def test_change_password_policy_enforced(ctx):
+    module, _, _ = ctx
+    res = await module.login("op", {"password": "oppass12"})
+    with pytest.raises(PolicyError):
+        await module.change_password(res["token"], "oppass12", "short")
+
+
+async def test_no_auth_authenticator_accepts_anything():
+    module, core, db = await _build(authenticator="no_auth")
+    try:
+        res = await module.login("admin", {"password": "whatever-wrong"})
+        assert core.auth.verify(res["token"]).subject == "admin"
+    finally:
+        await db.close()
+
+
+# --- REST ------------------------------------------------------------------
+
+
+def _client(module):
+    app = FastAPI()
+    app.include_router(module.router)
+    return httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t")
+
+
+async def test_rest_login_me_logout(ctx):
+    module, _, _ = ctx
+    async with _client(module) as c:
+        r = await c.post("/auth/login", json={"username": "admin", "credential": {"password": "admin123"}})
+        assert r.status_code == 200
+        token = r.json()["token"]
+        bearer = {"Authorization": f"Bearer {token}"}
+
+        me = await c.get("/auth/me", headers=bearer)
+        assert me.status_code == 200 and me.json()["role"] == "super_admin"
+
+        assert (await c.get("/auth/me")).status_code == 401  # no token
+
+        out = await c.post("/auth/logout", headers=bearer)
+        assert out.status_code == 200
+        assert (await c.get("/auth/me", headers=bearer)).status_code == 401
+
+
+async def test_rest_login_bad_credentials(ctx):
+    module, _, _ = ctx
+    async with _client(module) as c:
+        r = await c.post("/auth/login", json={"username": "admin", "credential": {"password": "x"}})
+        assert r.status_code == 401

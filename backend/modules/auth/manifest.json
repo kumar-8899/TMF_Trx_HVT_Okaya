@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "auth",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "User Authentication",
+    "description": "Permission-first authentication + authorization. Fills the core.auth port."
+  },
+  "entitlement_key": "auth",
+  "variants": ["local_db"],
+  "core_dependencies": ["db", "config", "diagnostics", "auth", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/auth.config.schema.json"
+}
