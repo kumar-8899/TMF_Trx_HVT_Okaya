@@ -32,7 +32,17 @@ jobs:
       - name: Test
         run: pytest -q
       - name: Build PyInstaller sidecar
-        run: pyinstaller --onefile --name tmf-sidecar run.py
+        run: pyinstaller tmf-sidecar.spec
+      - name: Smoke-test frozen sidecar (modules + argon2 load)
+        shell: pwsh
+        run: |
+          $p = Start-Process "dist/tmf-sidecar.exe" -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 12
+          try {
+            $m = Invoke-RestMethod "http://127.0.0.1:8000/modules/status" -TimeoutSec 5
+            if (-not ($m.loaded -contains "auth")) { throw "auth not loaded in frozen exe: $($m.loaded -join ',')" }
+            Write-Host "frozen modules loaded: $($m.loaded -join ', ')"
+          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
       - uses: actions/upload-artifact@v4
         with:
           name: tmf-sidecar

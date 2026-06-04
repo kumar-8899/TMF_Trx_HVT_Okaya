@@ -41,15 +41,13 @@ users, state, audit, the core port, the `credential` record, and
 ## Deferred / known gaps
 - **P2.6 UI** (4 React screens) — separate frontend phase (needs a React shell +
   `DATA_TRANSFER.md`).
-- **Frozen sidecar packaging (pre-existing, Phase 0).** `python run.py` works in
-  dev, but the PyInstaller onefile does not run: `uvicorn.run("core.app:app")`
-  imports the app by string (so `core` isn't bundled), and modules + `argon2` are
-  imported dynamically via `discover()` (so they + module manifest/schema JSON
-  aren't bundled). Fix is its own task: import the app object in `run.py`; add a
-  `.spec` that `collect_submodules('modules'/'core')` + `collect_all('argon2')` +
-  bundles `modules/**/manifest.json`, `**/schemas/*.json`, `core/schemas/*.json`,
-  `config/*.example.json`; update the CI build to use the spec; verify the frozen
-  exe's `/modules/status` lists all modules.
+- **Frozen sidecar packaging — RESOLVED.** `run.py` now imports the app object;
+  `tmf-sidecar.spec` collects `core`/`modules` submodules + `argon2` and bundles
+  the manifest/schema/example JSON. Verified: the frozen exe loads all four
+  modules and an argon2 login succeeds. CI builds via the spec and smoke-tests the
+  frozen `/modules/status`. (Caveat: one-file extracts to a temp dir each run, so
+  the live config is recreated from the example per launch; point config beside
+  the exe for a persistent deployment — a later packaging refinement.)
 - Dev `admin/admin` in `app.example` — provision real users for production.
 - `user`/`session`/`credential` excluded from future RAG ingestion.
 - Enforcement on Phase-1 control endpoints deferred (use `require_permission`).
