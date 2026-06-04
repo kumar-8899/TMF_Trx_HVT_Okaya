@@ -5,6 +5,25 @@
   "modules": [
     { "id": "hello", "variant": "default" },
     { "id": "daq",   "variant": "default" },
-    { "id": "runs",  "variant": "default" }
+    { "id": "runs",  "variant": "default" },
+    {
+      "id": "auth",
+      "variant": "local_db",
+      "config": {
+        "authenticator": "password",
+        "session_ttl_min": 480,
+        "password_policy": { "min_length": 10, "require_mixed_case": true, "require_digit": true },
+        "roles": {
+          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*"],
+          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.EDIT", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
+          "engineer": ["TEST.RUN", "RECIPE.EDIT", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
+          "operator": ["TEST.RUN", "REPORT.EXPORT"],
+          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW"]
+        },
+        "users": [
+          { "username": "admin", "password": "admin", "role": "super_admin" }
+        ]
+      }
+    }
   ]
 }

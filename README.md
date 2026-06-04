@@ -66,5 +66,17 @@ LABVIEW_BRIDGE.md §5.1 command catalogue:
 cd backend; python -m tools.check_phase1 --no-stub
 ```
 
-Next: Build order step 2 — business modules (Auth → Logs → Recipe →
-Report/Analytics → harden Licensing).
+## Phase 2 — business modules (Auth complete, backend)
+
+Permission-first `auth` module (`DOMAIN.ACTION`, one role/user, resolve-at-login,
+opaque single-session, Argon2, pluggable authenticator seam, full user management
+gated on `AUTH.MANAGE_USERS`). Fills the `core.auth` port; modules consume
+permissions via `require_permission`. See
+[docs/PHASE2_AUTH_ACCEPTANCE.md](docs/PHASE2_AUTH_ACCEPTANCE.md) and
+[docs/contracts/auth.md](docs/contracts/auth.md).
+
+Known gap: the PyInstaller sidecar needs a packaging fix to run frozen
+(dynamically-discovered modules + argon2 not yet bundled) — see the acceptance
+doc. Auth UI is a later frontend phase.
+
+Next: Logs → Recipe → Report/Analytics → harden Licensing.
