@@ -22,7 +22,7 @@ Everything depends on these; they depend on nothing else.
 | **db** | repositories, sessions, migration runner | base repository stamps the RAG envelope (§7) |
 | **bridge** | `publish` / `request` / `subscribe` to LabVIEW | the Python side of `LABVIEW_BRIDGE.md` |
 | **config** | validated config access per module | JSON + JSON Schema, `schema_version` header |
-| **auth** | `verify(token) -> Principal`, `require_role(...)` | **port** filled by the active Auth variant (§6.4) |
+| **auth** | `verify(token) -> Principal`, `require_permission(...)`, `require_role(...)` (secondary) | **port** filled by the active Auth variant (§6.4) |
 | **diag** | `debug/info/warning/error/exception`, `timed(...)` | the bus from `LOGGING.md` §2.4 |
 | **web** | mount a router under a prefix; error handlers | FastAPI shell; RFC-7807 bodies; CORS; request-id |
 | **(framework)** | registry, manifest loader, activation gate | §3–§5 of this doc |
@@ -260,13 +260,32 @@ For standalone testing, the tester injects **stub** implementations of declared
 contract dependencies. "Standalone" then means: core + this module + stubs for
 its declared contracts.
 
-### 6.4 Token verification: a core port the Auth variant fills
+### 6.4 Token verification: a permission-first core port the Auth variant fills
+
+Authorization is **permission-first**: business modules consume **permissions**
+(`DOMAIN.ACTION`), never roles. Roles live inside the Auth module; the permission
+set a user holds is **resolved at login** (role changes take effect at next
+login) and travels on the `Principal`.
+
+```
+Principal = { username, role, permissions: set[str], session_expires }
+```
 
 Verification depends on the auth scheme (DB sessions vs JWT vs SSO), so the core
-exposes `core.auth` as a **port**. The active Auth variant registers its
-verifier into that port at `init`. Every other module uses `core.auth` and never
-touches the Auth package. If no Auth module is loaded, `core.auth` rejects all
-tokens (fail-closed); a dev-only `no-auth` variant exists for local work.
+exposes `core.auth` as a **port**:
+
+- `verify(token) -> Principal` — validates a session/token, returns the resolved
+  Principal.
+- `require_permission(*perms)` — **primary** dependency factory used by every
+  module to gate routes (wildcard-aware: `AUTH.*` grants `AUTH.MANAGE_USERS`).
+- `require_role(*roles)` — secondary convenience.
+
+The active Auth variant registers its verifier into the port at `init`. Every
+other module uses `core.auth` and never touches the Auth package (§6.1, §6.3).
+If no Auth module is loaded, `core.auth` rejects all tokens (fail-closed); a
+dev-only `no_auth` authenticator exists for local work. Adding fields to
+`Principal` later is allowed (stability rules); changing the permission
+representation is breaking.
 
 ---
 
