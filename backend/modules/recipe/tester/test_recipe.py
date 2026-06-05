@@ -228,3 +228,62 @@ async def test_rest_authoring_gated(fsmod):
         got = await c.get("/recipes/inv-c", headers=viewer)
         assert got.status_code == 200 and got.json()["version"] == 1
         assert (await c.get("/recipes", headers=viewer)).json()[0]["recipe_id"] == "inv-c"
+
+
+# --- R3: validation --------------------------------------------------------
+
+
+def _measure_compare(measurement="v"):
+    return [
+        {"step_id": "m", "step_type": "measure", "params": {"variable": "vbus_main", "store_as": "v"}},
+        {"step_id": "c", "step_type": "compare",
+         "params": {"source": {"measurement": measurement}, "limits": {"min": 1, "max": 2}}},
+    ]
+
+
+def test_validate_semantic_measurement_ref():
+    from modules.recipe.validation.semantic import check_semantic
+    ok = {"steps": _measure_compare("v")}
+    bad = {"steps": _measure_compare("missing")}
+    assert check_semantic(ok) == []
+    assert any("unknown measurement 'missing'" in e for e in check_semantic(bad))
+
+
+def test_validate_semantic_sweep_and_ramp():
+    from modules.recipe.validation.semantic import check_semantic
+    sweep_bad = {"steps": [{"step_id": "s", "step_type": "sweep",
+                            "params": {"variable": "x", "range": {"start": 320.0, "end": 200.0, "step": 20.0},
+                                       "inner_steps": [{"step_id": "w", "step_type": "wait",
+                                                        "params": {"duration_ms": 1}}]}}]}
+    assert any("sweep range end < start" in e for e in check_semantic(sweep_bad))
+    ramp_bad = {"steps": [{"step_id": "r", "step_type": "ramp_until",
+                           "params": {"variable": "x", "start": 320.0, "end": 200.0, "step_size": 2.0,
+                                      "dwell_ms": 10, "until": {"variable": "t", "op": "==", "value": True}}}]}
+    assert any("ramp_until end < start" in e for e in check_semantic(ramp_bad))
+
+
+async def test_validate_report_and_crossref_warning(fsmod):
+    mod, _ = fsmod
+    report = mod.validate({"recipe_id": "x", "steps": _measure_compare("v")})
+    assert report["ok"] is True
+    assert any("cross-reference deferred" in w for w in report["warnings"])  # vbus_main ref
+
+    bad = mod.validate({"recipe_id": "x", "steps": _measure_compare("missing")})
+    assert bad["ok"] is False and bad["errors"]
+
+
+async def test_publish_hard_fails_on_semantic(fsmod):
+    mod, _ = fsmod
+    created = await mod.create_recipe({**PAYLOAD, "recipe_id": "sem", "steps": _measure_compare("missing")})
+    with pytest.raises(RecipeValidationError):
+        await mod.publish_draft("sem", created["draft_id"])
+
+
+async def test_validate_endpoint(fsmod):
+    mod, _ = fsmod
+    created = await mod.create_recipe(PAYLOAD)
+    await mod.publish_draft("inv-c", created["draft_id"])
+    async with await _client(mod) as c:
+        v = {"Authorization": "Bearer viewer"}
+        r = await c.post("/recipes/inv-c/versions/1/validate", headers=v)
+        assert r.status_code == 200 and r.json()["ok"] is True

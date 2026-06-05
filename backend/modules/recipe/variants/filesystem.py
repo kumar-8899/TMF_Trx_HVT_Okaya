@@ -20,7 +20,9 @@ from modules.recipe.storage import (
     RecipeStoreError,
     RecipeValidationError,
 )
+from modules.recipe.validation.cross_reference import check_cross_references
 from modules.recipe.validation.schema import SchemaSet
+from modules.recipe.validation.semantic import check_semantic
 from modules.recipe.versioning import content_hash
 
 
@@ -161,9 +163,9 @@ class FilesystemRecipe:
         recipe.pop("content_hash", None)
         recipe["content_hash"] = content_hash(recipe)
 
-        errors = self._schemas.validate_recipe(recipe)
-        if errors:
-            raise RecipeValidationError(errors)
+        report = self.validate(recipe)  # schema + semantic; hard-fail (RECIPE §7)
+        if not report["ok"]:
+            raise RecipeValidationError(report["errors"])
 
         self.store.write_version(recipe_id, n, recipe, recipe["content_hash"])
         meta.update({
@@ -199,6 +201,17 @@ class FilesystemRecipe:
         self.core.diag.info("recipe", "version archived", recipe_id=recipe_id, version=version)
         await self._emit_event("recipe-archived", {"recipe_id": recipe_id, "version": version})
         return meta
+
+    # --- validation (R3) ---------------------------------------------------
+
+    def validate(self, payload: dict, station: str | None = None, strict: bool = False) -> dict:
+        """RECIPE §7: schema + semantic (errors, hard-fail) + cross-reference
+        (deferred, warn-only). Returns {ok, errors, warnings}."""
+        errors = self._schemas.validate_recipe(payload)
+        if not errors:  # semantic assumes a well-shaped tree
+            errors += check_semantic(payload)
+        warnings = check_cross_references(payload)
+        return {"ok": not errors, "errors": errors, "warnings": warnings}
 
     # --- corpus + events ---------------------------------------------------
 

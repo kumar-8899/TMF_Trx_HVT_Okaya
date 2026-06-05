@@ -89,4 +89,9 @@ def build_router(module) -> APIRouter:
     async def archive(recipe_id: str, n: int) -> dict:
         return await _guard(module.archive(recipe_id, n))
 
+    @router.post("/{recipe_id}/versions/{n}/validate", dependencies=_VIEW)
+    async def validate(recipe_id: str, n: int, station: str | None = None) -> dict:
+        recipe = await _guard(module.get_recipe(recipe_id, version=n))
+        return module.validate(recipe, station=station)
+
     return router
