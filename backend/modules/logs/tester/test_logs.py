@@ -2,13 +2,16 @@
 
 import asyncio
 
+import httpx
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport
 
 import modules.logs  # noqa: F401 — import registers the module
 from core.framework.contract import CoreServices
 from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry
-from core.services.auth_verify import Principal
+from core.services.auth_verify import AuthError, Principal, TokenVerifier
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
 from modules.logs.sink import LogsDiagSink
@@ -124,7 +127,8 @@ async def ctx():
     db = Database(":memory:", station="st1", source_version="0.0.0")
     await db.connect()
     core = CoreServices(
-        db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
+        db=db, auth=TokenVerifier(),
+        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
     )
     mod = DbLogs.construct(core, {})
     await mod.init()
@@ -204,3 +208,60 @@ async def test_cursor_pagination_stable_under_appends(ctx):
     got = [r["id"] for r in page1["items"]] + [r["id"] for r in page2["items"]]
     assert len(got) == len(set(got))   # no duplicates
     assert set(got) == set(ids)        # page1 stable; new row shows in page2
+
+
+# --- L4: REST + permissions ------------------------------------------------
+
+
+_TOKENS = {
+    "viewer": Principal("v", role="viewer", permissions=frozenset({"DIAGNOSTICS.VIEW"})),
+    "admin": Principal("a", role="admin", permissions=frozenset({"DIAGNOSTICS.*"})),
+    "noperm": Principal("n", role="operator", permissions=frozenset({"TEST.RUN"})),
+}
+
+
+def _client(mod, core):
+    core.auth.register(lambda t: _TOKENS[t] if t in _TOKENS else _raise())
+    app = FastAPI()
+    app.state.auth = core.auth
+    app.include_router(mod.router, prefix="/logs")
+    return httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t")
+
+
+def _raise():
+    raise AuthError("bad token")
+
+
+async def _seed(mod, db):
+    await mod.record_action(Principal("op1", role="operator"), "recipe.save", "r1", "success")
+    await db.repo.put("error_log", {"level": "error", "subsystem": "daq", "message": "e",
+                                    "source": "python"}, summary="[error] daq: e")
+
+
+async def test_rest_read_gated_view(ctx):
+    mod, core, db = ctx
+    await _seed(mod, db)
+    async with _client(mod, core) as c:
+        v = {"Authorization": "Bearer viewer"}
+        assert (await c.get("/logs/errors")).status_code == 401           # no token
+        assert (await c.get("/logs/errors", headers=v)).status_code == 200
+        assert (await c.get("/logs/actions", headers=v)).status_code == 200
+        stats = await c.get("/logs/stats", headers=v)
+        assert stats.status_code == 200
+        assert stats.json()["error_counts"]["error"] == 1
+        assert stats.json()["action_counts"]["total"] == 1
+        # lacks DIAGNOSTICS.VIEW
+        assert (await c.get("/logs/errors", headers={"Authorization": "Bearer noperm"})).status_code == 403
+
+
+async def test_rest_delete_gated_purge(ctx):
+    mod, core, db = ctx
+    await _seed(mod, db)
+    async with _client(mod, core) as c:
+        viewer = {"Authorization": "Bearer viewer"}
+        admin = {"Authorization": "Bearer admin"}
+        # viewer has VIEW but not PURGE
+        assert (await c.delete("/logs/errors?before=9999999999", headers=viewer)).status_code == 403
+        d = await c.delete("/logs/errors?before=9999999999", headers=admin)
+        assert d.status_code == 200 and d.json()["deleted"] == 1
+        assert (await c.get("/logs/errors", headers=viewer)).json()["items"] == []

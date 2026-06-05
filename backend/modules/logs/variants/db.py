@@ -11,6 +11,7 @@ import base64
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.auth_verify import Principal
+from modules.logs.api import build_router
 from modules.logs.contract import LEVEL_ORDER, Page
 from modules.logs.sink import LogsDiagSink
 
@@ -40,7 +41,7 @@ class DbLogs:
             dedup_enabled=dedup.get("enabled", True),
             window_s=dedup.get("window_s", 10.0),
         )
-        self.router = None  # built in L4
+        self.router = build_router(self)
         # caller 2: LabVIEW diag over MQTT (station-relative topic, our tree).
         self.mqtt_handlers = [("diag", self._on_lv_diag)]
 
@@ -133,3 +134,32 @@ class DbLogs:
             return True
 
         return await self._page("action_log", since, until, limit, cursor, predicate)
+
+    # --- stats + purge -----------------------------------------------------
+
+    async def stats(self, since: float | None = None) -> dict:
+        errs = await self.core.db.repo.query("error_log", since=since)
+        acts = await self.core.db.repo.query("action_log", since=since)
+        error_counts = {"warning": 0, "error": 0, "critical": 0}
+        subsystems: set[str] = set()
+        for r in errs:
+            d = r["data"]
+            lvl = d.get("level")
+            if lvl in error_counts:
+                error_counts[lvl] += 1
+            if d.get("subsystem"):
+                subsystems.add(d["subsystem"])
+        failures = sum(1 for r in acts if r["data"].get("result") == "failure")
+        users = sorted({r["data"].get("user") for r in acts if r["data"].get("user")})
+        return {
+            "error_counts": error_counts,
+            "action_counts": {"total": len(acts), "failures": failures},
+            "subsystems": sorted(subsystems),
+            "users": users,
+        }
+
+    async def delete_errors(self, before: float) -> int:
+        return await self.core.db.repo.delete("error_log", before)
+
+    async def delete_actions(self, before: float) -> int:
+        return await self.core.db.repo.delete("action_log", before)

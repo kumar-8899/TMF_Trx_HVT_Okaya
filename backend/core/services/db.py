@@ -116,6 +116,15 @@ class Repository:
             rows = await cur.fetchall()
         return [_row_to_record(r) for r in rows]
 
+    async def delete(self, record_type: str, before_ts: float) -> int:
+        """Delete records older than before_ts. The sanctioned non-append op,
+        for log pruning + admin purge only (CORE.md §7 'where the domain allows')."""
+        cur = await self._conn.execute(
+            "DELETE FROM records WHERE type=? AND ts < ?", (record_type, before_ts)
+        )
+        await self._conn.commit()
+        return cur.rowcount
+
 
 class Database:
     def __init__(self, path: Path | str, station: str = "st1", source_version: str = "0.0.0") -> None:
