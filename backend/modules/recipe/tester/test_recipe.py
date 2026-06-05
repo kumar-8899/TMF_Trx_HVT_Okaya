@@ -10,6 +10,9 @@ from core.framework.contract import CoreServices
 from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry
 from core.services.auth_verify import AuthError, Principal, TokenVerifier
+from core.services.db import Database
+from core.services.diagnostics import Diagnostics
+from modules.recipe.storage import RecipeValidationError
 from modules.recipe.variants.filesystem import FilesystemRecipe
 
 EXPECTED_TYPES = {
@@ -86,6 +89,7 @@ async def test_composite_inner_steps_validate(mod):
 
 _TOKENS = {
     "viewer": Principal("v", role="operator", permissions=frozenset({"RECIPE.VIEW"})),
+    "editor": Principal("e", role="engineer", permissions=frozenset({"RECIPE.VIEW", "RECIPE.EDIT"})),
     "noperm": Principal("n", role="operator", permissions=frozenset({"TEST.RUN"})),
 }
 
@@ -113,3 +117,114 @@ async def test_rest_step_types(mod):
         assert s.status_code == 200 and s.json()["$id"].endswith("measure/params")
         assert (await c.get("/recipes/step-types/ghost/schema", headers=v)).status_code == 404
         assert (await c.get("/recipes/step-types", headers={"Authorization": "Bearer noperm"})).status_code == 403
+
+
+# --- R2: authoring + versioning --------------------------------------------
+
+
+PAYLOAD = {
+    "schema_version": 1, "recipe_id": "inv-c", "name": "Inverter Board Rev C",
+    "owner": "alice@acme.test", "tags": ["production"], "barcode_prefixes": ["INV-C-"],
+    "steps": [{"step_id": "settle", "step_type": "wait", "params": {"duration_ms": 100}}],
+}
+
+
+@pytest.fixture
+async def fsmod(tmp_path):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(
+        db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
+    )
+    m = FilesystemRecipe.construct(core, {"root": str(tmp_path / "recipes")})
+    await m.init()
+    yield m, db
+    await db.close()
+
+
+async def test_create_save_publish(fsmod):
+    mod, db = fsmod
+    created = await mod.create_recipe(PAYLOAD)
+    did = created["draft_id"]
+    assert mod.store.read_meta("inv-c")["status"] == "draft"
+
+    await mod.save_draft("inv-c", did, {**PAYLOAD, "name": "Inv C edited"})
+    pub = await mod.publish_draft("inv-c", did)
+    assert pub["version"] == 1 and pub["status"] == "active"
+    assert pub["content_hash"].startswith("sha256:")
+
+    # version on disk + corpus record in db
+    got = await mod.get_recipe("inv-c")
+    assert got["version"] == 1 and got["name"] == "Inv C edited"
+    rec = await db.repo.get("recipe.version", "inv-c:v1")
+    assert rec is not None and rec["data"]["content_hash"] == pub["content_hash"]
+
+
+async def test_create_duplicate_and_validation(fsmod):
+    mod, _ = fsmod
+    await mod.create_recipe(PAYLOAD)
+    from modules.recipe.storage import RecipeExistsError
+    with pytest.raises(RecipeExistsError):
+        await mod.create_recipe(PAYLOAD)
+
+    # publish an invalid recipe (wait step missing duration_ms) -> RecipeValidationError
+    bad = await mod.create_recipe({**PAYLOAD, "recipe_id": "bad",
+                                   "steps": [{"step_id": "w", "step_type": "wait", "params": {}}]})
+    with pytest.raises(RecipeValidationError):
+        await mod.publish_draft("bad", bad["draft_id"])
+
+
+async def test_second_version_via_fork(fsmod):
+    mod, _ = fsmod
+    c1 = await mod.create_recipe(PAYLOAD)
+    await mod.publish_draft("inv-c", c1["draft_id"])
+    fork = await mod.fork_draft("inv-c")
+    assert fork["recipe"]["version"] == 1  # forked from v1
+    await mod.save_draft("inv-c", fork["draft_id"], {**fork["recipe"], "name": "v2"})
+    v2 = await mod.publish_draft("inv-c", fork["draft_id"])
+    assert v2["version"] == 2
+    versions = await mod.list_versions("inv-c")
+    assert [v["version"] for v in versions] == [1, 2]
+
+
+async def test_discovery_barcode_lifecycle(fsmod):
+    mod, _ = fsmod
+    c1 = await mod.create_recipe(PAYLOAD)
+    await mod.publish_draft("inv-c", c1["draft_id"])
+
+    assert [r["recipe_id"] for r in await mod.list_recipes(status="active")] == ["inv-c"]
+    assert (await mod.get_by_barcode("INV-C-12345"))["recipe_id"] == "inv-c"
+
+    await mod.archive("inv-c", 1)
+    assert (await mod.list_versions("inv-c"))[0]["archived"] is True
+    await mod.deprecate("inv-c", reason="superseded")
+    assert mod.store.read_meta("inv-c")["status"] == "deprecated"
+
+
+async def test_content_hash_matches_sidecar(fsmod):
+    mod, _ = fsmod
+    c1 = await mod.create_recipe(PAYLOAD)
+    pub = await mod.publish_draft("inv-c", c1["draft_id"])
+    sidecar = (mod.store.recipe_dir("inv-c") / "v1" / "recipe.json.sha256").read_text()
+    assert sidecar == pub["content_hash"]
+
+
+async def test_rest_authoring_gated(fsmod):
+    mod, _ = fsmod
+    async with await _client(mod) as c:
+        editor = {"Authorization": "Bearer editor"}
+        viewer = {"Authorization": "Bearer viewer"}
+
+        # viewer cannot create
+        assert (await c.post("/recipes", headers=viewer, json=PAYLOAD)).status_code == 403
+        created = await c.post("/recipes", headers=editor, json=PAYLOAD)
+        assert created.status_code == 201
+        did = created.json()["draft_id"]
+
+        pub = await c.post(f"/recipes/inv-c/drafts/{did}/publish", headers=editor)
+        assert pub.status_code == 200 and pub.json()["version"] == 1
+
+        # viewer can read
+        got = await c.get("/recipes/inv-c", headers=viewer)
+        assert got.status_code == 200 and got.json()["version"] == 1
+        assert (await c.get("/recipes", headers=viewer)).json()[0]["recipe_id"] == "inv-c"

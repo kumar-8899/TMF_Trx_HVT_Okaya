@@ -7,12 +7,25 @@ Authoring/versioning (R2), validation (R3), execution wire (R4), export/import
 
 from __future__ import annotations
 
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from modules.recipe import registry as step_registry
 from modules.recipe.api import build_router
+from modules.recipe.storage import (
+    RecipeExistsError,
+    RecipeStore,
+    RecipeStoreError,
+    RecipeValidationError,
+)
 from modules.recipe.validation.schema import SchemaSet
+from modules.recipe.versioning import content_hash
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class FilesystemRecipe:
@@ -21,6 +34,7 @@ class FilesystemRecipe:
         self.config = config
         self.station = core.station
         self.root = Path(config.get("root", "data/recipes"))
+        self.store = RecipeStore(self.root)
         self._schemas: SchemaSet | None = None
         self.router = build_router(self)
         self.mqtt_handlers: list = []
@@ -58,3 +72,144 @@ class FilesystemRecipe:
 
     def get_step_schema(self, type_id: str) -> dict:
         return step_registry.get(type_id).schema
+
+    # --- discovery (R2) ----------------------------------------------------
+
+    async def list_recipes(self, status: str | None = None, tag: str | None = None) -> list[dict]:
+        out = []
+        for rid in self.store.list_recipe_ids():
+            meta = self.store.read_meta(rid)
+            if status and meta.get("status") != status:
+                continue
+            if tag and tag not in meta.get("tags", []):
+                continue
+            out.append({
+                "recipe_id": rid, "name": meta.get("name"), "status": meta.get("status"),
+                "latest_version": meta.get("latest_version", 0), "tags": meta.get("tags", []),
+            })
+        return out
+
+    async def list_versions(self, recipe_id: str) -> list[dict]:
+        meta = self.store.read_meta(recipe_id)
+        archived = set(meta.get("archived_versions", []))
+        out = []
+        for n in self.store.list_versions(recipe_id):
+            r = self.store.read_version(recipe_id, n)
+            out.append({"version": n, "content_hash": r.get("content_hash"),
+                        "archived": n in archived})
+        return out
+
+    async def get_recipe(self, recipe_id: str, version: int | None = None) -> dict:
+        meta = self.store.read_meta(recipe_id)
+        n = version if version is not None else meta.get("latest_version", 0)
+        if not n:
+            raise RecipeStoreError(f"'{recipe_id}' has no published version")
+        return self.store.read_version(recipe_id, n)
+
+    async def get_by_barcode(self, barcode: str) -> dict:
+        for rid in self.store.list_recipe_ids():
+            meta = self.store.read_meta(rid)
+            if meta.get("status") != "active":
+                continue
+            if any(barcode.startswith(p) for p in meta.get("barcode_prefixes", [])):
+                return await self.get_recipe(rid)
+        raise RecipeStoreError(f"no active recipe matches barcode '{barcode}'")
+
+    # --- authoring (R2) ----------------------------------------------------
+
+    async def create_recipe(self, payload: dict) -> dict:
+        rid = payload.get("recipe_id")
+        if not rid:
+            raise RecipeValidationError(["recipe_id required"])
+        if self.store.exists(rid):
+            raise RecipeExistsError(f"recipe '{rid}' already exists")
+        meta = {
+            "recipe_id": rid, "name": payload.get("name", rid), "owner": payload.get("owner"),
+            "status": "draft", "latest_version": 0, "created_at": _now_iso(),
+            "tags": payload.get("tags", []), "barcode_prefixes": payload.get("barcode_prefixes", []),
+            "archived_versions": [],
+        }
+        self.store.write_meta(rid, meta)
+        draft_id = self.store.new_draft_id(rid)
+        draft = {**payload, "status": "draft", "version": 1}
+        self.store.write_draft(rid, draft_id, draft, base_version=None)
+        self.core.diag.info("recipe", "recipe created", recipe_id=rid)
+        await self._emit_event("recipe-created", {"recipe_id": rid, "by": meta["owner"]})
+        return {"recipe_id": rid, "draft_id": draft_id, "recipe": draft}
+
+    async def fork_draft(self, recipe_id: str) -> dict:
+        meta = self.store.read_meta(recipe_id)
+        base = meta.get("latest_version", 0)
+        payload = self.store.read_version(recipe_id, base) if base else {"recipe_id": recipe_id}
+        draft_id = self.store.new_draft_id(recipe_id)
+        draft = {**payload, "status": "draft"}
+        self.store.write_draft(recipe_id, draft_id, draft, base_version=base or None)
+        return {"recipe_id": recipe_id, "draft_id": draft_id, "recipe": draft}
+
+    async def save_draft(self, recipe_id: str, draft_id: str, payload: dict) -> dict:
+        base = self.store.read_draft_base(recipe_id, draft_id)  # raises later if missing
+        self.store.read_draft(recipe_id, draft_id)  # existence (404 if absent)
+        draft = {**payload, "status": "draft"}
+        self.store.write_draft(recipe_id, draft_id, draft, base_version=base)
+        return {"recipe_id": recipe_id, "draft_id": draft_id, "recipe": draft}
+
+    async def publish_draft(self, recipe_id: str, draft_id: str) -> dict:
+        meta = self.store.read_meta(recipe_id)
+        draft = self.store.read_draft(recipe_id, draft_id)
+        n = meta.get("latest_version", 0) + 1
+        recipe = {**draft, "version": n, "status": "active"}
+        recipe.pop("content_hash", None)
+        recipe["content_hash"] = content_hash(recipe)
+
+        errors = self._schemas.validate_recipe(recipe)
+        if errors:
+            raise RecipeValidationError(errors)
+
+        self.store.write_version(recipe_id, n, recipe, recipe["content_hash"])
+        meta.update({
+            "latest_version": n, "status": "active", "name": recipe.get("name", meta["name"]),
+            "tags": recipe.get("tags", meta.get("tags", [])),
+            "barcode_prefixes": recipe.get("barcode_prefixes", meta.get("barcode_prefixes", [])),
+        })
+        self.store.write_meta(recipe_id, meta)
+        self.store.remove_draft(recipe_id, draft_id)
+        await self._mirror_db(recipe_id, n, recipe)
+        self.core.diag.info("recipe", "version saved", recipe_id=recipe_id, version=n)
+        await self._emit_event("recipe-version-saved",
+                               {"recipe_id": recipe_id, "version": n,
+                                "content_hash": recipe["content_hash"], "by": recipe.get("owner")})
+        return recipe
+
+    async def deprecate(self, recipe_id: str, reason: str = "") -> dict:
+        meta = self.store.read_meta(recipe_id)
+        meta["status"] = "deprecated"
+        self.store.write_meta(recipe_id, meta)
+        self.core.diag.info("recipe", "recipe deprecated", recipe_id=recipe_id, reason=reason)
+        await self._emit_event("recipe-deprecated", {"recipe_id": recipe_id, "reason": reason})
+        return meta
+
+    async def archive(self, recipe_id: str, version: int) -> dict:
+        meta = self.store.read_meta(recipe_id)
+        if version not in self.store.list_versions(recipe_id):
+            raise RecipeStoreError(f"no version v{version} of '{recipe_id}'")
+        archived = set(meta.get("archived_versions", []))
+        archived.add(version)
+        meta["archived_versions"] = sorted(archived)
+        self.store.write_meta(recipe_id, meta)
+        self.core.diag.info("recipe", "version archived", recipe_id=recipe_id, version=version)
+        await self._emit_event("recipe-archived", {"recipe_id": recipe_id, "version": version})
+        return meta
+
+    # --- corpus + events ---------------------------------------------------
+
+    async def _mirror_db(self, recipe_id: str, n: int, recipe: dict) -> None:
+        summary = f"Saved v{n} of '{recipe.get('name', recipe_id)}'"
+        await self.core.db.repo.put("recipe.version", recipe, id=f"{recipe_id}:v{n}", summary=summary)
+
+    async def _emit_event(self, kind: str, payload: dict) -> None:
+        bridge = self.core.bridge
+        if bridge is not None and getattr(bridge, "connected", False):
+            try:
+                await bridge.publish(f"event/{kind}", {"type": kind, "ts": time.time(), "payload": payload})
+            except Exception:  # noqa: BLE001 — events are best-effort
+                pass

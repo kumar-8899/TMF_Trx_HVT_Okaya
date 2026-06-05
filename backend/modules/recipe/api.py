@@ -10,8 +10,21 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.services.security import require_permission
 from modules.recipe.registry import StepTypeError
+from modules.recipe.storage import RecipeExistsError, RecipeStoreError, RecipeValidationError
 
 _VIEW = [Depends(require_permission("RECIPE.VIEW"))]
+_EDIT = [Depends(require_permission("RECIPE.EDIT"))]
+
+
+async def _guard(coro):
+    try:
+        return await coro
+    except RecipeExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RecipeValidationError as exc:
+        raise HTTPException(status_code=422, detail={"errors": exc.errors}) from exc
+    except RecipeStoreError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def build_router(module) -> APIRouter:
@@ -27,5 +40,53 @@ def build_router(module) -> APIRouter:
             return module.get_step_schema(type_id)
         except StepTypeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # --- discovery (R2) ----------------------------------------------------
+
+    @router.get("", dependencies=_VIEW)
+    async def list_recipes(status: str | None = None, tag: str | None = None) -> list[dict]:
+        return await module.list_recipes(status=status, tag=tag)
+
+    @router.get("/by-barcode/{barcode}", dependencies=_VIEW)
+    async def by_barcode(barcode: str) -> dict:
+        return await _guard(module.get_by_barcode(barcode))
+
+    @router.get("/{recipe_id}", dependencies=_VIEW)
+    async def get_recipe(recipe_id: str) -> dict:
+        return await _guard(module.get_recipe(recipe_id))
+
+    @router.get("/{recipe_id}/versions", dependencies=_VIEW)
+    async def list_versions(recipe_id: str) -> list[dict]:
+        return await _guard(module.list_versions(recipe_id))
+
+    @router.get("/{recipe_id}/versions/{n}", dependencies=_VIEW)
+    async def get_version(recipe_id: str, n: int) -> dict:
+        return await _guard(module.get_recipe(recipe_id, version=n))
+
+    # --- authoring (R2) ----------------------------------------------------
+
+    @router.post("", dependencies=_EDIT, status_code=201)
+    async def create_recipe(body: dict) -> dict:
+        return await _guard(module.create_recipe(body))
+
+    @router.post("/{recipe_id}/drafts", dependencies=_EDIT, status_code=201)
+    async def fork_draft(recipe_id: str) -> dict:
+        return await _guard(module.fork_draft(recipe_id))
+
+    @router.put("/{recipe_id}/drafts/{draft_id}", dependencies=_EDIT)
+    async def save_draft(recipe_id: str, draft_id: str, body: dict) -> dict:
+        return await _guard(module.save_draft(recipe_id, draft_id, body))
+
+    @router.post("/{recipe_id}/drafts/{draft_id}/publish", dependencies=_EDIT)
+    async def publish_draft(recipe_id: str, draft_id: str) -> dict:
+        return await _guard(module.publish_draft(recipe_id, draft_id))
+
+    @router.post("/{recipe_id}/deprecate", dependencies=_EDIT)
+    async def deprecate(recipe_id: str, body: dict | None = None) -> dict:
+        return await _guard(module.deprecate(recipe_id, (body or {}).get("reason", "")))
+
+    @router.post("/{recipe_id}/versions/{n}/archive", dependencies=_EDIT)
+    async def archive(recipe_id: str, n: int) -> dict:
+        return await _guard(module.archive(recipe_id, n))
 
     return router

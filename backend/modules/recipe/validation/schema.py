@@ -53,3 +53,26 @@ class SchemaSet:
                 for e in self._params[type_id].iter_errors(step.get("params", {}))
             ]
         return errors
+
+    def validate_recipe(self, recipe: dict) -> list[str]:
+        """Recursive schema pass over the whole step tree + duplicate step_id check."""
+        errors: list[str] = []
+        seen: set[str] = set()
+
+        def walk(steps, path: str) -> None:
+            for i, step in enumerate(steps or []):
+                loc = f"{path}[{i}]"
+                errors.extend(f"{loc} {e}" for e in self.validate_step(step))
+                sid = step.get("step_id")
+                if sid and sid in seen:
+                    errors.append(f"{loc} duplicate step_id '{sid}'")
+                elif sid:
+                    seen.add(sid)
+                params = step.get("params", {}) or {}
+                for key in ("inner_steps", "then_steps", "else_steps"):
+                    if isinstance(params.get(key), list):
+                        walk(params[key], f"{loc}.{key}")
+
+        for section in ("setup_steps", "steps", "teardown_steps"):
+            walk(recipe.get(section), section)
+        return errors
