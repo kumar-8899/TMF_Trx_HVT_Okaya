@@ -1,9 +1,16 @@
 """logs standalone tester (CORE.md §6.2). L1 registration; L2 sink + dedup."""
 
+import asyncio
+
+import pytest
+
 import modules.logs  # noqa: F401 — import registers the module
 from core.framework.contract import CoreServices
 from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry
+from core.services.auth_verify import Principal
+from core.services.db import Database
+from core.services.diagnostics import Diagnostics
 from modules.logs.sink import LogsDiagSink
 from modules.logs.variants.db import DbLogs
 
@@ -39,7 +46,7 @@ def test_manifest_valid():
 
 
 async def test_skeleton_lifecycle():
-    core = CoreServices(station="st1")
+    core = CoreServices(diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
     mod = DbLogs.construct(core, {})
     await mod.init()
     await mod.start()
@@ -107,3 +114,93 @@ async def test_dedup_disabled_writes_every_event():
     for _ in range(5):
         await sink.handle(_err())
     assert len(r.rows) == 5
+
+
+# --- L3: db variant — diag wiring, record_action, queries ------------------
+
+
+@pytest.fixture
+async def ctx():
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(
+        db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
+    )
+    mod = DbLogs.construct(core, {})
+    await mod.init()
+    yield mod, core, db
+    await db.close()
+
+
+async def _drain(mod):
+    sink = mod._sink
+    while not sink._queue.empty():
+        await sink.handle(sink._queue.get_nowait())
+    await sink.flush_all()
+
+
+async def test_diag_bus_wired_persists_error(ctx):
+    mod, core, db = ctx
+    core.diag.error("daq", "kaboom", code=-2501)  # in-process diag -> sink
+    await _drain(mod)
+    rows = await db.repo.query("error_log")
+    assert len(rows) == 1
+    assert rows[0]["data"]["message"] == "kaboom"
+    assert rows[0]["data"]["source"] == "python"
+    assert rows[0]["summary"] == "[error] daq: kaboom"
+
+
+async def test_record_action_attribution(ctx):
+    mod, _, db = ctx
+    p = Principal("op1", role="operator")
+    await mod.record_action(p, "recipe.save", "board/v4", "success", {"version": 4})
+    rows = await db.repo.query("action_log")
+    d = rows[0]["data"]
+    assert d["user"] == "op1" and d["role"] == "operator" and d["action"] == "recipe.save"
+    assert rows[0]["summary"] == "op1 recipe.save board/v4 -> success"
+
+
+async def test_query_actions_filters(ctx):
+    mod, _, _ = ctx
+    p = Principal("op1", role="operator")
+    q = Principal("eng", role="engineer")
+    await mod.record_action(p, "recipe.save", "r1", "success")
+    await mod.record_action(p, "recipe.delete", "r2", "failure")
+    await mod.record_action(q, "run.start", "x", "success")
+
+    assert {r["data"]["user"] for r in (await mod.query_actions(user="op1"))["items"]} == {"op1"}
+    recipes = await mod.query_actions(action="recipe.")
+    assert all(r["data"]["action"].startswith("recipe.") for r in recipes["items"])
+    assert len(recipes["items"]) == 2
+    fails = await mod.query_actions(result="failure")
+    assert len(fails["items"]) == 1
+
+
+async def test_query_errors_level_minimum(ctx):
+    mod, _, db = ctx
+    for lvl in ("warning", "error", "critical", "info"):
+        await db.repo.put("error_log", {"level": lvl, "subsystem": "daq", "message": lvl,
+                                        "source": "python"}, summary=lvl)
+    assert len((await mod.query_errors())["items"]) == 4
+    high = await mod.query_errors(level="error")
+    assert {r["data"]["level"] for r in high["items"]} == {"error", "critical"}
+
+
+async def test_cursor_pagination_stable_under_appends(ctx):
+    mod, _, _ = ctx
+    p = Principal("op1", role="operator")
+    ids = []
+    for i in range(3):
+        ids.append(await mod.record_action(p, f"a.{i}", "t", "success"))
+        await asyncio.sleep(0.01)  # strictly increasing ts
+
+    page1 = await mod.query_actions(limit=2)
+    assert len(page1["items"]) == 2 and page1["next_cursor"]
+
+    await asyncio.sleep(0.01)
+    ids.append(await mod.record_action(p, "a.3", "t", "success"))  # arrives mid-paging
+
+    page2 = await mod.query_actions(limit=10, cursor=page1["next_cursor"])
+    got = [r["id"] for r in page1["items"]] + [r["id"] for r in page2["items"]]
+    assert len(got) == len(set(got))   # no duplicates
+    assert set(got) == set(ids)        # page1 stable; new row shows in page2

@@ -94,6 +94,7 @@ class Repository:
         record_type: str,
         filter: dict | None = None,
         since: float | None = None,
+        until: float | None = None,
         limit: int | None = None,
     ) -> list[dict]:
         sql = "SELECT * FROM records WHERE type=?"
@@ -104,7 +105,10 @@ class Repository:
         if since is not None:
             sql += " AND ts >= ?"
             args.append(since)
-        sql += " ORDER BY ts ASC"
+        if until is not None:
+            sql += " AND ts <= ?"
+            args.append(until)
+        sql += " ORDER BY ts ASC, rowid ASC"  # insertion-stable at equal ts
         if limit is not None:
             sql += " LIMIT ?"
             args.append(limit)
