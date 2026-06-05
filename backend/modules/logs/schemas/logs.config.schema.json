@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:logs/logs.config.schema.json",
+  "title": "Logs module config (LOGS.md §3)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "persist": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "min_level": { "enum": ["debug", "info", "warning", "error", "critical"] },
+        "subsystems": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "dedup": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "window_s": { "type": "number", "minimum": 0 }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "max_days": { "type": "integer", "minimum": 0 },
+          "max_records": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "pruning": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "run_at_hour_utc": { "type": "integer", "minimum": 0, "maximum": 23 }
+      }
+    }
+  }
+}

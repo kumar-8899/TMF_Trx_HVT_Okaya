@@ -1,0 +1,10 @@
+Option A: run the Python stub (stand-in for LabVIEW):
+
+cd D:\Experiment\Super_Test_App\backend
+python -m tools.lv_stub
+
+PID 16464 — a Python process already owns 8000. Kill it, then re-run.
+
+Stop-Process -Id 16464 -Force
+cd D:\Experiment\Super_Test_App\backend
+python run.py
