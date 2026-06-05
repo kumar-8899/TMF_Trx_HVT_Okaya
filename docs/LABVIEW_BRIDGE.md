@@ -71,7 +71,8 @@ private interface with broker auth instead of loopback.
 
 | Topic — `tmf/{station}/…` | Dir | QoS | Retained | Carries |
 |---|---|---|---|---|
-| `cmd/{op}` | Py→LV | 1 | — | command; reply via MQTT-5 response-topic + correlation-id |
+| `cmd/{op}` | Py→LV | 1 | — | command; reply via payload `reply_to`+`id` (§5) |
+| `query/{op}` | LV→Py | 1 | — | LabVIEW-initiated request to a **Python-served** handler; reply via payload `reply_to`+`id` (§5). E.g. `recipe.fetch` at run start. |
 | `stream/{signal}` | LV→Py | 0 | — | high-rate frame (`DATA_TRANSFER.md` §3.3); Python keeps latest |
 | `value/{variable}` | LV→Py | 1 | **yes** | last-known scaled value `{value, ts}` (§3.3 / §5.4) |
 | `event/{kind}` | LV→Py | 1 | — | domain event envelope (§3.2): run / step / safety |
@@ -154,6 +155,13 @@ Python uses receipt time, not a payload timestamp, for the offline transition.
   them instead. Mosquitto strips these for a 3.1.1 subscriber, which is why the
   payload-carried fields above are authoritative. Never depend on V5-only props
   across the seam.
+- **Direction.** `cmd/{op}` is **Py→LV** (LabVIEW serves; e.g. `daq.*`, `run.*`).
+  `query/{op}` is **LV→Py** (Python serves; e.g. `recipe.fetch`). Same envelope
+  and reply mechanism both ways; separate topic classes so the two never collide.
+  Python: `bridge.serve(op, handler)` answers a `query/{op}`; `bridge.request`/
+  `bridge.query` issue a `cmd`/`query`. LabVIEW reads a recipe at run start by
+  publishing `query/recipe.fetch {recipe_id, version, station, run_parameters}`
+  and reading the substituted recipe JSON from the reply.
 - **Naming:** `{domain}.{action}`, dotted. Phase-0: `hello.echo`. Foreshadowed as modules land: `daq.ai.read`, `daq.ai.stream.start` / `stop`, `daq.di.read`, `variable.read`, `variable.write`, `run.start`, `run.abort`. The full catalogue is documented per controller/module as built.
 - **Errors → RFC 7807 in Python.** The Bridge returns a structured `error`; Python maps `code` → `type`/`title` and `message`/`detail` → the ProblemDetail body (`DATA_TRANSFER.md` §2.2). A `bridge.request` timeout maps to **502** (the doc's "driver / external dependency").
 

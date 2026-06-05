@@ -14,6 +14,7 @@ from pathlib import Path
 from core.framework.contract import CoreServices, Health, HealthStatus
 from modules.recipe import registry as step_registry
 from modules.recipe.api import build_router
+from modules.recipe.runtime_params import substitute
 from modules.recipe.storage import (
     RecipeExistsError,
     RecipeStore,
@@ -50,10 +51,18 @@ class FilesystemRecipe:
         self._schemas = SchemaSet()
 
     async def start(self) -> None:
-        pass
+        # R4 execution wire: serve recipe.fetch to LabVIEW (LV→Py query/{op}).
+        if self.core.bridge is not None:
+            self.core.bridge.serve("recipe.fetch", self._serve_fetch)
 
     async def stop(self) -> None:
         pass
+
+    async def _serve_fetch(self, args: dict) -> dict:
+        """LabVIEW reads the recipe at run start (RECIPE §11), run-params
+        substituted before it crosses the bridge (RECIPE §8)."""
+        recipe = await self.get_recipe(args["recipe_id"], version=args.get("version"))
+        return substitute(recipe, args.get("run_parameters", {}))
 
     async def health(self) -> Health:
         n = len(step_registry.all_types())

@@ -1,5 +1,7 @@
 """recipe standalone tester (CORE.md §6.2). R1: step-type registry + schemas."""
 
+import asyncio
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -10,10 +12,13 @@ from core.framework.contract import CoreServices
 from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry
 from core.services.auth_verify import AuthError, Principal, TokenVerifier
+from core.services.bridge import BridgeClient
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
+from modules.recipe.runtime_params import substitute
 from modules.recipe.storage import RecipeValidationError
 from modules.recipe.variants.filesystem import FilesystemRecipe
+from tests._mqtt import Broker, find_mosquitto
 
 EXPECTED_TYPES = {
     "set_output", "measure", "compare", "measure_and_compare", "ramp_until",
@@ -287,3 +292,53 @@ async def test_validate_endpoint(fsmod):
         v = {"Authorization": "Bearer viewer"}
         r = await c.post("/recipes/inv-c/versions/1/validate", headers=v)
         assert r.status_code == 200 and r.json()["ok"] is True
+
+
+# --- R4: execution wire (Python half) --------------------------------------
+
+
+def test_runtime_substitution():
+    obj = {"a": "${run.vset}", "b": ["${run.lot}", 1], "c": "literal"}
+    out = substitute(obj, {"vset": 264.0, "lot": "L1"})
+    assert out == {"a": 264.0, "b": ["L1", 1], "c": "literal"}  # typed, recursive
+
+
+_RUNREF = {
+    "schema_version": 1, "recipe_id": "rr", "name": "Run-ref", "owner": "a",
+    "barcode_prefixes": [], "tags": [],
+    "run_parameters": [{"name": "vset", "kind": "number", "required": True}],
+    "steps": [{"step_id": "set", "step_type": "set_output",
+               "params": {"variable": "dc_bus_setpoint", "value": "${run.vset}"}}],
+}
+
+
+@pytest.mark.skipif(find_mosquitto() is None, reason="mosquitto not installed")
+async def test_recipe_fetch_over_bridge(tmp_path):
+    broker = Broker(tmp_path)
+    broker.start()
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    plat = BridgeClient("st1", host=broker.host, port=broker.port, client_id="plat")
+    lv = BridgeClient("st1", host=broker.host, port=broker.port, client_id="lv")
+    core = CoreServices(db=db, bridge=plat,
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    mod = FilesystemRecipe.construct(core, {"root": str(tmp_path / "recipes")})
+    await mod.init()
+    try:
+        created = await mod.create_recipe(_RUNREF)
+        await mod.publish_draft("rr", created["draft_id"])
+        await plat.connect(wait_timeout=5)
+        await mod.start()                       # serves query/recipe.fetch
+        await lv.connect(wait_timeout=5)
+        await asyncio.sleep(0.3)                # let subscriptions land
+
+        reply = await lv.query("recipe.fetch",
+                               {"recipe_id": "rr", "version": 1, "run_parameters": {"vset": 264.0}},
+                               timeout=5)
+        assert reply["ok"] is True
+        assert reply["result"]["steps"][0]["params"]["value"] == 264.0  # substituted
+    finally:
+        await lv.disconnect()
+        await plat.disconnect()
+        await db.close()
+        broker.stop()

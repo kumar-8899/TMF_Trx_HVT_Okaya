@@ -86,6 +86,7 @@ class BridgeClient:
         self._pending: dict[str, asyncio.Future] = {}
         self._subs: list[_Sub] = []
         self._latest: dict[str, dict] = {}  # full_topic -> last payload (BRIDGE §6)
+        self._served: dict[str, Handler] = {}  # full query topic -> handler (Py-served, BRIDGE §5)
 
     # --- topic helpers -----------------------------------------------------
 
@@ -151,6 +152,8 @@ class BridgeClient:
                     await client.subscribe(self._status_topic, qos=1)
                     for sub in self._subs:
                         await client.subscribe(sub.full_topic, qos=1)
+                    for query_topic in self._served:
+                        await client.subscribe(query_topic, qos=1)
                     self._connected_event.set()
                     self._log("info", "bridge connected", host=self._host, port=self._port)
                     async for message in client.messages:
@@ -187,6 +190,10 @@ class BridgeClient:
             self._link_online = state == "online"
             if was != self._link_online:
                 self._log("info", "bridge link status", state=state)
+            return
+
+        if topic in self._served:
+            asyncio.create_task(self._handle_query(self._served[topic], payload))
             return
 
         # Keep only the latest frame per topic (BRIDGE §6) for snapshot-on-join.
@@ -232,6 +239,30 @@ class BridgeClient:
         if self._client is not None:
             asyncio.create_task(self._client.subscribe(sub.full_topic, qos=1))
 
+    def serve(self, op: str, handler) -> None:
+        """Serve a LV→Py request on query/{op} (BRIDGE §5). handler(args) -> result
+        (sync or async); the reply goes to the request's payload reply_to + id.
+        Distinct topic class from cmd/+ (which LabVIEW serves)."""
+        full = self._full(f"query/{op}")
+        self._served[full] = handler
+        if self._client is not None:
+            asyncio.create_task(self._client.subscribe(full, qos=1))
+
+    async def _handle_query(self, handler, payload: dict | None) -> None:
+        payload = payload or {}
+        rid = payload.get("id")
+        reply_to = payload.get("reply_to")
+        try:
+            result = handler(payload.get("args", {}))
+            if asyncio.iscoroutine(result):
+                result = await result
+            reply = {"id": rid, "ok": True, "result": result}
+        except Exception as exc:  # noqa: BLE001 — return a structured error, never crash
+            reply = {"id": rid, "ok": False,
+                     "error": {"code": "query_failed", "message": str(exc), "detail": ""}}
+        if reply_to and self._client is not None:
+            await self._client.publish(reply_to, json.dumps(reply), qos=1)
+
     async def request(self, op: str, args: dict, timeout: float | None = None) -> dict:
         """Issue cmd/{op} and await the reply (BRIDGE §5)."""
         if self._client is None:
@@ -253,6 +284,25 @@ class BridgeClient:
             json.dumps({"id": rid, "op": op, "args": args, "reply_to": self._resp_topic}),
             qos=1,
             properties=props,
+        )
+        try:
+            return await asyncio.wait_for(fut, timeout or self._request_timeout)
+        except asyncio.TimeoutError as exc:
+            self._pending.pop(rid, None)
+            raise BridgeTimeout(f"no reply for '{op}' within timeout") from exc
+
+    async def query(self, op: str, args: dict, timeout: float | None = None) -> dict:
+        """Issue a query/{op} to a Python-served handler and await the reply.
+        Same envelope as request(); the counterpart of serve()."""
+        if self._client is None:
+            raise BridgeError("bridge not connected")
+        rid = uuid.uuid4().hex
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[rid] = fut
+        await self._client.publish(
+            self._full(f"query/{op}"),
+            json.dumps({"id": rid, "op": op, "args": args, "reply_to": self._resp_topic}),
+            qos=1,
         )
         try:
             return await asyncio.wait_for(fut, timeout or self._request_timeout)
