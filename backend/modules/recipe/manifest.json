@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "recipe",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Test Recipe",
+    "description": "Authoring, validation, versioning, and the run-start wire shape for test recipes. One shape, pluggable step types."
+  },
+  "entitlement_key": "recipe",
+  "variants": ["filesystem"],
+  "core_dependencies": ["db", "bridge", "config", "auth", "diag", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "/recipes",
+    "mqtt_subscriptions": [],
+    "migrations": null,
+    "frontend_flags": ["recipe.authoring_enabled"]
+  },
+  "config_schema": "schemas/recipe.config.schema.json"
+}

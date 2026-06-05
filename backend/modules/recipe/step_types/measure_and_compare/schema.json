@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/measure_and_compare/params",
+  "type": "object",
+  "required": ["variable", "limits"],
+  "additionalProperties": false,
+  "properties": {
+    "variable":       { "type": "string" },
+    "settle_ms":      { "type": "integer", "minimum": 0, "default": 0 },
+    "samples":        { "type": "integer", "minimum": 1, "default": 1 },
+    "sample_rate_hz": { "type": "number",  "minimum": 1, "default": 100 },
+    "limits":         { "$ref": "tmf:recipe:_common/limits" }
+  }
+}

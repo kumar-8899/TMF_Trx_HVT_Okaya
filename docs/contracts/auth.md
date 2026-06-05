@@ -25,7 +25,8 @@ domain; `*` grants everything. Matching is wildcard-aware
 |---|---|
 | `AUTH.MANAGE_USERS` | Auth user-management API |
 | `TEST.RUN` | runs: run.start/abort |
-| `RECIPE.EDIT` | recipe module |
+| `RECIPE.VIEW` | recipe module (read recipes/step-types) |
+| `RECIPE.EDIT` | recipe module (author/version) |
 | `REPORT.EXPORT` | report module |
 | `MAINTENANCE.CALIBRATE` | maintenance |
 | `DIAGNOSTICS.VIEW` | diagnostics stream |

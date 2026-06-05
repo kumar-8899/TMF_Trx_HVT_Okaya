@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:_common/value_ref",
+  "title": "Number or run-parameter substitution",
+  "oneOf": [
+    { "type": "number" },
+    {
+      "type": "string",
+      "pattern": "^\\$\\{run\\.[a-z_][a-z0-9_]*\\}$"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/group/params",
+  "type": "object",
+  "required": ["inner_steps"],
+  "additionalProperties": false,
+  "properties": {
+    "inner_steps": {
+      "type": "array", "minItems": 1,
+      "items": { "$ref": "tmf:recipe:_common/envelope" }
+    }
+  }
+}

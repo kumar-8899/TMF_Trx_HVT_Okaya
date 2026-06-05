@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/wait/params",
+  "type": "object",
+  "required": ["duration_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "duration_ms": { "type": "integer", "minimum": 0 }
+  }
+}

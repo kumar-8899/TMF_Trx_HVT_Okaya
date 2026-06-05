@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/measure/params",
+  "type": "object",
+  "required": ["variable"],
+  "additionalProperties": false,
+  "properties": {
+    "variable":  { "type": "string" },
+    "samples":   { "type": "integer", "minimum": 1, "default": 1,
+                   "description": "If > 1, returns the mean of N reads at sample_rate_hz." },
+    "sample_rate_hz": { "type": "number", "minimum": 1, "default": 100 },
+    "store_as":  { "type": "string", "pattern": "^[a-z][a-z0-9_]*$",
+                   "description": "Override the store key (defaults to step_id)." }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:_common/condition",
+  "title": "Condition over a Variable Engine variable",
+  "type": "object",
+  "required": ["variable", "op", "value"],
+  "additionalProperties": false,
+  "properties": {
+    "variable": {
+      "type": "string",
+      "description": "Variable name from variables.toml; resolved at run time."
+    },
+    "op": { "enum": ["==", "!=", "<", "<=", ">", ">=", "between"] },
+    "value":  { "type": ["number", "boolean", "string"] },
+    "value2": { "type": "number", "description": "Required when op == 'between'." }
+  },
+  "allOf": [
+    {
+      "if":   { "properties": { "op": { "const": "between" } } },
+      "then": { "required": ["value2"] }
+    }
+  ]
+}

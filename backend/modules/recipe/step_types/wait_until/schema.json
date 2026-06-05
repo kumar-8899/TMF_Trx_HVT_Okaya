@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/wait_until/params",
+  "type": "object",
+  "required": ["condition"],
+  "additionalProperties": false,
+  "properties": {
+    "condition":      { "$ref": "tmf:recipe:_common/condition" },
+    "poll_interval_ms": { "type": "integer", "minimum": 10, "default": 50 }
+  }
+}

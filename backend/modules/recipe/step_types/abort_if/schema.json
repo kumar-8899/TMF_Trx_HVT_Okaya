@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/abort_if/params",
+  "type": "object",
+  "required": ["condition", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "condition": { "$ref": "tmf:recipe:_common/condition" },
+    "reason":    { "type": "string",
+                   "description": "Operator-facing reason; written into the run record." }
+  }
+}

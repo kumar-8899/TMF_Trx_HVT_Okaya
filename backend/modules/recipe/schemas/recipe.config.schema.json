@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe/recipe.config.schema.json",
+  "title": "Recipe module config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "root": { "type": "string", "minLength": 1, "description": "Recipe store root dir." }
+  }
+}

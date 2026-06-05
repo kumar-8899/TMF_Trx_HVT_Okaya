@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/prompt_operator/params",
+  "type": "object",
+  "required": ["title", "message", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "title":   { "type": "string" },
+    "message": { "type": "string" },
+    "kind":    { "enum": ["info", "confirm", "input"] },
+    "options": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "For kind=confirm; defaults to ['OK','Cancel']."
+    },
+    "input_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "type": "string" },
+        "min":     { "type": "number" },
+        "max":     { "type": "number" }
+      },
+      "description": "For kind=input."
+    },
+    "fail_on_cancel": { "type": "boolean", "default": true }
+  }
+}

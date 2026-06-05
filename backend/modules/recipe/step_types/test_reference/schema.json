@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/test_reference/params",
+  "type": "object",
+  "required": ["test_class_id"],
+  "additionalProperties": false,
+  "properties": {
+    "test_class_id": {
+      "type": "string",
+      "description": "Registered test class id; validated against the Sequencer registry at recipe save."
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Free-form key->value passed verbatim to the test class. Constrained only by the test class's own input contract."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": { "$ref": "tmf:recipe:_common/limits" },
+      "description": "Named limits the test class consumes."
+    }
+  }
+}

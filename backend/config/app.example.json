@@ -15,9 +15,9 @@
         "password_policy": { "min_length": 10, "require_mixed_case": true, "require_digit": true },
         "roles": {
           "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*"],
-          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.EDIT", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
-          "engineer": ["TEST.RUN", "RECIPE.EDIT", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
-          "operator": ["TEST.RUN", "REPORT.EXPORT"],
+          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
+          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
+          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.EXPORT"],
           "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW"]
         },
         "users": [
@@ -38,6 +38,11 @@
         },
         "pruning": { "enabled": true, "run_at_hour_utc": 2 }
       }
+    },
+    {
+      "id": "recipe",
+      "variant": "filesystem",
+      "config": { "schema_version": 1, "root": "data/recipes" }
     }
   ]
 }

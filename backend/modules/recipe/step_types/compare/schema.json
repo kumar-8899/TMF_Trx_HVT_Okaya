@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/compare/params",
+  "type": "object",
+  "required": ["source", "limits"],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["variable"],
+          "additionalProperties": false,
+          "properties": { "variable": { "type": "string" } },
+          "description": "Live read from Variable Engine at compare time."
+        },
+        {
+          "type": "object",
+          "required": ["measurement"],
+          "additionalProperties": false,
+          "properties": { "measurement": { "type": "string" } },
+          "description": "Reference an earlier measure step by its store key."
+        }
+      ]
+    },
+    "limits": { "$ref": "tmf:recipe:_common/limits" }
+  }
+}

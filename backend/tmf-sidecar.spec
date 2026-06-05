@@ -26,6 +26,7 @@ datas = list(argon2_datas)
 for pattern in (
     "modules/**/manifest.json",
     "modules/**/schemas/*.json",
+    "modules/**/step_types/**/*.json",
     "core/schemas/*.json",
     "config/*.example.json",
 ):

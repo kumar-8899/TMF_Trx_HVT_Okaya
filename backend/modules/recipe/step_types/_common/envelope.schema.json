@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:_common/envelope",
+  "title": "Step envelope",
+  "type": "object",
+  "required": ["step_id", "step_type"],
+  "additionalProperties": false,
+  "properties": {
+    "step_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Stable identifier within the recipe; appears in run records."
+    },
+    "step_type":       { "type": "string" },
+    "name":            { "type": "string" },
+    "description":     { "type": "string" },
+    "enabled":         { "type": "boolean",  "default": true },
+    "timeout_ms":      { "type": "integer",  "minimum": 0 },
+    "retry_count":     { "type": "integer",  "minimum": 0, "default": 0 },
+    "on_fail":         { "enum": ["stop", "continue", "retry"], "default": "stop" },
+    "safety_critical": { "type": "boolean",  "default": false },
+    "params":          { "type": "object" }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/log_message/params",
+  "type": "object",
+  "required": ["message"],
+  "additionalProperties": false,
+  "properties": {
+    "level":     { "enum": ["debug", "info", "warning", "error"], "default": "info" },
+    "subsystem": { "type": "string", "default": "recipe" },
+    "message":   { "type": "string" },
+    "context":   { "type": "object",
+                   "description": "Free-form key->value attached to the event." }
+  }
+}

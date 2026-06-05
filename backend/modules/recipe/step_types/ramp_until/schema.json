@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/ramp_until/params",
+  "type": "object",
+  "required": ["variable", "start", "end", "step_size", "dwell_ms", "until"],
+  "additionalProperties": false,
+  "properties": {
+    "variable":   { "type": "string", "description": "Output variable to ramp." },
+    "start":      { "type": "number" },
+    "end":        { "type": "number" },
+    "step_size":  { "type": "number", "exclusiveMinimum": 0 },
+    "dwell_ms":   { "type": "integer", "minimum": 0,
+                    "description": "Wait between each write before checking 'until'." },
+    "until":      { "$ref": "tmf:recipe:_common/condition" },
+    "on_no_match":{ "enum": ["fail", "pass_at_end"], "default": "fail",
+                    "description": "What to do if 'end' is reached without meeting 'until'." }
+  }
+}

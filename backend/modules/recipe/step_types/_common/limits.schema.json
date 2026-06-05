@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:_common/limits",
+  "title": "Numeric pass/fail limits",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "min":      { "type": "number" },
+    "max":      { "type": "number" },
+    "expected": { "type": "number", "description": "Nominal value, diagnostics only." }
+  },
+  "anyOf": [
+    { "required": ["min"] },
+    { "required": ["max"] }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/set_output/params",
+  "type": "object",
+  "required": ["variable", "value"],
+  "additionalProperties": false,
+  "properties": {
+    "variable":  { "type": "string", "description": "Variable Engine name." },
+    "value":     { "$ref": "tmf:recipe:_common/value_ref" },
+    "settle_ms": { "type": "integer", "minimum": 0,
+                   "description": "Delay after writing before the step completes." }
+  }
+}
