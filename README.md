@@ -86,4 +86,13 @@ attributed `action_log` records, with cursor-paginated query/stats/delete gated 
 [docs/PHASE2_LOGS_ACCEPTANCE.md](docs/PHASE2_LOGS_ACCEPTANCE.md) and
 [docs/contracts/LOGS.md](docs/contracts/LOGS.md).
 
-Next: Recipe → Report/Analytics → harden Licensing.
+The `recipe` module (Test Recipe) is complete on the Python side (R1–R6): one
+recipe shape with 15 pluggable step types, filesystem versioning (append-only,
+content-hashed) + DB corpus mirror, schema + semantic validation, the
+`query/recipe.fetch` execution wire with `${run.x}` substitution, ZIP
+export/import, and version diff. See
+[docs/PHASE2_RECIPE_ACCEPTANCE.md](docs/PHASE2_RECIPE_ACCEPTANCE.md) and
+[docs/contracts/RECIPE.md](docs/contracts/RECIPE.md). LabVIEW Test Sequencer
+`Execute` VIs are the remaining desk work against the documented contract.
+
+Next: Report / Analytics → harden Licensing.

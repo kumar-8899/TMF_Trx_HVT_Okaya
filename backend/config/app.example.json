@@ -6,6 +6,7 @@
     { "id": "hello", "variant": "default" },
     { "id": "daq",   "variant": "default" },
     { "id": "runs",  "variant": "default" },
+    { "id": "recipe", "variant": "filesystem", "config": { "root": "data/recipes" } },
     {
       "id": "auth",
       "variant": "local_db",

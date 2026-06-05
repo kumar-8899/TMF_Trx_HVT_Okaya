@@ -342,3 +342,74 @@ async def test_recipe_fetch_over_bridge(tmp_path):
         await plat.disconnect()
         await db.close()
         broker.stop()
+
+
+# --- R5: export / import ---------------------------------------------------
+
+
+async def _publish_v1(mod, payload=PAYLOAD):
+    c = await mod.create_recipe(payload)
+    return await mod.publish_draft(payload["recipe_id"], c["draft_id"])
+
+
+async def test_export_import_roundtrip_and_modes(fsmod, tmp_path):
+    mod, db = fsmod
+    await _publish_v1(mod)
+    blob = await mod.export_recipe("inv-c", "all")
+    assert blob[:2] == b"PK"  # a zip
+
+    core2 = CoreServices(db=db, diag=Diagnostics("st2", "0.0.0", sinks=[lambda e: None]), station="st2")
+    mod2 = FilesystemRecipe.construct(core2, {"root": str(tmp_path / "r2")})
+    await mod2.init()
+
+    rep = await mod2.import_bundle(blob, "add")
+    assert rep["imported"][0]["recipe_id"] == "inv-c"
+    assert (await mod2.get_recipe("inv-c"))["version"] == 1
+
+    assert (await mod2.import_bundle(blob, "add"))["skipped"] == ["inv-c"]
+    assert (await mod2.import_bundle(blob, "reject_on_conflict"))["conflicts"] == ["inv-c"]
+    upd = await mod2.import_bundle(blob, "update")
+    assert upd["imported"][0]["versions"] == [2]  # appended, never overwritten
+
+
+# --- R6: diff + polish -----------------------------------------------------
+
+
+async def test_diff_and_summary(fsmod):
+    mod, db = fsmod
+    await _publish_v1(mod)
+    fork = await mod.fork_draft("inv-c")
+    new_steps = PAYLOAD["steps"] + [
+        {"step_id": "settle2", "step_type": "wait", "params": {"duration_ms": 50}}
+    ]
+    await mod.save_draft("inv-c", fork["draft_id"], {**fork["recipe"], "name": "Renamed", "steps": new_steps})
+    await mod.publish_draft("inv-c", fork["draft_id"])
+
+    d = await mod.diff("inv-c", 1, 2)
+    assert "settle2" in d["steps_added"]
+    assert "name" in d["header_changes"]
+
+    rec = await db.repo.get("recipe.version", "inv-c:v2")
+    assert "added" in rec["summary"]  # diff-based summary (RAG hook)
+
+
+async def test_rest_export_diff_import(fsmod):
+    mod, _ = fsmod
+    await _publish_v1(mod)
+    async with await _client(mod) as c:
+        editor = {"Authorization": "Bearer editor"}
+        viewer = {"Authorization": "Bearer viewer"}
+
+        exp = await c.get("/recipes/inv-c/export", headers=viewer)
+        assert exp.status_code == 200 and exp.headers["content-type"] == "application/zip"
+
+        # diff needs a v2
+        fork = await mod.fork_draft("inv-c")
+        await mod.save_draft("inv-c", fork["draft_id"], {**fork["recipe"], "name": "v2"})
+        await mod.publish_draft("inv-c", fork["draft_id"])
+        d = await c.get("/recipes/inv-c/diff?from=1&to=2", headers=viewer)
+        assert d.status_code == 200 and "name" in d.json()["header_changes"]
+
+        # import the exported blob back in update mode
+        imp = await c.post("/recipes/import?mode=update", headers=editor, content=exp.content)
+        assert imp.status_code == 200 and imp.json()["imported"][0]["recipe_id"] == "inv-c"

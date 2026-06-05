@@ -13,7 +13,9 @@ from pathlib import Path
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from modules.recipe import registry as step_registry
+from modules.recipe import export_import as ei
 from modules.recipe.api import build_router
+from modules.recipe.diff import diff_recipes, diff_summary
 from modules.recipe.runtime_params import substitute
 from modules.recipe.storage import (
     RecipeExistsError,
@@ -97,6 +99,7 @@ class FilesystemRecipe:
             out.append({
                 "recipe_id": rid, "name": meta.get("name"), "status": meta.get("status"),
                 "latest_version": meta.get("latest_version", 0), "tags": meta.get("tags", []),
+                "required_role": meta.get("required_role"),
             })
         return out
 
@@ -181,6 +184,7 @@ class FilesystemRecipe:
             "latest_version": n, "status": "active", "name": recipe.get("name", meta["name"]),
             "tags": recipe.get("tags", meta.get("tags", [])),
             "barcode_prefixes": recipe.get("barcode_prefixes", meta.get("barcode_prefixes", [])),
+            "required_role": recipe.get("required_role"),
         })
         self.store.write_meta(recipe_id, meta)
         self.store.remove_draft(recipe_id, draft_id)
@@ -222,10 +226,49 @@ class FilesystemRecipe:
         warnings = check_cross_references(payload)
         return {"ok": not errors, "errors": errors, "warnings": warnings}
 
+    # --- export / import (R5) ----------------------------------------------
+
+    def _source_version(self) -> str:
+        return getattr(self.core.db, "source_version", "0.0.0")
+
+    async def export_recipe(self, recipe_id: str, versions: str = "latest") -> bytes:
+        self.store.read_meta(recipe_id)  # 404 if absent
+        return ei.export_recipe(self.store, recipe_id, versions,
+                                station=self.core.station, source_version=self._source_version())
+
+    async def export_all(self) -> bytes:
+        return ei.export_all(self.store, station=self.core.station,
+                             source_version=self._source_version())
+
+    async def import_bundle(self, data: bytes, mode: str = "add") -> dict:
+        report = ei.import_bundle(self.store, data, mode)
+        for item in report["imported"]:
+            for n in item["versions"]:
+                await self._mirror_db(item["recipe_id"], n, self.store.read_version(item["recipe_id"], n))
+        if report["imported"]:
+            await self._emit_event("recipe-imported", {
+                "recipes": [i["recipe_id"] for i in report["imported"]],
+                "mode": mode, "conflicts": report["conflicts"],
+            })
+        self.core.diag.info("recipe", "import", mode=mode,
+                            imported=len(report["imported"]), skipped=len(report["skipped"]),
+                            conflicts=len(report["conflicts"]))
+        return report
+
     # --- corpus + events ---------------------------------------------------
 
+    async def diff(self, recipe_id: str, from_v: int, to_v: int) -> dict:
+        old = self.store.read_version(recipe_id, from_v)
+        new = self.store.read_version(recipe_id, to_v)
+        return diff_recipes(old, new)
+
     async def _mirror_db(self, recipe_id: str, n: int, recipe: dict) -> None:
-        summary = f"Saved v{n} of '{recipe.get('name', recipe_id)}'"
+        name = recipe.get("name", recipe_id)
+        if n > 1 and (n - 1) in self.store.list_versions(recipe_id):
+            d = diff_recipes(self.store.read_version(recipe_id, n - 1), recipe)
+            summary = diff_summary(d, n, name)  # RAG hook (RECIPE §9)
+        else:
+            summary = f"Created v{n} of '{name}'"
         await self.core.db.repo.put("recipe.version", recipe, id=f"{recipe_id}:v{n}", summary=summary)
 
     async def _emit_event(self, kind: str, payload: dict) -> None:

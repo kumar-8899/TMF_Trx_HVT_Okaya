@@ -6,7 +6,7 @@ lands in R2. Errors are RFC-7807 via web.py.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from core.services.security import require_permission
 from modules.recipe.registry import StepTypeError
@@ -51,6 +51,16 @@ def build_router(module) -> APIRouter:
     async def by_barcode(barcode: str) -> dict:
         return await _guard(module.get_by_barcode(barcode))
 
+    @router.get("/export-all", dependencies=_VIEW)
+    async def export_all() -> Response:
+        data = await module.export_all()
+        return Response(content=data, media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="recipes-all.zip"'})
+
+    @router.post("/import", dependencies=_EDIT)
+    async def import_recipes(request: Request, mode: str = "add") -> dict:
+        return await _guard(module.import_bundle(await request.body(), mode))
+
     @router.get("/{recipe_id}", dependencies=_VIEW)
     async def get_recipe(recipe_id: str) -> dict:
         return await _guard(module.get_recipe(recipe_id))
@@ -93,5 +103,15 @@ def build_router(module) -> APIRouter:
     async def validate(recipe_id: str, n: int, station: str | None = None) -> dict:
         recipe = await _guard(module.get_recipe(recipe_id, version=n))
         return module.validate(recipe, station=station)
+
+    @router.get("/{recipe_id}/export", dependencies=_VIEW)
+    async def export_recipe(recipe_id: str, versions: str = "latest") -> Response:
+        data = await _guard(module.export_recipe(recipe_id, versions))
+        return Response(content=data, media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="recipe-{recipe_id}.zip"'})
+
+    @router.get("/{recipe_id}/diff", dependencies=_VIEW)
+    async def diff(recipe_id: str, from_: int = Query(..., alias="from"), to: int = 0) -> dict:
+        return await _guard(module.diff(recipe_id, from_, to))
 
     return router
