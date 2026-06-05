@@ -265,3 +265,42 @@ async def test_rest_delete_gated_purge(ctx):
         d = await c.delete("/logs/errors?before=9999999999", headers=admin)
         assert d.status_code == 200 and d.json()["deleted"] == 1
         assert (await c.get("/logs/errors", headers=viewer)).json()["items"] == []
+
+
+# --- L5: run-event subscriber + pruning ------------------------------------
+
+
+async def test_run_event_becomes_action(ctx):
+    mod, _, _ = ctx
+    await mod._on_event("tmf/st1/event/run-started", {"type": "run-started", "ts": 1.0,
+                                                      "payload": {"run_id": "R1"}})
+    await mod._on_event("tmf/st1/event/step-completed", {"type": "step-completed", "ts": 1.1,
+                                                         "payload": {"run_id": "R1"}})
+    acts = (await mod.query_actions())["items"]
+    assert len(acts) == 1  # only run-* mapped; step-* ignored
+    assert acts[0]["data"]["action"] == "run.start"
+    assert acts[0]["data"]["user"] == "controller"
+    assert acts[0]["data"]["target"] == "R1"
+
+
+def test_prune_decision_pure():
+    from modules.logs.variants.db import _prune_decision
+    rows = [{"ts": float(i)} for i in range(10)]  # ts 0..9
+    # keep newest 2, only delete beyond max_days; max_days huge -> nothing old
+    assert _prune_decision(rows, max_days=3650, max_records=2, now=100.0) is None
+    # max_days 0 -> all older; floor keeps 2 -> delete 8 (ts < rows[8].ts == 8.0)
+    assert _prune_decision(rows, max_days=0, max_records=2, now=100.0) == 8.0
+    # floor >= count -> nothing
+    assert _prune_decision(rows, max_days=0, max_records=20, now=100.0) is None
+
+
+async def test_prune_once_honors_caps(ctx):
+    _, core, db = ctx
+    mod = DbLogs.construct(core, {"retention": {"error_log": {"max_days": 0, "max_records": 2}}})
+    for i in range(5):
+        await db.repo.put("error_log", {"level": "error", "subsystem": "daq",
+                                        "message": f"e{i}", "source": "python"}, summary="e")
+        await asyncio.sleep(0.01)
+    deleted = await mod.prune_once()
+    assert deleted["error_log"] == 3
+    assert len(await db.repo.query("error_log")) == 2  # newest kept

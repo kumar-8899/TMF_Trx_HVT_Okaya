@@ -7,13 +7,34 @@ implements record_action and the cursor-paginated queries. REST (L4) and pruning
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
+import time
+from datetime import datetime, timedelta, timezone
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.auth_verify import Principal
 from modules.logs.api import build_router
 from modules.logs.contract import LEVEL_ORDER, Page
 from modules.logs.sink import LogsDiagSink
+
+# LabVIEW run-lifecycle events -> action names (LOGS §6.3 / addendum).
+_RUN_ACTION = {"run-started": "run.start", "run-finished": "run.complete", "run-aborted": "run.abort"}
+# Run actions arrive from the controller, not a logged-in user.
+_SYSTEM = Principal("controller", role="system", permissions=frozenset())
+
+
+def _prune_decision(rows: list[dict], max_days: int, max_records: int, now: float) -> float | None:
+    """Return a `before_ts` to delete, honoring: oldest-first, only beyond
+    max_days, and never below max_records. None = nothing to prune."""
+    max_deletable = max(0, len(rows) - max_records)
+    if max_deletable == 0:
+        return None
+    age_cutoff = now - max_days * 86400
+    older = [r for r in rows if r["ts"] < age_cutoff]
+    n = min(len(older), max_deletable)
+    return rows[n]["ts"] if n > 0 else None
 
 
 def _encode_cursor(ts: float, id_: str) -> str:
@@ -41,9 +62,12 @@ class DbLogs:
             dedup_enabled=dedup.get("enabled", True),
             window_s=dedup.get("window_s", 10.0),
         )
+        self._retention = config.get("retention", {})
+        self._pruning = config.get("pruning", {})
+        self._prune_task: asyncio.Task | None = None
         self.router = build_router(self)
-        # caller 2: LabVIEW diag over MQTT (station-relative topic, our tree).
-        self.mqtt_handlers = [("diag", self._on_lv_diag)]
+        # caller 2: LabVIEW diag over MQTT; run events -> action_log (our tree).
+        self.mqtt_handlers = [("diag", self._on_lv_diag), ("event/#", self._on_event)]
 
     @classmethod
     def construct(cls, core: CoreServices, config: dict) -> "DbLogs":
@@ -60,8 +84,15 @@ class DbLogs:
 
     async def start(self) -> None:
         await self._sink.start()
+        if self._pruning.get("enabled", True) and self._retention:
+            self._prune_task = asyncio.create_task(self._prune_loop(), name="logs-prune")
 
     async def stop(self) -> None:
+        if self._prune_task is not None:
+            self._prune_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._prune_task
+            self._prune_task = None
         await self._sink.stop()
 
     async def health(self) -> Health:
@@ -70,6 +101,17 @@ class DbLogs:
     def _on_lv_diag(self, _topic: str, payload: dict | None) -> None:
         if payload:
             self._sink.receive(payload, source=f"labview:{self.station}")
+
+    async def _on_event(self, topic: str, payload: dict | None) -> None:
+        if not payload:
+            return
+        etype = payload.get("type") or topic.rsplit("/", 1)[-1]
+        action = _RUN_ACTION.get(etype)
+        if action is None:
+            return
+        body = payload.get("payload", {}) or {}
+        run_id = body.get("run_id") or body.get("id") or ""
+        await self.record_action(_SYSTEM, action, run_id, "success", {"event": etype})
 
     # --- actions (LOGS §5) -------------------------------------------------
 
@@ -163,3 +205,32 @@ class DbLogs:
 
     async def delete_actions(self, before: float) -> int:
         return await self.core.db.repo.delete("action_log", before)
+
+    # --- retention / pruning (LOGS §8) -------------------------------------
+
+    async def prune_once(self) -> dict:
+        deleted: dict[str, int] = {}
+        now = time.time()
+        for rtype, ret in self._retention.items():
+            rows = await self.core.db.repo.query(rtype)  # ts asc
+            before = _prune_decision(
+                rows, ret.get("max_days", 3650), ret.get("max_records", 10**9), now
+            )
+            if before is not None:
+                deleted[rtype] = await self.core.db.repo.delete(rtype, before)
+        return deleted
+
+    async def _prune_loop(self) -> None:
+        hour = self._pruning.get("run_at_hour_utc", 2)
+        while True:
+            await asyncio.sleep(self._seconds_until_hour(hour))
+            with contextlib.suppress(Exception):
+                await self.prune_once()
+
+    @staticmethod
+    def _seconds_until_hour(hour: int) -> float:
+        now = datetime.now(timezone.utc)
+        target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        return max(60.0, (target - now).total_seconds())

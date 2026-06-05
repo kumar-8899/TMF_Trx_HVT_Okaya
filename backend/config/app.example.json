@@ -24,6 +24,20 @@
           { "username": "admin", "password": "admin", "role": "super_admin" }
         ]
       }
+    },
+    {
+      "id": "logs",
+      "variant": "db",
+      "config": {
+        "schema_version": 1,
+        "persist": { "min_level": "warning", "subsystems": [] },
+        "dedup": { "enabled": true, "window_s": 10 },
+        "retention": {
+          "error_log":  { "max_days": 90,  "max_records": 500000 },
+          "action_log": { "max_days": 365, "max_records": 1000000 }
+        },
+        "pruning": { "enabled": true, "run_at_hour_utc": 2 }
+      }
     }
   ]
 }

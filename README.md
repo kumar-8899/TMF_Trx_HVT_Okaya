@@ -79,4 +79,11 @@ Known gap: the PyInstaller sidecar needs a packaging fix to run frozen
 (dynamically-discovered modules + argon2 not yet bundled) — see the acceptance
 doc. Auth UI is a later frontend phase.
 
-Next: Logs → Recipe → Report/Analytics → harden Licensing.
+The `logs` module (Action & Error Logs) is also complete: persists the diag bus
+to durable, queryable `error_log` records (single sink + dedup/coalescing) and
+attributed `action_log` records, with cursor-paginated query/stats/delete gated on
+`DIAGNOSTICS.VIEW`/`DIAGNOSTICS.PURGE` and config-driven retention/pruning. See
+[docs/PHASE2_LOGS_ACCEPTANCE.md](docs/PHASE2_LOGS_ACCEPTANCE.md) and
+[docs/contracts/LOGS.md](docs/contracts/LOGS.md).
+
+Next: Recipe → Report/Analytics → harden Licensing.
