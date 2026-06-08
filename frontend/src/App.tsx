@@ -5,7 +5,6 @@ import { useAuth } from "./auth/AuthContext";
 import { RequirePermission } from "./auth/RequirePermission";
 import { Layout } from "./components/Layout";
 import { ChangePassword } from "./screens/ChangePassword";
-import { ComingSoon } from "./screens/ComingSoon";
 import { Daq } from "./screens/Daq";
 import { Dashboard } from "./screens/Dashboard";
 import { Logs } from "./screens/Logs";
@@ -14,6 +13,7 @@ import { RecipeDetail } from "./screens/RecipeDetail";
 import { RecipeEditor } from "./screens/RecipeEditor";
 import { Recipes } from "./screens/Recipes";
 import { Runs } from "./screens/Runs";
+import { Users } from "./screens/Users";
 
 function Protected() {
   const { principal, loading, mustChangePassword } = useAuth();
@@ -47,7 +47,7 @@ export function App() {
           <Route path="/daq" element={<Daq />} />
           <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><Runs /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
-          <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><ComingSoon name="Users" /></RequirePermission>} />
+          <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
