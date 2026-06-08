@@ -6,12 +6,14 @@ import { RequirePermission } from "./auth/RequirePermission";
 import { Layout } from "./components/Layout";
 import { ChangePassword } from "./screens/ChangePassword";
 import { ComingSoon } from "./screens/ComingSoon";
+import { Daq } from "./screens/Daq";
 import { Dashboard } from "./screens/Dashboard";
 import { Logs } from "./screens/Logs";
 import { Login } from "./screens/Login";
 import { RecipeDetail } from "./screens/RecipeDetail";
 import { RecipeEditor } from "./screens/RecipeEditor";
 import { Recipes } from "./screens/Recipes";
+import { Runs } from "./screens/Runs";
 
 function Protected() {
   const { principal, loading, mustChangePassword } = useAuth();
@@ -42,6 +44,8 @@ export function App() {
           <Route path="/recipes/new" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
           <Route path="/recipes/:id" element={<RequirePermission perm="RECIPE.VIEW"><RecipeDetail /></RequirePermission>} />
           <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
+          <Route path="/daq" element={<Daq />} />
+          <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><Runs /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><ComingSoon name="Users" /></RequirePermission>} />
         </Route>

@@ -11,7 +11,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      ...Object.fromEntries(proxied.map((p) => [p, API])),
+      // ws:true is harmless on REST paths and required for the stream/event
+      // WebSocket endpoints under /instruments, /diagnostics, /ws.
+      ...Object.fromEntries(proxied.map((p) => [p, { target: API, ws: true }])),
       "/ws": { target: API, ws: true },
     },
   },

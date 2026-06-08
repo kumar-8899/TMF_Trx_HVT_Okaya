@@ -16,6 +16,8 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { label: "Dashboard", to: "/" },
+  { label: "DAQ", to: "/daq" },
+  { label: "Runs", to: "/runs", perm: "TEST.RUN" },
   { label: "Recipes", to: "/recipes", perm: "RECIPE.VIEW" },
   { label: "Logs", to: "/logs", perm: "DIAGNOSTICS.VIEW" },
   { label: "Users", to: "/users", perm: "AUTH.MANAGE_USERS" },
