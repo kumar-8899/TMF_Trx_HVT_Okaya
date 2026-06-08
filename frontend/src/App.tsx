@@ -7,6 +7,7 @@ import { Layout } from "./components/Layout";
 import { ChangePassword } from "./screens/ChangePassword";
 import { ComingSoon } from "./screens/ComingSoon";
 import { Dashboard } from "./screens/Dashboard";
+import { Logs } from "./screens/Logs";
 import { Login } from "./screens/Login";
 
 function Protected() {
@@ -35,7 +36,7 @@ export function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/recipes" element={<RequirePermission perm="RECIPE.VIEW"><ComingSoon name="Recipes" /></RequirePermission>} />
-          <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><ComingSoon name="Logs" /></RequirePermission>} />
+          <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><ComingSoon name="Users" /></RequirePermission>} />
         </Route>
       </Route>

@@ -7,8 +7,10 @@ export function mockFetch(routes: Record<string, Route>) {
   globalThis.fetch = vi.fn(async (url: any, opts: any = {}) => {
     const method = (opts.method || "GET").toUpperCase();
     const path = String(url);
-    const key = `${method} ${path}`;
-    const route = routes[key] ?? routes[path];
+    const bare = path.split("?")[0];
+    const route =
+      routes[`${method} ${path}`] ?? routes[path] ??
+      routes[`${method} ${bare}`] ?? routes[bare];
     const status = route?.status ?? (route ? 200 : 404);
     const body = route?.body ?? null;
     return {
