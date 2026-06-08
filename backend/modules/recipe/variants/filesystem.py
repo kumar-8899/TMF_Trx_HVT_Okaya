@@ -83,7 +83,9 @@ class FilesystemRecipe:
             for rec in step_registry.all_types().values()
         ]
 
-    def get_step_schema(self, type_id: str) -> dict:
+    def get_step_schema(self, type_id: str, resolved: bool = False) -> dict:
+        if resolved:
+            return self._schemas.resolved_schema(type_id)
         return step_registry.get(type_id).schema
 
     # --- discovery (R2) ----------------------------------------------------

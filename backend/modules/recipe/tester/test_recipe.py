@@ -301,6 +301,16 @@ async def test_validate_endpoint(fsmod):
         assert bad.status_code == 200 and bad.json()["ok"] is False
 
 
+async def test_resolved_step_schema_for_ui(fsmod):
+    # F3b: $ref-resolved schemas so the UI can render forms.
+    mod, _ = fsmod
+    mc = mod.get_step_schema("measure_and_compare", resolved=True)
+    assert "$ref" not in str(mc)  # all refs inlined
+    assert mc["properties"]["limits"]["properties"]["min"]["type"] == "number"
+    rep = mod.get_step_schema("repeat", resolved=True)
+    assert rep["properties"]["inner_steps"]["items"] == {"x-steps": True}  # nested step list marker
+
+
 # --- R4: execution wire (Python half) --------------------------------------
 
 

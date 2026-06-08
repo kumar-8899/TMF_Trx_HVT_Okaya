@@ -35,9 +35,9 @@ def build_router(module) -> APIRouter:
         return module.list_step_types()
 
     @router.get("/step-types/{type_id}/schema", dependencies=_VIEW)
-    async def step_schema(type_id: str) -> dict:
+    async def step_schema(type_id: str, resolved: bool = False) -> dict:
         try:
-            return module.get_step_schema(type_id)
+            return module.get_step_schema(type_id, resolved=resolved)
         except StepTypeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

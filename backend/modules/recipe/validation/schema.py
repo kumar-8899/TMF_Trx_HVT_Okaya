@@ -35,11 +35,33 @@ class SchemaSet:
         for rec in step_registry.all_types().values():
             resources.append((rec.schema["$id"], DRAFT202012.create_resource(rec.schema)))
         self.registry = Registry().with_resources(resources)
+        self._by_id = {rid: res.contents for rid, res in resources}
         self._envelope = Draft202012Validator(_ENVELOPE_REF, registry=self.registry)
         self._params = {
             tid: Draft202012Validator(rec.schema, registry=self.registry)
             for tid, rec in step_registry.all_types().items()
         }
+
+    def resolved_schema(self, type_id: str) -> dict:
+        """A self-contained params schema with $refs inlined, so a UI can render a
+        form from it. The recursive `_common/envelope` ref (composite inner_steps)
+        is replaced with an {"x-steps": true} marker instead of being inlined."""
+        rec = step_registry.get(type_id)
+
+        def resolve(node):
+            if isinstance(node, dict):
+                ref = node.get("$ref")
+                if ref is not None:
+                    if ref.endswith("envelope"):
+                        return {"x-steps": True}  # nested step list (composite)
+                    target = self._by_id.get(ref, {})
+                    return resolve({k: v for k, v in target.items() if k not in ("$id", "$schema")})
+                return {k: resolve(v) for k, v in node.items()}
+            if isinstance(node, list):
+                return [resolve(v) for v in node]
+            return node
+
+        return resolve({k: v for k, v in rec.schema.items() if k != "$schema"})
 
     def validate_step(self, step: dict) -> list[str]:
         """Return a list of human-readable errors ([] = valid)."""
