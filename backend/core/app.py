@@ -46,6 +46,15 @@ def create_app(
         diag = Diagnostics(station, __version__)
         diag.start()
 
+        drift = config.example_only_modules()
+        if drift:
+            diag.warning(
+                "config",
+                "live app.json is missing modules present in app.example.json; "
+                "delete config/app.json to regenerate it",
+                missing=drift,
+            )
+
         db = Database(db_path, station=station, source_version=__version__)
         await db.connect()
 

@@ -94,6 +94,24 @@ class ConfigService:
         data = self.load_json(live)
         return self.validate(data, self.schemas_dir / "license.schema.json", what="license")
 
+    def example_only_modules(self, name: str = "app") -> list[str]:
+        """Module ids present in <name>.example.json but missing from the live
+        <name>.json. ensure_live never refreshes an existing live file, so this
+        surfaces stale live config after new modules are added."""
+        live = self.config_dir / f"{name}.json"
+        example = self.config_dir / f"{name}.example.json"
+        if not live.exists() or not example.exists():
+            return []
+
+        def ids(path: Path) -> set[str]:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return set()
+            return {m.get("id") for m in data.get("modules", []) if m.get("id")}
+
+        return sorted(ids(example) - ids(live))
+
     def load_module(self, module_id: str, raw: dict, schema_path: Path | str | None) -> dict:
         """Validate a single module's config block against its declared schema."""
         if schema_path is None:

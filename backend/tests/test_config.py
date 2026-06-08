@@ -39,6 +39,19 @@ def test_missing_file_is_loud(config_dir):
         cfg.load_json(config_dir / "nope.json")
 
 
+def test_example_only_modules_detects_drift(config_dir):
+    cfg = ConfigService(config_dir)
+    # live missing entirely -> nothing to compare
+    assert cfg.example_only_modules() == []
+    # stale live app.json with only hello; example has more
+    (config_dir / "app.json").write_text(
+        json.dumps({"schema_version": 1, "station": "st1", "license": "config/license.json",
+                    "modules": [{"id": "hello", "variant": "default"}]})
+    )
+    drift = cfg.example_only_modules()
+    assert "auth" in drift and "logs" in drift and "hello" not in drift
+
+
 def test_load_module_validates_against_schema(config_dir, tmp_path):
     schema = tmp_path / "m.schema.json"
     schema.write_text(
