@@ -61,6 +61,11 @@ def build_router(module) -> APIRouter:
     async def import_recipes(request: Request, mode: str = "add") -> dict:
         return await _guard(module.import_bundle(await request.body(), mode))
 
+    @router.post("/validate", dependencies=_VIEW)
+    async def validate_payload(body: dict, station: str | None = None) -> dict:
+        # Validate an arbitrary (draft) payload before publishing.
+        return module.validate(body, station=station)
+
     @router.get("/{recipe_id}", dependencies=_VIEW)
     async def get_recipe(recipe_id: str) -> dict:
         return await _guard(module.get_recipe(recipe_id))

@@ -293,6 +293,13 @@ async def test_validate_endpoint(fsmod):
         r = await c.post("/recipes/inv-c/versions/1/validate", headers=v)
         assert r.status_code == 200 and r.json()["ok"] is True
 
+        # validate an arbitrary draft payload (pre-publish)
+        good = await c.post("/recipes/validate", headers=v, json=PAYLOAD)
+        assert good.status_code == 200 and good.json()["ok"] is True
+        bad = await c.post("/recipes/validate", headers=v,
+                           json={**PAYLOAD, "steps": [{"step_id": "w", "step_type": "wait", "params": {}}]})
+        assert bad.status_code == 200 and bad.json()["ok"] is False
+
 
 # --- R4: execution wire (Python half) --------------------------------------
 

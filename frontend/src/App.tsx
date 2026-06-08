@@ -9,6 +9,9 @@ import { ComingSoon } from "./screens/ComingSoon";
 import { Dashboard } from "./screens/Dashboard";
 import { Logs } from "./screens/Logs";
 import { Login } from "./screens/Login";
+import { RecipeDetail } from "./screens/RecipeDetail";
+import { RecipeEditor } from "./screens/RecipeEditor";
+import { Recipes } from "./screens/Recipes";
 
 function Protected() {
   const { principal, loading, mustChangePassword } = useAuth();
@@ -35,7 +38,10 @@ export function App() {
         <Route path="/change-password" element={<ChangePassword />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/recipes" element={<RequirePermission perm="RECIPE.VIEW"><ComingSoon name="Recipes" /></RequirePermission>} />
+          <Route path="/recipes" element={<RequirePermission perm="RECIPE.VIEW"><Recipes /></RequirePermission>} />
+          <Route path="/recipes/new" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
+          <Route path="/recipes/:id" element={<RequirePermission perm="RECIPE.VIEW"><RecipeDetail /></RequirePermission>} />
+          <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><ComingSoon name="Users" /></RequirePermission>} />
         </Route>
