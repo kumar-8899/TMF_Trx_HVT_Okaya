@@ -77,9 +77,14 @@ async def test_list_filters(ctx):
 # --- REST ------------------------------------------------------------------
 
 
+_PRINCIPALS = {
+    "viewer": Principal("v", role="viewer", permissions=frozenset({"REPORT.VIEW"})),
+    "exporter": Principal("e", role="engineer", permissions=frozenset({"REPORT.VIEW", "REPORT.EXPORT"})),
+}
+
+
 def _client(mod, core):
-    core.auth.register(lambda t: Principal("v", role="viewer", permissions=frozenset({"REPORT.VIEW"}))
-                       if t == "viewer" else _raise())
+    core.auth.register(lambda t: _PRINCIPALS[t] if t in _PRINCIPALS else _raise())
     app = FastAPI()
     app.state.auth = core.auth
     app.include_router(mod.router, prefix="/reports")
@@ -175,3 +180,27 @@ async def test_analytics_rest(ctx):
     async with _client(mod, core) as c:
         r = await c.get("/reports/analytics", headers={"Authorization": "Bearer viewer"})
         assert r.status_code == 200 and r.json()["yield"] == 100.0
+
+
+# --- RP4: export -----------------------------------------------------------
+
+
+async def test_export_gated_and_formats(ctx):
+    mod, core, db = ctx
+    await _seed_run(db, "R1", "PASS")
+    await _finish(mod, "R1", "PASS")
+    async with _client(mod, core) as c:
+        viewer = {"Authorization": "Bearer viewer"}
+        exporter = {"Authorization": "Bearer exporter"}
+        # REPORT.VIEW is not enough to export
+        assert (await c.get("/reports/R1/export", headers=viewer)).status_code == 403
+
+        j = await c.get("/reports/R1/export?format=json", headers=exporter)
+        assert j.status_code == 200 and j.headers["content-type"].startswith("application/json")
+        assert j.json()["run_id"] == "R1"
+
+        csv = await c.get("/reports/R1/export?format=csv", headers=exporter)
+        assert csv.status_code == 200 and csv.headers["content-type"].startswith("text/csv")
+        assert csv.text.startswith("run_id,result,recipe_id")
+
+        assert (await c.get("/reports/none/export", headers=exporter)).status_code == 404

@@ -28,12 +28,12 @@ class FolderSink:
         out_dir.mkdir(parents=True, exist_ok=True)
         target = out_dir / f"{report['run_id']}.{self.fmt}"
         if self.fmt == "csv":
-            target.write_text(_to_csv(report), encoding="utf-8")
+            target.write_text(report_to_csv(report), encoding="utf-8")
         else:
             target.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def _to_csv(report: dict) -> str:
+def report_to_csv(report: dict) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["run_id", "result", "recipe_id", "step_id", "name", "value", "units"])

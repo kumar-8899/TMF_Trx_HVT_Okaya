@@ -7,9 +7,12 @@ RP1: sqlite sink + assembly + queries. Folder sink + routing (RP2), analytics
 from __future__ import annotations
 
 from core.framework.contract import CoreServices, Health, HealthStatus
+import json
+
 from modules.report.api import build_router
 from modules.report.assembly import build_report, result_is_pass
 from modules.report.sinks import build_sinks, when_matches
+from modules.report.sinks.folder import report_to_csv
 
 
 class StandardReport:
@@ -79,6 +82,14 @@ class StandardReport:
                 continue
             items.append(d)
         return {"items": items[:limit], "next_cursor": None, "total": len(items)}
+
+    async def export(self, run_id: str, fmt: str = "json") -> bytes:
+        report = await self.get_report(run_id)
+        if report is None:
+            raise KeyError(run_id)
+        if fmt == "csv":
+            return report_to_csv(report).encode("utf-8")
+        return json.dumps(report, indent=2).encode("utf-8")
 
     async def analytics(self, since: float | None = None, until: float | None = None,
                         recipe_id: str | None = None) -> dict:

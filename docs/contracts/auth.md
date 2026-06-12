@@ -27,7 +27,8 @@ domain; `*` grants everything. Matching is wildcard-aware
 | `TEST.RUN` | runs: run.start/abort |
 | `RECIPE.VIEW` | recipe module (read recipes/step-types) |
 | `RECIPE.EDIT` | recipe module (author/version) |
-| `REPORT.EXPORT` | report module |
+| `REPORT.VIEW` | report module (read reports/analytics) |
+| `REPORT.EXPORT` | report module (export reports) |
 | `MAINTENANCE.CALIBRATE` | maintenance |
 | `DIAGNOSTICS.VIEW` | diagnostics stream |
 | `DOMAIN.*` | all actions in a domain |

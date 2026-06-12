@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from core.services.security import require_permission
 
 _VIEW = [Depends(require_permission("REPORT.VIEW"))]
+_EXPORT = [Depends(require_permission("REPORT.EXPORT"))]
 
 
 def build_router(module) -> APIRouter:
@@ -32,5 +33,15 @@ def build_router(module) -> APIRouter:
         if report is None:
             raise HTTPException(status_code=404, detail=f"no report for run '{run_id}'")
         return report
+
+    @router.get("/{run_id}/export", dependencies=_EXPORT)
+    async def export_report(run_id: str, format: str = "json") -> Response:
+        try:
+            data = await module.export(run_id, format)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"no report for run '{run_id}'") from exc
+        media = "text/csv" if format == "csv" else "application/json"
+        return Response(content=data, media_type=media,
+                        headers={"Content-Disposition": f'attachment; filename="report-{run_id}.{format}"'})
 
     return router
