@@ -102,3 +102,47 @@ async def test_rest(ctx):
         assert (await c.get("/reports/none", headers=v)).status_code == 404
         lst = await c.get("/reports", headers=v)
         assert lst.status_code == 200 and lst.json()["total"] == 1
+
+
+# --- RP2: folder sink + routing --------------------------------------------
+
+
+async def test_folder_sink_routes_by_result(tmp_path):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    root = tmp_path / "rep"
+    cfg = {"sinks": [
+        {"type": "sqlite", "when": "all"},
+        {"type": "folder", "when": "pass", "path": str(root), "format": "json"},
+        {"type": "folder", "when": "fail", "path": str(root), "format": "csv"},
+    ]}
+    mod = StandardReport.construct(core, cfg)
+    try:
+        await _seed_run(db, "R1", "PASS")
+        await _finish(mod, "R1", "PASS")
+        await _seed_run(db, "R2", "FAIL")
+        await _finish(mod, "R2", "FAIL")
+
+        assert (root / "PASS" / "R1.json").exists()
+        assert not (root / "FAIL" / "R1.csv").exists()      # pass didn't hit the fail sink
+        assert (root / "FAIL" / "R2.csv").exists()
+        assert not (root / "PASS" / "R2.json").exists()
+        # sqlite always
+        assert await mod.get_report("R1") and await mod.get_report("R2")
+        csv_text = (root / "FAIL" / "R2.csv").read_text()
+        assert csv_text.startswith("run_id,result,recipe_id")
+    finally:
+        await db.close()
+
+
+def test_mysql_sink_fails_loud():
+    from modules.report.sinks import build_sinks
+    with pytest.raises(ValueError, match="mysql"):
+        build_sinks({"sinks": [{"type": "mysql"}]}, None)
+
+
+def test_sqlite_forced_present():
+    from modules.report.sinks import build_sinks
+    sinks = build_sinks({"sinks": [{"type": "folder", "when": "all", "path": "x"}]}, db=None)
+    assert any(getattr(s, "method_id", None) == "sqlite" for s in sinks)

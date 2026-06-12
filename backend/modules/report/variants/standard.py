@@ -9,8 +9,7 @@ from __future__ import annotations
 from core.framework.contract import CoreServices, Health, HealthStatus
 from modules.report.api import build_router
 from modules.report.assembly import build_report, result_is_pass
-from modules.report.sinks import when_matches
-from modules.report.sinks.sqlite import SqliteSink
+from modules.report.sinks import build_sinks, when_matches
 
 
 class StandardReport:
@@ -18,8 +17,8 @@ class StandardReport:
         self.core = core
         self.config = config
         self.station = core.station
-        # RP1: sqlite system-of-record only. RP2 builds the full list from config.
-        self._sinks = [SqliteSink(core.db)]
+        # Config-driven sinks; sqlite system-of-record is always forced present.
+        self._sinks = build_sinks(config, core.db)
         self.router = build_router(self)
         self.mqtt_handlers = [("event/#", self._on_event)]
 
