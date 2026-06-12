@@ -146,3 +146,32 @@ def test_sqlite_forced_present():
     from modules.report.sinks import build_sinks
     sinks = build_sinks({"sinks": [{"type": "folder", "when": "all", "path": "x"}]}, db=None)
     assert any(getattr(s, "method_id", None) == "sqlite" for s in sinks)
+
+
+# --- RP3: analytics --------------------------------------------------------
+
+
+async def test_analytics(ctx):
+    mod, _, db = ctx
+    for rid, res, recipe in [("R1", "PASS", "a"), ("R2", "FAIL", "a"), ("R3", "PASS", "b")]:
+        await _seed_run(db, rid, res, recipe=recipe)
+        await _finish(mod, rid, res)
+
+    a = await mod.analytics()
+    assert a["total"] == 3 and a["passed"] == 2 and a["failed"] == 1
+    assert a["yield"] == round(200 / 3, 2)
+    assert a["by_recipe"]["a"] == {"total": 2, "passed": 1, "failed": 1}
+    assert a["by_recipe"]["b"]["passed"] == 1
+    assert a["by_result"] == {"PASS": 2, "FAIL": 1}
+
+    only_a = await mod.analytics(recipe_id="a")
+    assert only_a["total"] == 2
+
+
+async def test_analytics_rest(ctx):
+    mod, core, db = ctx
+    await _seed_run(db, "R1", "PASS")
+    await _finish(mod, "R1", "PASS")
+    async with _client(mod, core) as c:
+        r = await c.get("/reports/analytics", headers={"Authorization": "Bearer viewer"})
+        assert r.status_code == 200 and r.json()["yield"] == 100.0

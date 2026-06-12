@@ -21,6 +21,11 @@ def build_router(module) -> APIRouter:
         return await module.list_reports(since=since, until=until, recipe_id=recipe_id,
                                           result=result, limit=limit, cursor=cursor)
 
+    @router.get("/analytics", dependencies=_VIEW)
+    async def analytics(since: float | None = None, until: float | None = None,
+                        recipe_id: str | None = None) -> dict:
+        return await module.analytics(since=since, until=until, recipe_id=recipe_id)
+
     @router.get("/{run_id}", dependencies=_VIEW)
     async def get_report(run_id: str) -> dict:
         report = await module.get_report(run_id)

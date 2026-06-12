@@ -79,3 +79,28 @@ class StandardReport:
                 continue
             items.append(d)
         return {"items": items[:limit], "next_cursor": None, "total": len(items)}
+
+    async def analytics(self, since: float | None = None, until: float | None = None,
+                        recipe_id: str | None = None) -> dict:
+        rows = await self.core.db.repo.query("report", since=since, until=until)
+        total = passed = failed = 0
+        by_recipe: dict[str, dict] = {}
+        by_result: dict[str, int] = {}
+        for r in rows:
+            d = r["data"]
+            if recipe_id is not None and d.get("recipe_id") != recipe_id:
+                continue
+            total += 1
+            res = str(d.get("result", "UNKNOWN"))
+            by_result[res] = by_result.get(res, 0) + 1
+            is_pass = result_is_pass(res)
+            passed, failed = (passed + 1, failed) if is_pass else (passed, failed + 1)
+            rc = by_recipe.setdefault(d.get("recipe_id") or "(none)",
+                                      {"total": 0, "passed": 0, "failed": 0})
+            rc["total"] += 1
+            rc["passed" if is_pass else "failed"] += 1
+        return {
+            "total": total, "passed": passed, "failed": failed,
+            "yield": round(100 * passed / total, 2) if total else 0.0,
+            "by_recipe": by_recipe, "by_result": by_result,
+        }
