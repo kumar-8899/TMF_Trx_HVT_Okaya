@@ -12,6 +12,7 @@ import { Login } from "./screens/Login";
 import { RecipeDetail } from "./screens/RecipeDetail";
 import { RecipeEditor } from "./screens/RecipeEditor";
 import { Recipes } from "./screens/Recipes";
+import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
 import { Users } from "./screens/Users";
 
@@ -46,6 +47,7 @@ export function App() {
           <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
           <Route path="/daq" element={<Daq />} />
           <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><Runs /></RequirePermission>} />
+          <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
         </Route>

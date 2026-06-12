@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { label: "DAQ", to: "/daq" },
   { label: "Runs", to: "/runs", perm: "TEST.RUN" },
   { label: "Recipes", to: "/recipes", perm: "RECIPE.VIEW" },
+  { label: "Reports", to: "/reports", perm: "REPORT.VIEW" },
   { label: "Logs", to: "/logs", perm: "DIAGNOSTICS.VIEW" },
   { label: "Users", to: "/users", perm: "AUTH.MANAGE_USERS" },
 ];
