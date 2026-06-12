@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "report",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Report & Analytics",
+    "description": "Assembles run reports and routes them to configurable sinks (SQLite system-of-record + folder/MySQL mirrors); analytics over run results."
+  },
+  "entitlement_key": "report",
+  "variants": ["standard"],
+  "core_dependencies": ["db", "bridge", "config", "auth", "diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "/reports",
+    "mqtt_subscriptions": ["event/#"],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": null
+}
