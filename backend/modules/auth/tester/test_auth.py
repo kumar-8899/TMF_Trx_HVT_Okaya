@@ -223,6 +223,43 @@ async def test_user_management_errors(ctx):
         assert weak.status_code == 422
 
 
+async def test_super_admin_protected(ctx):
+    module, _, _ = ctx
+    from modules.auth.users import ProtectedUserError
+    with pytest.raises(ProtectedUserError):
+        await module.deactivate("admin")
+    with pytest.raises(ProtectedUserError):
+        await module.lock("admin")
+    with pytest.raises(ProtectedUserError):
+        await module.set_user_role("admin", "operator")
+    # non-protected users are unaffected
+    await module.deactivate("op")
+    assert (await module.users.get("op"))["state"] == "INACTIVE"
+
+
+async def test_super_admin_singleton(ctx):
+    module, _, _ = ctx
+    from modules.auth.users import ProtectedUserError
+    with pytest.raises(ProtectedUserError):
+        await module.create_user("admin2", "Password12", "super_admin")
+    with pytest.raises(ProtectedUserError):
+        await module.set_user_role("op", "super_admin")
+
+
+async def test_super_admin_self_heals_on_boot(ctx):
+    module, _, _ = ctx
+    await module.users.set_state("admin", "INACTIVE")   # simulate the accident
+    assert (await module.users.get("admin"))["state"] == "INACTIVE"
+    await module.init()                                  # reboot path
+    assert (await module.users.get("admin"))["state"] == "ACTIVE"
+
+
+async def test_super_admin_password_reset_still_allowed(ctx):
+    module, _, _ = ctx
+    r = await module.admin_reset_password("admin")       # password op is the exception
+    assert "temp_password" in r
+
+
 async def test_user_management_permission_gated(ctx):
     module, core, _ = ctx
     async with _client(module, core) as c:

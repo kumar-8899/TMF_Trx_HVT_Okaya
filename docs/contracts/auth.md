@@ -42,6 +42,15 @@ Modules gate routes with `require_permission(*perms)` from
 customer adds a role by editing config, no code change. Default roles:
 `super_admin, admin, engineer, operator, maintenance`.
 
+### Protected `super_admin` (singleton)
+`super_admin` is a protected singleton — the always-available root account:
+- **Exactly one** user may hold it; creating a second, or promoting another user
+  to `super_admin`, is rejected (403).
+- **Only its password may change** (change-password / admin reset). Lock,
+  unlock, activate, deactivate, and role-change are rejected (403).
+- **Self-heals on boot**: if it is ever found LOCKED/INACTIVE, the module forces
+  it back to ACTIVE at startup — it can never be left locked out.
+
 ## Locked rules
 - **Permissions, not roles**, across module boundaries.
 - **Resolve-at-login**: permission set computed once, on the Principal.

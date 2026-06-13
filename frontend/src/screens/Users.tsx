@@ -89,7 +89,7 @@ export function Users() {
                     <TextField size="small" variant="standard" value={roles[u.username] ?? ""}
                       onChange={(e) => setRoles({ ...roles, [u.username]: e.target.value })}
                       inputProps={{ "aria-label": `role-${u.username}` }} />
-                    <Button size="small" onClick={() =>
+                    <Button size="small" disabled={u.role === "super_admin"} onClick={() =>
                       act(() => api.put(`/auth/users/${u.username}/role`, { role: roles[u.username] }), "role updated")}>
                       Set
                     </Button>
@@ -98,12 +98,13 @@ export function Users() {
                 <TableCell><Chip size="small" label={u.state} color={STATE_COLOR[u.state] ?? "default"} /></TableCell>
                 <TableCell>
                   <Stack direction="row" spacing={1}>
+                    {/* super_admin is protected: only its password may change */}
                     {u.state === "LOCKED"
-                      ? <Button size="small" onClick={() => act(() => api.post(`/auth/users/${u.username}/unlock`), "unlocked")}>Unlock</Button>
-                      : <Button size="small" onClick={() => act(() => api.post(`/auth/users/${u.username}/lock`), "locked")}>Lock</Button>}
+                      ? <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/unlock`), "unlocked")}>Unlock</Button>
+                      : <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/lock`), "locked")}>Lock</Button>}
                     {u.state === "INACTIVE"
-                      ? <Button size="small" onClick={() => act(() => api.post(`/auth/users/${u.username}/activate`), "activated")}>Activate</Button>
-                      : <Button size="small" onClick={() => act(() => api.post(`/auth/users/${u.username}/deactivate`), "deactivated")}>Deactivate</Button>}
+                      ? <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/activate`), "activated")}>Activate</Button>
+                      : <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/deactivate`), "deactivated")}>Deactivate</Button>}
                     <Button size="small" onClick={() => reset(u.username)}>Reset pw</Button>
                   </Stack>
                 </TableCell>

@@ -21,8 +21,10 @@ from modules.auth.users import (
     LOCKED,
     LOGIN_BLOCKED,
     PASSWORD_RESET_REQUIRED,
+    PROTECTED_ROLE,
     CredentialStore,
     DuplicateUser,
+    ProtectedUserError,
     UserNotFound,
     UserStore,
 )
@@ -72,6 +74,13 @@ class LocalDbAuth:
             if entry.get("password"):
                 await self.creds.set(username, "password", {"argon2_hash": hash_password(entry["password"])})
             self.core.diag.info("auth", "user seeded", user=username, role=entry["role"])
+
+        # Self-heal: the super_admin singleton must never be left disabled — force
+        # it back to ACTIVE on boot (recovers an accidental deactivate/lock).
+        for u in await self.users.list():
+            if u.get("role") == PROTECTED_ROLE and u.get("state") in LOGIN_BLOCKED:
+                await self.users.set_state(u["username"], ACTIVE)
+                self.core.diag.warning("auth", "super_admin re-activated on boot", user=u["username"])
 
     # --- permission resolution (at login) ----------------------------------
 
@@ -143,9 +152,14 @@ class LocalDbAuth:
     async def get_user(self, username: str) -> dict:
         return await self._require_user(username)
 
+    async def _count_protected(self) -> int:
+        return sum(1 for u in await self.users.list() if u.get("role") == PROTECTED_ROLE)
+
     async def create_user(self, username: str, password: str, role: str) -> dict:
         if await self.users.exists(username):
             raise DuplicateUser(username)
+        if role == PROTECTED_ROLE and await self._count_protected() >= 1:
+            raise ProtectedUserError(f"a {PROTECTED_ROLE} already exists (singleton role)")
         self.policy.validate(password)
         user = await self.users.create(username, role)
         await self.creds.set(username, "password", {"argon2_hash": hash_password(password)})
@@ -153,13 +167,19 @@ class LocalDbAuth:
         return user
 
     async def set_user_role(self, username: str, role: str) -> dict:
-        await self._require_user(username)
+        user = await self._require_user(username)
+        if user["role"] == PROTECTED_ROLE:
+            raise ProtectedUserError(f"cannot change the {PROTECTED_ROLE}'s role")
+        if role == PROTECTED_ROLE:
+            raise ProtectedUserError(f"{PROTECTED_ROLE} is a singleton; cannot promote")
         user = await self.users.set_role(username, role)
         self.core.diag.info("auth", "user role changed", user=username, role=role)
         return user
 
     async def _set_state(self, username: str, state: str, event: str, revoke: bool) -> dict:
-        await self._require_user(username)
+        user = await self._require_user(username)
+        if user["role"] == PROTECTED_ROLE:
+            raise ProtectedUserError(f"{event} not allowed on the {PROTECTED_ROLE}")
         user = await self.users.set_state(username, state)
         if revoke:
             await self.sessions.revoke_user(username)

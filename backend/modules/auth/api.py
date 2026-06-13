@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from core.services.auth_verify import AuthError
 from core.services.security import require_permission
 from modules.auth.policy import PolicyError
-from modules.auth.users import DuplicateUser, UserNotFound
+from modules.auth.users import DuplicateUser, ProtectedUserError, UserNotFound
 
 
 async def _mgmt(coro):
@@ -15,6 +15,8 @@ async def _mgmt(coro):
         return await coro
     except DuplicateUser as exc:
         raise HTTPException(status_code=409, detail=f"user exists: {exc}") from exc
+    except ProtectedUserError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except UserNotFound as exc:
         raise HTTPException(status_code=404, detail=f"no user: {exc}") from exc
     except PolicyError as exc:

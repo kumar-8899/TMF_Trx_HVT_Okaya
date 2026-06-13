@@ -16,6 +16,10 @@ PASSWORD_RESET_REQUIRED = "PASSWORD_RESET_REQUIRED"
 
 LOGIN_BLOCKED = {LOCKED, INACTIVE}
 
+# The protected singleton role: exactly one user, always ACTIVE, only its password
+# may be changed. Cannot be deactivated/locked/role-changed; cannot be a second one.
+PROTECTED_ROLE = "super_admin"
+
 
 class DuplicateUser(Exception):
     """Username already exists. Maps to HTTP 409."""
@@ -23,6 +27,10 @@ class DuplicateUser(Exception):
 
 class UserNotFound(Exception):
     """Unknown username. Maps to HTTP 404."""
+
+
+class ProtectedUserError(Exception):
+    """Disallowed change to the protected super_admin user. Maps to HTTP 403."""
 
 
 class UserStore:
