@@ -17,12 +17,24 @@ function SignalCard({ signal }: { signal: "ai" | "di" }) {
   const { can } = useAuth();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // How many channels to acquire (ai0..ai{n-1}) and the sample rate (Hz). Both
+  // are sent to LabVIEW in the start command: daq.{signal}.stream.start
+  // { rate?, channels? } (LABVIEW_BRIDGE.md §5.1). Blank = let LabVIEW decide.
+  const [channels, setChannels] = useState("1");
+  const [rate, setRate] = useState("");
   const { last, status } = useStream<Frame>(running ? `/instruments/daq/${signal}/stream/ws` : null);
 
   const toggle = async (action: "start" | "stop") => {
     setError(null);
     try {
-      await api.post(`/instruments/daq/${signal}/stream/${action}`, {});
+      const args: Record<string, number> = {};
+      if (action === "start") {
+        const n = parseInt(channels, 10);
+        const r = parseFloat(rate);
+        if (Number.isFinite(n) && n > 0) args.channels = n;
+        if (Number.isFinite(r) && r > 0) args.rate = r;
+      }
+      await api.post(`/instruments/daq/${signal}/stream/${action}`, args);
       setRunning(action === "start");
     } catch (e: any) {
       setError(e.message);
@@ -37,7 +49,15 @@ function SignalCard({ signal }: { signal: "ai" | "di" }) {
           color={status === "open" ? "success" : "default"} />
       </Stack>
       {can("TEST.RUN") && (
-        <Stack direction="row" spacing={1} sx={{ my: 1 }}>
+        <Stack direction="row" spacing={1} sx={{ my: 1 }} alignItems="center">
+          <TextField size="small" type="number" label="channels" value={channels}
+            disabled={running} sx={{ width: 100 }}
+            inputProps={{ min: 1, "aria-label": `${signal}-channels` }}
+            onChange={(e) => setChannels(e.target.value)} />
+          <TextField size="small" type="number" label="rate (Hz)" value={rate}
+            disabled={running} sx={{ width: 100 }}
+            inputProps={{ min: 0, "aria-label": `${signal}-rate` }}
+            onChange={(e) => setRate(e.target.value)} />
           <Button size="small" variant="contained" disabled={running} onClick={() => toggle("start")}>Start</Button>
           <Button size="small" variant="outlined" disabled={!running} onClick={() => toggle("stop")}>Stop</Button>
         </Stack>
