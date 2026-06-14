@@ -1,6 +1,7 @@
 """daq standalone tester (CORE.md §6.2) — streaming. Core + daq + stub bridge."""
 
 import asyncio
+import threading
 
 import httpx
 import pytest
@@ -21,6 +22,10 @@ class FakeBridge:
         self.requests = []
         self._latest = {}
         self.replies = {}  # op -> reply dict
+        # An unpicklable member: mirrors the real bridge/db graph (sqlite3 conn).
+        # Guards the regression where a route leaked a bound-method default and
+        # FastAPI deep-copied module->core->bridge per request (TypeError -> 500).
+        self._unpicklable = threading.Lock()
 
     async def request(self, op, args, timeout=None):
         self.requests.append((op, args))
@@ -169,6 +174,24 @@ async def test_variable_write_sends_command():
 
 def _client(app):
     return httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t")
+
+
+async def test_stream_rest_start_stop():
+    # Regression: the start/stop routes must not leak a bound-method param
+    # default. FastAPI deep-copies handler defaults per request; with the bridge
+    # carrying an unpicklable member (FakeBridge._unpicklable) the old code would
+    # crash with TypeError -> 500 here.
+    app, module, bridge = _app()
+    async with _client(app) as c:
+        r = await c.post("/instruments/daq/ai/stream/start", json={"rate": 1000})
+        assert r.status_code == 200 and r.json()["ok"] is True
+        assert bridge.requests[-1] == ("daq.ai.stream.start", {"rate": 1000})
+        assert module.is_running("ai") is True
+
+        s = await c.post("/instruments/daq/ai/stream/stop")
+        assert s.status_code == 200
+        assert bridge.requests[-1] == ("daq.ai.stream.stop", {})
+        assert module.is_running("ai") is False
 
 
 async def test_variable_rest_read_and_write():
