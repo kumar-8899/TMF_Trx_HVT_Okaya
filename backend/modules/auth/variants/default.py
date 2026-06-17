@@ -9,7 +9,7 @@ audit diagnostics.
 from __future__ import annotations
 
 from core.framework.contract import CoreServices, Health, HealthStatus
-from core.services.auth_verify import AuthError
+from core.services.auth_verify import AuthError, permission_granted
 from modules.auth.api import build_router
 from modules.auth.authenticators import make_authenticator
 from modules.auth.authenticators.password import hash_password, verify_password
@@ -87,6 +87,28 @@ class LocalDbAuth:
     def _resolve_permissions(self, role: str) -> list[str]:
         return sorted(set(self.roles.get(role, [])))
 
+    # --- role assignment policy --------------------------------------------
+
+    def _is_elevated(self, role: str) -> bool:
+        """A role that can itself manage users (e.g. admin). Only super_admin may
+        grant these — keeps an admin from minting more admins."""
+        return permission_granted(frozenset(self.roles.get(role, [])), "AUTH.MANAGE_USERS")
+
+    def list_assignable_roles(self, viewer_role: str) -> list[str]:
+        """Roles the viewer may assign when creating/editing a user.
+        - super_admin is never assignable (protected singleton).
+        - user-management roles are assignable only by super_admin."""
+        viewer_is_super = viewer_role == PROTECTED_ROLE
+        out = [
+            role for role in self.roles
+            if role != PROTECTED_ROLE and (viewer_is_super or not self._is_elevated(role))
+        ]
+        return sorted(out)
+
+    def _check_assignable(self, role: str, viewer_role: str) -> None:
+        if role not in self.list_assignable_roles(viewer_role):
+            raise ProtectedUserError(f"role '{role}' is not assignable by your account")
+
     # --- contract ----------------------------------------------------------
 
     async def login(self, username: str, credential: dict) -> dict:
@@ -140,8 +162,12 @@ class LocalDbAuth:
 
     # --- user management (gated AUTH.MANAGE_USERS in the router) ------------
 
-    async def list_users(self) -> list[dict]:
-        return await self.users.list()  # user records carry no secret
+    async def list_users(self, viewer_role: str = PROTECTED_ROLE) -> list[dict]:
+        # super_admin accounts are visible only to a super_admin viewer.
+        users = await self.users.list()  # user records carry no secret
+        if viewer_role != PROTECTED_ROLE:
+            users = [u for u in users if u.get("role") != PROTECTED_ROLE]
+        return users
 
     async def _require_user(self, username: str) -> dict:
         user = await self.users.get(username)
@@ -149,29 +175,30 @@ class LocalDbAuth:
             raise UserNotFound(username)
         return user
 
-    async def get_user(self, username: str) -> dict:
-        return await self._require_user(username)
-
-    async def _count_protected(self) -> int:
-        return sum(1 for u in await self.users.list() if u.get("role") == PROTECTED_ROLE)
-
-    async def create_user(self, username: str, password: str, role: str) -> dict:
-        if await self.users.exists(username):
-            raise DuplicateUser(username)
-        if role == PROTECTED_ROLE and await self._count_protected() >= 1:
-            raise ProtectedUserError(f"a {PROTECTED_ROLE} already exists (singleton role)")
-        self.policy.validate(password)
-        user = await self.users.create(username, role)
-        await self.creds.set(username, "password", {"argon2_hash": hash_password(password)})
-        self.core.diag.info("auth", "user created", user=username, role=role)
+    async def get_user(self, username: str, viewer_role: str = PROTECTED_ROLE) -> dict:
+        user = await self._require_user(username)
+        # Hide the super_admin account from non-super_admin viewers (as if absent).
+        if user["role"] == PROTECTED_ROLE and viewer_role != PROTECTED_ROLE:
+            raise UserNotFound(username)
         return user
 
-    async def set_user_role(self, username: str, role: str) -> dict:
+    async def create_user(self, username: str, role: str, viewer_role: str = PROTECTED_ROLE) -> dict:
+        """Create a user with a generated temporary password; the account starts in
+        PASSWORD_RESET_REQUIRED so the user must change it on first login."""
+        if await self.users.exists(username):
+            raise DuplicateUser(username)
+        self._check_assignable(role, viewer_role)  # ProtectedUserError -> 403
+        temp = generate_temp_password()
+        user = await self.users.create(username, role, state=PASSWORD_RESET_REQUIRED)
+        await self.creds.set(username, "password", {"argon2_hash": hash_password(temp)})
+        self.core.diag.info("auth", "user created", user=username, role=role)
+        return {**user, "temp_password": temp}
+
+    async def set_user_role(self, username: str, role: str, viewer_role: str = PROTECTED_ROLE) -> dict:
         user = await self._require_user(username)
         if user["role"] == PROTECTED_ROLE:
             raise ProtectedUserError(f"cannot change the {PROTECTED_ROLE}'s role")
-        if role == PROTECTED_ROLE:
-            raise ProtectedUserError(f"{PROTECTED_ROLE} is a singleton; cannot promote")
+        self._check_assignable(role, viewer_role)  # rejects super_admin + un-grantable roles
         user = await self.users.set_role(username, role)
         self.core.diag.info("auth", "user role changed", user=username, role=role)
         return user

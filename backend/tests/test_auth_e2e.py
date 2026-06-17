@@ -34,10 +34,13 @@ async def test_auth_active_login_me_and_gate(config_dir):
             assert (await c.get("/auth/users")).status_code == 401
             assert (await c.get("/auth/users", headers=admin)).status_code == 200
 
+            # create issues a temp password; the new user logs in with it
             created = await c.post("/auth/users", headers=admin,
-                                   json={"username": "op", "password": "Operator12", "role": "operator"})
+                                   json={"username": "op", "role": "operator"})
             assert created.status_code == 201
-            op_login = await c.post("/auth/login", json={"username": "op", "credential": {"password": "Operator12"}})
+            temp = created.json()["temp_password"]
+            op_login = await c.post("/auth/login", json={"username": "op", "credential": {"password": temp}})
+            assert op_login.json()["principal"]["must_change_password"] is True
             op = {"Authorization": f"Bearer {op_login.json()['token']}"}
             assert (await c.get("/auth/users", headers=op)).status_code == 403
 

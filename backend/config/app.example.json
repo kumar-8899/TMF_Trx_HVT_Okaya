@@ -12,7 +12,7 @@
       "config": {
         "authenticator": "password",
         "session_ttl_min": 480,
-        "password_policy": { "min_length": 10, "require_mixed_case": true, "require_digit": true },
+        "password_policy": { "min_length": 5 },
         "roles": {
           "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*"],
           "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],

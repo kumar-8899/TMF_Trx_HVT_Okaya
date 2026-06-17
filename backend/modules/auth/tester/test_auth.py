@@ -10,7 +10,7 @@ from core.services.auth_verify import AuthError, TokenVerifier
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
 from modules.auth.policy import PolicyError
-from modules.auth.users import LOCKED, PASSWORD_RESET_REQUIRED
+from modules.auth.users import LOCKED, PASSWORD_RESET_REQUIRED, ProtectedUserError
 from modules.auth.variants.default import LocalDbAuth
 
 USERS = [
@@ -29,8 +29,13 @@ async def _build(authenticator="password", users=USERS):
     config = {
         "authenticator": authenticator,
         "session_ttl_min": 480,
-        "password_policy": {"min_length": 8},
-        "roles": {"super_admin": ["AUTH.*", "TEST.*"], "operator": ["TEST.RUN"]},
+        "password_policy": {"min_length": 5},
+        "roles": {
+            "super_admin": ["AUTH.*", "TEST.*"],
+            "admin": ["AUTH.MANAGE_USERS", "TEST.RUN"],
+            "engineer": ["TEST.RUN"],
+            "operator": ["TEST.RUN"],
+        },
         "users": users,
     }
     module = LocalDbAuth.construct(core, config)
@@ -118,10 +123,13 @@ async def test_reset_state_forces_change_then_clears(ctx):
 
 
 async def test_change_password_policy_enforced(ctx):
+    # Policy is now just a minimum length of 5 (complexity rules removed).
     module, _, _ = ctx
     res = await module.login("op", {"password": "oppass12"})
     with pytest.raises(PolicyError):
-        await module.change_password(res["token"], "oppass12", "short")
+        await module.change_password(res["token"], "oppass12", "ab")  # < 5 chars
+    # a 5+ char password with no complexity is accepted
+    await module.change_password(res["token"], "oppass12", "abcde")
 
 
 async def test_no_auth_authenticator_accepts_anything():
@@ -182,31 +190,38 @@ async def test_user_management_full_flow(ctx):
     async with _client(module, core) as c:
         admin = await _bearer(c, "admin", "admin123")
 
-        # create
+        # create — no password supplied; the server returns a temp password and
+        # the account starts in PASSWORD_RESET_REQUIRED (must change on first login)
         created = await c.post("/auth/users", headers=admin,
-                               json={"username": "bob", "password": "bobpass12", "role": "operator"})
+                               json={"username": "bob", "role": "operator"})
         assert created.status_code == 201
+        temp = created.json()["temp_password"]
+        assert temp
 
         # list + get
         listed = await c.get("/auth/users", headers=admin)
         assert "bob" in [u["username"] for u in listed.json()]
         assert (await c.get("/auth/users/bob", headers=admin)).json()["role"] == "operator"
 
+        # first login with the temp password forces a change
+        first = await c.post("/auth/login", json={"username": "bob", "credential": {"password": temp}})
+        assert first.status_code == 200 and first.json()["principal"]["must_change_password"] is True
+
         # assign role
         rr = await c.put("/auth/users/bob/role", headers=admin, json={"role": "engineer"})
         assert rr.json()["role"] == "engineer"
 
-        # lock -> bob cannot login; unlock -> can
+        # lock -> bob cannot login; unlock -> can (still on the temp password)
         await c.post("/auth/users/bob/lock", headers=admin)
-        assert (await c.post("/auth/login", json={"username": "bob", "credential": {"password": "bobpass12"}})).status_code == 401
+        assert (await c.post("/auth/login", json={"username": "bob", "credential": {"password": temp}})).status_code == 401
         await c.post("/auth/users/bob/unlock", headers=admin)
-        assert (await c.post("/auth/login", json={"username": "bob", "credential": {"password": "bobpass12"}})).status_code == 200
+        assert (await c.post("/auth/login", json={"username": "bob", "credential": {"password": temp}})).status_code == 200
 
-        # reset-password -> temp returned, RESET state, old password dead
+        # reset-password -> new temp returned, still forces a change
         reset = await c.post("/auth/users/bob/reset-password", headers=admin, json={})
-        temp = reset.json()["temp_password"]
-        assert temp
-        relog = await c.post("/auth/login", json={"username": "bob", "credential": {"password": temp}})
+        temp2 = reset.json()["temp_password"]
+        assert temp2
+        relog = await c.post("/auth/login", json={"username": "bob", "credential": {"password": temp2}})
         assert relog.status_code == 200 and relog.json()["principal"]["must_change_password"] is True
 
 
@@ -214,13 +229,51 @@ async def test_user_management_errors(ctx):
     module, core, _ = ctx
     async with _client(module, core) as c:
         admin = await _bearer(c, "admin", "admin123")
-        dup = await c.post("/auth/users", headers=admin,
-                           json={"username": "admin", "password": "whatever1", "role": "operator"})
+        dup = await c.post("/auth/users", headers=admin, json={"username": "admin", "role": "operator"})
         assert dup.status_code == 409
         assert (await c.get("/auth/users/ghost", headers=admin)).status_code == 404
-        weak = await c.post("/auth/users", headers=admin,
-                            json={"username": "x", "password": "short", "role": "operator"})
-        assert weak.status_code == 422
+        missing_role = await c.post("/auth/users", headers=admin, json={"username": "x"})
+        assert missing_role.status_code == 422
+        # super_admin is never assignable (singleton)
+        forbidden = await c.post("/auth/users", headers=admin,
+                                 json={"username": "y", "role": "super_admin"})
+        assert forbidden.status_code == 403
+
+
+async def test_create_issues_temp_password_and_state(ctx):
+    module, _, _ = ctx
+    res = await module.create_user("carol", "operator")
+    assert res["temp_password"] and len(res["temp_password"]) >= 8
+    assert (await module.users.get("carol"))["state"] == PASSWORD_RESET_REQUIRED
+
+
+async def test_assignable_roles_scoped_by_viewer(ctx):
+    module, _, _ = ctx
+    # super_admin can assign anything but the singleton super_admin
+    assert module.list_assignable_roles("super_admin") == ["admin", "engineer", "operator"]
+    # admin cannot grant user-management roles (admin) or the singleton
+    assert module.list_assignable_roles("admin") == ["engineer", "operator"]
+
+
+async def test_admin_cannot_create_or_promote_to_admin(ctx):
+    module, _, _ = ctx
+    with pytest.raises(ProtectedUserError):
+        await module.create_user("eve", "admin", viewer_role="admin")
+    # but super_admin can
+    res = await module.create_user("eve", "admin", viewer_role="super_admin")
+    assert res["role"] == "admin"
+
+
+async def test_super_admin_visible_only_to_super_admin(ctx):
+    module, _, _ = ctx
+    # super_admin viewer sees the admin account; operator viewer does not
+    assert any(u["role"] == "super_admin" for u in await module.list_users("super_admin"))
+    assert all(u["role"] != "super_admin" for u in await module.list_users("operator"))
+    # and it is hidden on direct fetch too
+    from modules.auth.users import UserNotFound
+    with pytest.raises(UserNotFound):
+        await module.get_user("admin", viewer_role="operator")
+    assert (await module.get_user("admin", viewer_role="super_admin"))["role"] == "super_admin"
 
 
 async def test_super_admin_protected(ctx):
@@ -239,9 +292,8 @@ async def test_super_admin_protected(ctx):
 
 async def test_super_admin_singleton(ctx):
     module, _, _ = ctx
-    from modules.auth.users import ProtectedUserError
     with pytest.raises(ProtectedUserError):
-        await module.create_user("admin2", "Password12", "super_admin")
+        await module.create_user("admin2", "super_admin")   # not assignable, even by super_admin
     with pytest.raises(ProtectedUserError):
         await module.set_user_role("op", "super_admin")
 

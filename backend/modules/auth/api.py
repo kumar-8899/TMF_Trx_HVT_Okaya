@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from core.services.auth_verify import AuthError
+from core.services.auth_verify import AuthError, Principal
 from core.services.security import require_permission
 from modules.auth.policy import PolicyError
 from modules.auth.users import DuplicateUser, ProtectedUserError, UserNotFound
@@ -70,46 +70,52 @@ def build_router(module) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # --- user management — all gated on AUTH.MANAGE_USERS -------------------
-    manage = [Depends(require_permission("AUTH.MANAGE_USERS"))]
+    # The dependency returns the requesting Principal, so handlers can scope by
+    # the viewer's role (super_admin visibility + role-assignment rules).
+    manage = Depends(require_permission("AUTH.MANAGE_USERS"))
 
-    @router.get("/auth/users", dependencies=manage)
-    async def list_users() -> list[dict]:
-        return await module.list_users()
+    @router.get("/auth/users")
+    async def list_users(principal: Principal = manage) -> list[dict]:
+        return await module.list_users(principal.role)
 
-    @router.post("/auth/users", dependencies=manage, status_code=201)
-    async def create_user(body: dict) -> dict:
+    @router.get("/auth/roles")
+    async def list_roles(principal: Principal = manage) -> list[str]:
+        return module.list_assignable_roles(principal.role)
+
+    @router.post("/auth/users", status_code=201)
+    async def create_user(body: dict, principal: Principal = manage) -> dict:
         if not body.get("username") or not body.get("role"):
             raise HTTPException(status_code=422, detail="username and role required")
-        return await _mgmt(module.create_user(body["username"], body.get("password", ""), body["role"]))
+        return await _mgmt(module.create_user(body["username"], body["role"], principal.role))
 
-    @router.get("/auth/users/{name}", dependencies=manage)
-    async def get_user(name: str) -> dict:
-        return await _mgmt(module.get_user(name))
+    @router.get("/auth/users/{name}")
+    async def get_user(name: str, principal: Principal = manage) -> dict:
+        return await _mgmt(module.get_user(name, principal.role))
 
-    @router.put("/auth/users/{name}/role", dependencies=manage)
-    async def set_role(name: str, body: dict) -> dict:
+    @router.put("/auth/users/{name}/role")
+    async def set_role(name: str, body: dict, principal: Principal = manage) -> dict:
         if not body.get("role"):
             raise HTTPException(status_code=422, detail="role required")
-        return await _mgmt(module.set_user_role(name, body["role"]))
+        return await _mgmt(module.set_user_role(name, body["role"], principal.role))
 
-    @router.post("/auth/users/{name}/lock", dependencies=manage)
-    async def lock(name: str) -> dict:
+    @router.post("/auth/users/{name}/lock")
+    async def lock(name: str, principal: Principal = manage) -> dict:
         return await _mgmt(module.lock(name))
 
-    @router.post("/auth/users/{name}/unlock", dependencies=manage)
-    async def unlock(name: str) -> dict:
+    @router.post("/auth/users/{name}/unlock")
+    async def unlock(name: str, principal: Principal = manage) -> dict:
         return await _mgmt(module.unlock(name))
 
-    @router.post("/auth/users/{name}/activate", dependencies=manage)
-    async def activate(name: str) -> dict:
+    @router.post("/auth/users/{name}/activate")
+    async def activate(name: str, principal: Principal = manage) -> dict:
         return await _mgmt(module.activate(name))
 
-    @router.post("/auth/users/{name}/deactivate", dependencies=manage)
-    async def deactivate(name: str) -> dict:
+    @router.post("/auth/users/{name}/deactivate")
+    async def deactivate(name: str, principal: Principal = manage) -> dict:
         return await _mgmt(module.deactivate(name))
 
-    @router.post("/auth/users/{name}/reset-password", dependencies=manage)
-    async def reset_password(name: str, body: dict | None = None) -> dict:
+    @router.post("/auth/users/{name}/reset-password")
+    async def reset_password(name: str, body: dict | None = None, principal: Principal = manage) -> dict:
         temp = (body or {}).get("temp_password")
         return await _mgmt(module.admin_reset_password(name, temp))
 
