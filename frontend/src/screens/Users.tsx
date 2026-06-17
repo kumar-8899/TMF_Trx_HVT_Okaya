@@ -1,10 +1,13 @@
+import { Add, LockReset, PersonAdd } from "@mui/icons-material";
 import {
-  Alert, Button, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, Typography,
+  Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Table,
+  TableBody, TableCell, TableHead, TableRow, TextField, Tooltip,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { EmptyState, PageHeader, Section, StatusChip, statusKind } from "../components/ui";
+import { MONO_STACK } from "../theme/theme";
 
 interface User {
   username: string;
@@ -12,20 +15,14 @@ interface User {
   state: string;
 }
 
-const STATE_COLOR: Record<string, "success" | "warning" | "error" | "default"> = {
-  ACTIVE: "success",
-  PASSWORD_RESET_REQUIRED: "warning",
-  LOCKED: "error",
-  INACTIVE: "default",
-};
+const PROTECTED = "super_admin";
 
 export function Users() {
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  // new-user form
+  const [createOpen, setCreateOpen] = useState(false);
   const [nu, setNu] = useState({ username: "", password: "", role: "operator" });
 
   const refresh = () =>
@@ -45,6 +42,7 @@ export function Users() {
   const create = () => act(async () => {
     await api.post("/auth/users", nu);
     setNu({ username: "", password: "", role: "operator" });
+    setCreateOpen(false);
   }, "user created");
 
   const reset = (name: string) => act(async () => {
@@ -53,67 +51,90 @@ export function Users() {
   });
 
   return (
-    <Stack spacing={2}>
-      <Typography variant="h5">Users</Typography>
-      {error && <Alert severity="error">{error}</Alert>}
-      {notice && <Alert severity="info">{notice}</Alert>}
+    <div>
+      <PageHeader
+        title="Users"
+        subtitle="Accounts, roles, and access state"
+        actions={
+          <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateOpen(true)}>
+            New user
+          </Button>
+        }
+      />
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {notice && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
 
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="h6">New user</Typography>
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }} alignItems="center">
-          <TextField size="small" label="username" value={nu.username}
-            onChange={(e) => setNu({ ...nu, username: e.target.value })} />
-          <TextField size="small" label="password" type="password" value={nu.password}
-            onChange={(e) => setNu({ ...nu, password: e.target.value })} />
-          <TextField size="small" label="role" value={nu.role}
-            onChange={(e) => setNu({ ...nu, role: e.target.value })} />
-          <Button variant="contained" onClick={create}
-            disabled={!nu.username || !nu.password}>Create</Button>
-        </Stack>
-      </Paper>
-
-      <Paper>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Username</TableCell><TableCell>Role</TableCell>
-              <TableCell>State</TableCell><TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {users.map((u) => (
-              <TableRow key={u.username}>
-                <TableCell>{u.username}</TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <TextField size="small" variant="standard" value={roles[u.username] ?? ""}
-                      onChange={(e) => setRoles({ ...roles, [u.username]: e.target.value })}
-                      inputProps={{ "aria-label": `role-${u.username}` }} />
-                    <Button size="small" disabled={u.role === "super_admin"} onClick={() =>
-                      act(() => api.put(`/auth/users/${u.username}/role`, { role: roles[u.username] }), "role updated")}>
-                      Set
-                    </Button>
-                  </Stack>
-                </TableCell>
-                <TableCell><Chip size="small" label={u.state} color={STATE_COLOR[u.state] ?? "default"} /></TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={1}>
-                    {/* super_admin is protected: only its password may change */}
-                    {u.state === "LOCKED"
-                      ? <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/unlock`), "unlocked")}>Unlock</Button>
-                      : <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/lock`), "locked")}>Lock</Button>}
-                    {u.state === "INACTIVE"
-                      ? <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/activate`), "activated")}>Activate</Button>
-                      : <Button size="small" disabled={u.role === "super_admin"} onClick={() => act(() => api.post(`/auth/users/${u.username}/deactivate`), "deactivated")}>Deactivate</Button>}
-                    <Button size="small" onClick={() => reset(u.username)}>Reset pw</Button>
-                  </Stack>
-                </TableCell>
+      <Section sx={{ p: 0 }}>
+        {users.length === 0 ? (
+          <EmptyState message="No users." />
+        ) : (
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Username</TableCell><TableCell>Role</TableCell>
+                <TableCell>State</TableCell><TableCell align="right">Actions</TableCell>
               </TableRow>
-            ))}
-            {users.length === 0 && <TableRow><TableCell colSpan={4}>No users.</TableCell></TableRow>}
-          </TableBody>
-        </Table>
-      </Paper>
-    </Stack>
+            </TableHead>
+            <TableBody>
+              {users.map((u) => {
+                const protectedUser = u.role === PROTECTED;
+                return (
+                  <TableRow key={u.username}>
+                    <TableCell sx={{ fontFamily: MONO_STACK, fontWeight: 600 }}>{u.username}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <TextField variant="standard" value={roles[u.username] ?? ""} disabled={protectedUser}
+                          onChange={(e) => setRoles({ ...roles, [u.username]: e.target.value })}
+                          inputProps={{ "aria-label": `role-${u.username}` }} sx={{ width: 120 }} />
+                        <Button size="small" disabled={protectedUser} onClick={() =>
+                          act(() => api.put(`/auth/users/${u.username}/role`, { role: roles[u.username] }), "role updated")}>
+                          Set
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                    <TableCell><StatusChip label={u.state} kind={statusKind(u.state)} /></TableCell>
+                    <TableCell align="right">
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        {/* super_admin is protected: only its password may change */}
+                        {u.state === "LOCKED"
+                          ? <Button size="small" disabled={protectedUser} onClick={() => act(() => api.post(`/auth/users/${u.username}/unlock`), "unlocked")}>Unlock</Button>
+                          : <Button size="small" color="warning" disabled={protectedUser} onClick={() => act(() => api.post(`/auth/users/${u.username}/lock`), "locked")}>Lock</Button>}
+                        {u.state === "INACTIVE"
+                          ? <Button size="small" disabled={protectedUser} onClick={() => act(() => api.post(`/auth/users/${u.username}/activate`), "activated")}>Activate</Button>
+                          : <Button size="small" color="inherit" disabled={protectedUser} onClick={() => act(() => api.post(`/auth/users/${u.username}/deactivate`), "deactivated")}>Deactivate</Button>}
+                        <Tooltip title="Reset password">
+                          <Button size="small" startIcon={<LockReset />} onClick={() => reset(u.username)}>Reset pw</Button>
+                        </Tooltip>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </Section>
+
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>New user</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField label="username" value={nu.username} autoFocus
+              onChange={(e) => setNu({ ...nu, username: e.target.value })} />
+            <TextField label="password" type="password" value={nu.password}
+              onChange={(e) => setNu({ ...nu, password: e.target.value })} />
+            <TextField label="role" value={nu.role}
+              onChange={(e) => setNu({ ...nu, role: e.target.value })}
+              helperText="Cannot create a second super_admin (singleton)." />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button variant="contained" startIcon={<Add />} disabled={!nu.username || !nu.password} onClick={create}>
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </div>
   );
 }
