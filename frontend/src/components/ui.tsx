@@ -25,7 +25,7 @@ const KIND_BY_WORD: Record<string, StatusKind> = {
   fail: "fail", failed: "fail", error: "fail", offline: "fail", aborted: "fail",
   locked: "fail", critical: "fail", disconnected: "fail", "link down": "fail",
   running: "running", busy: "running", "in_progress": "running", warning: "running",
-  pending: "running", password_reset_required: "running", degraded: "running",
+  pending: "running", password_reset_required: "running", degraded: "running", draft: "running",
   idle: "idle", stopped: "idle", inactive: "idle", skipped: "idle", unknown: "idle",
   "not ready": "fail", notready: "fail",
 };
