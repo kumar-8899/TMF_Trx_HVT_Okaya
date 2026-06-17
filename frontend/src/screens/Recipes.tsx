@@ -47,7 +47,7 @@ export function Recipes() {
         )}
       />
 
-      <Section sx={{ p: 0 }}>
+      <Section bodyPad={0}>
         <Stack sx={{ p: 2, pb: 1.5 }}>
           <TextField
             placeholder="Search recipes…" value={query} onChange={(e) => setQuery(e.target.value)}

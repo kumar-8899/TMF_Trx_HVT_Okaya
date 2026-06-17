@@ -74,7 +74,7 @@ export function Users() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {notice && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
 
-      <Section sx={{ p: 0 }}>
+      <Section bodyPad={0}>
         {users.length === 0 ? (
           <EmptyState message="No users." />
         ) : (

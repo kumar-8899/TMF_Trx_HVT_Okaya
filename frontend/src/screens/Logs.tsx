@@ -99,7 +99,7 @@ export function Logs() {
 
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
 
-      <Section sx={{ p: 0 }}>
+      <Section bodyPad={0}>
         {items.length === 0 ? (
           <EmptyState message="No records." />
         ) : (

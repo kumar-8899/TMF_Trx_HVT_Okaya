@@ -60,7 +60,7 @@ function LinkStatus() {
     <Tooltip title="Station readiness (/readyz)">
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ px: 1 }}>
         <StatusDot kind={kind} />
-        <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "none", md: "block" } }}>
+        <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.72)", display: { xs: "none", md: "block" } }}>
           {label}
         </Typography>
       </Stack>
@@ -84,7 +84,8 @@ export function Layout() {
           <Box sx={{ flexGrow: 1 }} />
           <LinkStatus />
           <Tooltip title={mode === "dark" ? "Switch to light" : "Switch to dark"}>
-            <IconButton onClick={toggle} size="small" aria-label="toggle color mode">
+            <IconButton onClick={toggle} size="small" aria-label="toggle color mode"
+              sx={{ color: "rgba(255,255,255,0.85)" }}>
               {mode === "dark" ? <LightMode fontSize="small" /> : <DarkMode fontSize="small" />}
             </IconButton>
           </Tooltip>

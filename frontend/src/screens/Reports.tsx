@@ -103,7 +103,7 @@ export function Reports() {
           </Section>
         )}
 
-        <Section title="Run reports" sx={{ p: 0 }}>
+        <Section title="Run reports" bodyPad={0}>
           <Stack direction="row" spacing={2} alignItems="center" sx={{ p: 2, pb: 1.5 }}>
             <TextField select label="result" value={result} sx={{ minWidth: 140 }}
               onChange={(e) => setResult(e.target.value)}>

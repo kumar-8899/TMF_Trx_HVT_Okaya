@@ -21,10 +21,11 @@ const FALLBACK_STATUS: StatusPalette = {
 const KIND_BY_WORD: Record<string, StatusKind> = {
   pass: "pass", passed: "pass", ok: "pass", ready: "pass", online: "pass",
   loaded: "pass", active: "pass", finished: "pass", open: "pass", written: "pass",
+  connected: "pass",
   fail: "fail", failed: "fail", error: "fail", offline: "fail", aborted: "fail",
-  locked: "fail", critical: "fail",
+  locked: "fail", critical: "fail", disconnected: "fail", "link down": "fail",
   running: "running", busy: "running", "in_progress": "running", warning: "running",
-  pending: "running", password_reset_required: "running",
+  pending: "running", password_reset_required: "running", degraded: "running",
   idle: "idle", stopped: "idle", inactive: "idle", skipped: "idle", unknown: "idle",
   "not ready": "fail", notready: "fail",
 };
@@ -95,28 +96,36 @@ export function PageHeader({
 }
 
 export function Section({
-  title, subtitle, actions, children, sx,
+  title, subtitle, actions, children, sx, bodyPad = 2,
 }: {
   title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode;
-  children: ReactNode; sx?: object;
+  children: ReactNode; sx?: object; bodyPad?: number;
 }) {
+  const t = useTheme();
+  // Section/chart headers are dark-navy bars (fallback for tests without our theme).
+  const headerBg = t.palette.sectionHeader ?? "#1E3A5F";
+  const onNavy = t.palette.onNavy ?? "#FFFFFF";
   return (
-    <Paper sx={{ p: 2, ...sx }}>
+    <Paper sx={{ overflow: "hidden", ...sx }}>
       {(title || actions) && (
-        <Stack
-          direction="row" justifyContent="space-between" alignItems="center"
-          sx={{ mb: 1.5 }}
-        >
-          <Box>
-            {title && <Typography variant="subtitle1" fontWeight={600}>{title}</Typography>}
+        <Box sx={{
+          bgcolor: headerBg, color: onNavy, px: 2, py: 1.25,
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1,
+        }}>
+          <Box sx={{ minWidth: 0 }}>
+            {title && (
+              <Typography variant="subtitle1" fontWeight={600} sx={{ color: onNavy, lineHeight: 1.25 }}>
+                {title}
+              </Typography>
+            )}
             {subtitle && (
-              <Typography variant="caption" color="text.secondary">{subtitle}</Typography>
+              <Typography variant="caption" sx={{ color: alpha(onNavy, 0.72) }}>{subtitle}</Typography>
             )}
           </Box>
-          {actions && <Stack direction="row" spacing={1}>{actions}</Stack>}
-        </Stack>
+          {actions && <Stack direction="row" spacing={1} alignItems="center">{actions}</Stack>}
+        </Box>
       )}
-      {children}
+      <Box sx={{ p: bodyPad }}>{children}</Box>
     </Paper>
   );
 }
