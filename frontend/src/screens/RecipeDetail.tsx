@@ -1,11 +1,14 @@
+import { CallSplit } from "@mui/icons-material";
 import {
-  Alert, Box, Button, Chip, MenuItem, Paper, Stack, TextField, Typography,
+  Alert, Box, Button, Chip, MenuItem, Stack, TextField,
 } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { EmptyState, PageHeader, Section } from "../components/ui";
+import { MONO_STACK } from "../theme/theme";
 
 export function RecipeDetail() {
   const { id = "" } = useParams();
@@ -52,58 +55,72 @@ export function RecipeDetail() {
   };
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h5">{id}</Typography>
-        {can("RECIPE.EDIT") && <Button variant="contained" onClick={fork}>Fork draft</Button>}
-      </Stack>
-      {error && <Alert severity="error">{error}</Alert>}
+    <Box>
+      <PageHeader
+        title={id}
+        subtitle="Recipe versions"
+        actions={can("RECIPE.EDIT") && (
+          <Button variant="contained" startIcon={<CallSplit />} onClick={fork}>Fork draft</Button>
+        )}
+      />
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <Stack direction="row" spacing={1} flexWrap="wrap">
-        {versions.map((v) => (
-          <Chip key={v.version} label={`v${v.version}`} onClick={() => loadVersion(v.version)}
-            color={selected === v.version ? "primary" : "default"} />
-        ))}
-        {versions.length === 0 && <Typography>No published versions.</Typography>}
-      </Stack>
-
-      {recipe && (
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="subtitle1">{recipe.name} — v{recipe.version}</Typography>
-          <Typography variant="caption" color="text.secondary">{recipe.content_hash}</Typography>
-          <Box component="pre" sx={{ overflow: "auto", fontSize: 12, mt: 1 }}>
-            {JSON.stringify(recipe.steps, null, 2)}
-          </Box>
-          <Button size="small" onClick={validate}>Validate</Button>
-          {report && (
-            <Box sx={{ mt: 1 }}>
-              {report.ok && <Alert severity="success">Valid.</Alert>}
-              {report.errors?.map((e: string, i: number) => <Alert key={i} severity="error">{e}</Alert>)}
-              {report.warnings?.map((w: string, i: number) => <Alert key={i} severity="warning">{w}</Alert>)}
-            </Box>
+      <Stack spacing={2}>
+        <Section title="Versions">
+          {versions.length === 0 ? (
+            <EmptyState message="No published versions." />
+          ) : (
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {versions.map((v) => (
+                <Chip key={v.version} label={`v${v.version}`} onClick={() => loadVersion(v.version)}
+                  color={selected === v.version ? "primary" : "default"}
+                  variant={selected === v.version ? "filled" : "outlined"} />
+              ))}
+            </Stack>
           )}
-        </Paper>
-      )}
+        </Section>
 
-      {versions.length >= 2 && (
-        <Paper sx={{ p: 2 }}>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Typography>Diff</Typography>
-            <TextField select size="small" label="from" value={from} onChange={(e) => setFrom(Number(e.target.value))}>
-              {versions.map((v) => <MenuItem key={v.version} value={v.version}>v{v.version}</MenuItem>)}
-            </TextField>
-            <TextField select size="small" label="to" value={to} onChange={(e) => setTo(Number(e.target.value))}>
-              {versions.map((v) => <MenuItem key={v.version} value={v.version}>v{v.version}</MenuItem>)}
-            </TextField>
-            <Button size="small" onClick={runDiff}>Compare</Button>
-          </Stack>
-          {diffResult && (
-            <Box component="pre" sx={{ overflow: "auto", fontSize: 12, mt: 1 }}>
-              {JSON.stringify(diffResult, null, 2)}
+        {recipe && (
+          <Section
+            title={`${recipe.name} — v${recipe.version}`}
+            subtitle={recipe.content_hash}
+            actions={<Button size="small" variant="outlined" onClick={validate}>Validate</Button>}
+          >
+            {report && (
+              <Stack spacing={1} sx={{ mb: 1.5 }}>
+                {report.ok && <Alert severity="success">Valid.</Alert>}
+                {report.errors?.map((e: string, i: number) => <Alert key={i} severity="error">{e}</Alert>)}
+                {report.warnings?.map((w: string, i: number) => <Alert key={i} severity="warning">{w}</Alert>)}
+              </Stack>
+            )}
+            <Box component="pre" sx={{
+              overflow: "auto", fontSize: 12, fontFamily: MONO_STACK, m: 0, p: 1.5, borderRadius: 1,
+              bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.04)" : "rgba(2,6,23,0.04)"),
+            }}>
+              {JSON.stringify(recipe.steps, null, 2)}
             </Box>
-          )}
-        </Paper>
-      )}
-    </Stack>
+          </Section>
+        )}
+
+        {versions.length >= 2 && (
+          <Section title="Compare versions">
+            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+              <TextField select label="from" value={from} onChange={(e) => setFrom(Number(e.target.value))} sx={{ width: 100 }}>
+                {versions.map((v) => <MenuItem key={v.version} value={v.version}>v{v.version}</MenuItem>)}
+              </TextField>
+              <TextField select label="to" value={to} onChange={(e) => setTo(Number(e.target.value))} sx={{ width: 100 }}>
+                {versions.map((v) => <MenuItem key={v.version} value={v.version}>v{v.version}</MenuItem>)}
+              </TextField>
+              <Button variant="outlined" onClick={runDiff}>Compare</Button>
+            </Stack>
+            {diffResult && (
+              <Box component="pre" sx={{ overflow: "auto", fontSize: 12, fontFamily: MONO_STACK, mt: 1.5 }}>
+                {JSON.stringify(diffResult, null, 2)}
+              </Box>
+            )}
+          </Section>
+        )}
+      </Stack>
+    </Box>
   );
 }

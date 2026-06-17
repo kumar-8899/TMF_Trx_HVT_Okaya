@@ -1,11 +1,15 @@
+import { Add, Search } from "@mui/icons-material";
 import {
-  Button, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Button, InputAdornment, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+  TextField,
 } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { EmptyState, PageHeader, Section, StatusChip, statusKind } from "../components/ui";
+import { MONO_STACK } from "../theme/theme";
 
 interface Summary {
   recipe_id: string;
@@ -19,43 +23,62 @@ export function Recipes() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<Summary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     api.get("/recipes").then(setRows).catch((e) => setError(e.message));
   }, []);
 
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return rows;
+    return rows.filter((r) => `${r.name} ${r.recipe_id}`.toLowerCase().includes(q));
+  }, [rows, query]);
+
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h5">Recipes</Typography>
-        {can("RECIPE.EDIT") && (
-          <Button variant="contained" onClick={() => navigate("/recipes/new")}>New recipe</Button>
+    <div>
+      <PageHeader
+        title="Recipes"
+        subtitle="Versioned test recipes"
+        actions={can("RECIPE.EDIT") && (
+          <Button variant="contained" startIcon={<Add />} onClick={() => navigate("/recipes/new")}>
+            New recipe
+          </Button>
         )}
-      </Stack>
-      {error && <Typography color="error">{error}</Typography>}
-      <Paper>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell><TableCell>ID</TableCell>
-              <TableCell>Status</TableCell><TableCell>Latest</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.recipe_id} hover sx={{ cursor: "pointer" }}
-                onClick={() => navigate(`/recipes/${r.recipe_id}`)}>
-                <TableCell>{r.name}</TableCell>
-                <TableCell>{r.recipe_id}</TableCell>
-                <TableCell><Chip size="small" label={r.status}
-                  color={r.status === "active" ? "success" : "default"} /></TableCell>
-                <TableCell>v{r.latest_version}</TableCell>
+      />
+
+      <Section sx={{ p: 0 }}>
+        <Stack sx={{ p: 2, pb: 1.5 }}>
+          <TextField
+            placeholder="Search recipes…" value={query} onChange={(e) => setQuery(e.target.value)}
+            sx={{ maxWidth: 320 }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
+          />
+        </Stack>
+        {filtered.length === 0 ? (
+          <EmptyState message={error || (rows.length ? "No recipes match your search." : "No recipes.")} />
+        ) : (
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Name</TableCell><TableCell>ID</TableCell>
+                <TableCell>Status</TableCell><TableCell>Latest</TableCell>
               </TableRow>
-            ))}
-            {rows.length === 0 && <TableRow><TableCell colSpan={4}>No recipes.</TableCell></TableRow>}
-          </TableBody>
-        </Table>
-      </Paper>
-    </Stack>
+            </TableHead>
+            <TableBody>
+              {filtered.map((r) => (
+                <TableRow key={r.recipe_id} hover sx={{ cursor: "pointer" }}
+                  onClick={() => navigate(`/recipes/${r.recipe_id}`)}>
+                  <TableCell sx={{ fontWeight: 600 }}>{r.name}</TableCell>
+                  <TableCell sx={{ fontFamily: MONO_STACK, color: "text.secondary" }}>{r.recipe_id}</TableCell>
+                  <TableCell><StatusChip label={r.status} kind={statusKind(r.status)} /></TableCell>
+                  <TableCell sx={{ fontFamily: MONO_STACK }}>v{r.latest_version}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Section>
+    </div>
   );
 }

@@ -1,10 +1,12 @@
 import {
-  Alert, Box, Button, FormControlLabel, Stack, Switch, TextField, Typography,
+  Alert, Box, Button, FormControlLabel, Stack, Switch, TextField,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api/client";
+import { PageHeader, Section } from "../components/ui";
+import { MONO_STACK } from "../theme/theme";
 import { Step, StepList, StepType } from "../components/StepEditor";
 
 interface EditState { recipeId: string; draftId: string; recipe: any }
@@ -74,51 +76,60 @@ export function RecipeEditor() {
   });
 
   return (
-    <Stack spacing={2} sx={{ maxWidth: 900 }}>
-      <Typography variant="h5">{draftId ? "Edit draft" : "New recipe"}</Typography>
+    <Box sx={{ maxWidth: 900 }}>
+      <PageHeader title={draftId ? "Edit draft" : "New recipe"} subtitle="Author and version a test recipe" />
 
-      <Stack direction="row" spacing={2}>
-        <TextField label="Recipe ID" value={recipeId} disabled={Boolean(initial)}
-          onChange={(e) => setRecipeId(e.target.value)} inputProps={{ "aria-label": "recipe_id" }} />
-        <TextField label="Name" value={name} fullWidth onChange={(e) => setName(e.target.value)} />
-      </Stack>
-      <TextField label="Description" value={description} multiline minRows={2}
-        onChange={(e) => setDescription(e.target.value)} />
-      <Stack direction="row" spacing={2}>
-        <TextField label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)} />
-        <TextField label="Required role" value={requiredRole} onChange={(e) => setRequiredRole(e.target.value)} />
-      </Stack>
-      <Stack direction="row" spacing={2}>
-        <TextField label="Tags (comma-sep)" value={tagsCsv} fullWidth onChange={(e) => setTagsCsv(e.target.value)} />
-        <TextField label="Barcode prefixes (comma-sep)" value={barcodesCsv} fullWidth
-          onChange={(e) => setBarcodesCsv(e.target.value)} />
-      </Stack>
+      <Stack spacing={2}>
+        <Section title="Details">
+          <Stack spacing={2}>
+            <Stack direction="row" spacing={2}>
+              <TextField label="Recipe ID" value={recipeId} disabled={Boolean(initial)}
+                onChange={(e) => setRecipeId(e.target.value)} inputProps={{ "aria-label": "recipe_id" }} />
+              <TextField label="Name" value={name} fullWidth onChange={(e) => setName(e.target.value)} />
+            </Stack>
+            <TextField label="Description" value={description} multiline minRows={2}
+              onChange={(e) => setDescription(e.target.value)} />
+            <Stack direction="row" spacing={2}>
+              <TextField label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)} />
+              <TextField label="Required role" value={requiredRole} onChange={(e) => setRequiredRole(e.target.value)} />
+            </Stack>
+            <Stack direction="row" spacing={2}>
+              <TextField label="Tags (comma-sep)" value={tagsCsv} fullWidth onChange={(e) => setTagsCsv(e.target.value)} />
+              <TextField label="Barcode prefixes (comma-sep)" value={barcodesCsv} fullWidth
+                onChange={(e) => setBarcodesCsv(e.target.value)} />
+            </Stack>
+          </Stack>
+        </Section>
 
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h6">Steps</Typography>
-        <FormControlLabel control={<Switch checked={showJson} onChange={(e) => setShowJson(e.target.checked)} />}
-          label="Edit as JSON" />
-      </Stack>
-      {showJson
-        ? <TextField multiline minRows={10} value={JSON.stringify(steps, null, 2)}
-            sx={{ fontFamily: "monospace" }} inputProps={{ "aria-label": "steps-json" }}
-            onChange={(e) => { try { setSteps(JSON.parse(e.target.value)); } catch { /* wait for valid */ } }} />
-        : <StepList steps={steps} onChange={setSteps} types={types} />}
+        <Section
+          title="Steps"
+          actions={
+            <FormControlLabel control={<Switch checked={showJson} onChange={(e) => setShowJson(e.target.checked)} />}
+              label="Edit as JSON" />
+          }
+        >
+          {showJson
+            ? <TextField fullWidth multiline minRows={10} value={JSON.stringify(steps, null, 2)}
+                sx={{ "& textarea": { fontFamily: MONO_STACK } }} inputProps={{ "aria-label": "steps-json" }}
+                onChange={(e) => { try { setSteps(JSON.parse(e.target.value)); } catch { /* wait for valid */ } }} />
+            : <StepList steps={steps} onChange={setSteps} types={types} />}
+        </Section>
 
-      {error && <Alert severity="error">{error}</Alert>}
-      {report && (
-        <Box>
-          {report.errors.map((e, i) => <Alert key={i} severity="error">{e}</Alert>)}
-          {report.warnings.map((w, i) => <Alert key={i} severity="warning">{w}</Alert>)}
-          {report.ok && report.errors.length === 0 && <Alert severity="success">Valid.</Alert>}
-        </Box>
-      )}
+        {error && <Alert severity="error">{error}</Alert>}
+        {report && (
+          <Stack spacing={1}>
+            {report.errors.map((e, i) => <Alert key={i} severity="error">{e}</Alert>)}
+            {report.warnings.map((w, i) => <Alert key={i} severity="warning">{w}</Alert>)}
+            {report.ok && report.errors.length === 0 && <Alert severity="success">Valid.</Alert>}
+          </Stack>
+        )}
 
-      <Stack direction="row" spacing={2}>
-        <Button onClick={validate} disabled={busy}>Validate</Button>
-        <Button onClick={saveDraft} disabled={busy} variant="outlined">Save draft</Button>
-        <Button onClick={publish} disabled={busy} variant="contained">Publish</Button>
+        <Stack direction="row" spacing={2}>
+          <Button onClick={validate} disabled={busy} variant="outlined">Validate</Button>
+          <Button onClick={saveDraft} disabled={busy} variant="outlined">Save draft</Button>
+          <Button onClick={publish} disabled={busy} variant="contained">Publish</Button>
+        </Stack>
       </Stack>
-    </Stack>
+    </Box>
   );
 }
