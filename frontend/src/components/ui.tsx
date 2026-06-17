@@ -12,6 +12,12 @@ import type { StatusPalette } from "../theme/theme";
 
 export type StatusKind = keyof StatusPalette; // pass | fail | running | idle | info
 
+// Used when a component renders outside our ThemeProvider (e.g. unit tests with
+// the default MUI theme, which has no palette.status).
+const FALLBACK_STATUS: StatusPalette = {
+  pass: "#22c55e", fail: "#ef4444", running: "#f59e0b", idle: "#64748b", info: "#38bdf8",
+};
+
 const KIND_BY_WORD: Record<string, StatusKind> = {
   pass: "pass", passed: "pass", ok: "pass", ready: "pass", online: "pass",
   loaded: "pass", active: "pass", finished: "pass", open: "pass", written: "pass",
@@ -34,7 +40,7 @@ export function StatusChip({
 }: { label: string; kind?: StatusKind; size?: "small" | "medium" }) {
   const t = useTheme();
   const k = kind ?? statusKind(label);
-  const color = t.palette.status[k];
+  const color = (t.palette.status ?? FALLBACK_STATUS)[k];
   return (
     <Chip
       size={size}
@@ -52,7 +58,7 @@ export function StatusChip({
 /** A small status lamp (dot) for dense rows / cards. */
 export function StatusDot({ kind, size = 10 }: { kind: StatusKind; size?: number }) {
   const t = useTheme();
-  const color = t.palette.status[kind];
+  const color = (t.palette.status ?? FALLBACK_STATUS)[kind];
   return (
     <Box
       component="span"

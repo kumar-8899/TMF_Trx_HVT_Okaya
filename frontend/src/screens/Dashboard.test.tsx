@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { mockFetch } from "../test/fetchMock";
@@ -15,7 +16,7 @@ describe("Dashboard", () => {
       },
       "GET /readyz": { body: { ready: true, checks: {} } },
     });
-    render(<Dashboard />);
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("User Authentication")).toBeInTheDocument());
     expect(screen.getByText("ready")).toBeInTheDocument();
   });
