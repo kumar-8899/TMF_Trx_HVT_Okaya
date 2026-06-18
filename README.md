@@ -4,12 +4,15 @@ Multi-station T&M software template (runs singleton too).
 
 - **LabVIEW** = controller — owns test execution, sequence, step timing, abort/timeout, safety, hardware (HAL).
 - **Python** = app platform + sole web edge — modules, db, web, MQTT bridge client.
-- **React frontend** = unchanged. LabVIEW ↔ Python over **MQTT only**.
+- **React frontend** = operator UI, talks only to Python. LabVIEW ↔ Python over **MQTT only**.
 
 ## Source of truth — read first
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — current-state map: tiers, modules + status, the MQTT surface, repo layout (start here for the overview).
 - [docs/PRINCIPLES.md](docs/PRINCIPLES.md) — rules + locked decisions (the constitution).
 - [docs/CORE.md](docs/CORE.md) — Python platform, module framework, activation gate, acceptance (§10).
 - [docs/LABVIEW_BRIDGE.md](docs/LABVIEW_BRIDGE.md) — MQTT wire contract + Phase-0 LabVIEW stub (§12).
+- [docs/FRONTEND.md](docs/FRONTEND.md) — the React UI: theme, components, screens, auth, streaming.
+- [docs/contracts/](docs/contracts/) — per-module contracts (auth, daq, runs, recipe, logs, report, step types).
 
 Build to the docs, not to memory. Decide → update doc → build.
 
@@ -23,16 +26,32 @@ deploy/     mosquitto.conf, CI helpers
 docs/       the contracts
 ```
 
-## Dev quickstart (Python)
+## Dev quickstart
+
+Whole stack (broker + backend + frontend + opens the login page):
+```pwsh
+powershell -ExecutionPolicy Bypass -File .\dev.ps1
+```
+
+Backend only:
 ```pwsh
 cd backend
 python -m pip install -e ".[dev]"
-pytest -q
+pytest -q                # 190 passing
 python run.py            # serves http://127.0.0.1:8000 ; GET /healthz
 ```
 
+Frontend only:
+```pwsh
+cd frontend
+npm install
+npm run dev              # Vite on :5173 (proxy → :8000)
+npx vitest run           # 27 passing
+```
+
 Live config (`config/app.json`, `config/license.json`) is gitignored — copy from
-the `*.example.json` on first run.
+the `*.example.json` on first run. Dev login `admin` / `admin` (super_admin; a DEV
+credential — provision properly for production).
 
 ## Phase 0 — walking skeleton (complete)
 
@@ -87,7 +106,8 @@ attributed `action_log` records, with cursor-paginated query/stats/delete gated 
 [docs/contracts/LOGS.md](docs/contracts/LOGS.md).
 
 The `recipe` module (Test Recipe) is complete on the Python side (R1–R6): one
-recipe shape with 15 pluggable step types, filesystem versioning (append-only,
+recipe shape with 16 pluggable step types (incl. the simplified `parametric_test`
+authored by the UI), filesystem versioning (append-only,
 content-hashed) + DB corpus mirror, schema + semantic validation, the
 `query/recipe.fetch` execution wire with `${run.x}` substitution, ZIP
 export/import, and version diff. See
@@ -95,4 +115,24 @@ export/import, and version diff. See
 [docs/contracts/RECIPE.md](docs/contracts/RECIPE.md). LabVIEW Test Sequencer
 `Execute` VIs are the remaining desk work against the documented contract.
 
-Next: Report / Analytics → harden Licensing.
+The `report` module (Report / Analytics) is complete: run reports + analytics
+(counts / yield / by-recipe), multi-sink output (SQLite + folder, split by
+pass/fail), and export. See [docs/contracts/runs.md](docs/contracts/runs.md) and
+the Reports screen.
+
+## Frontend — operator UI (complete, this phase)
+
+Full React UI on a navy/green "instrument console" theme (light + dark toggle):
+shell + Login/Change-password, Dashboard, DAQ (live channel tiles + sparklines),
+Runs (barcode/recipe **Start dialog**, live **test-result** table, run history),
+Recipes (scalable list + two-pane editor authoring `parametric_test` tests +
+read-only view), Reports, and Users (temp-password creation, role dropdowns,
+protected super_admin). See [docs/FRONTEND.md](docs/FRONTEND.md).
+
+Recent overhauls in this phase: the theme re-skin, the Recipe authoring rework,
+the Test-Runs flow (acquisition + result rows), and User-management hardening.
+
+Next (deferred): harden Licensing; Variable Engine catalog; phase-2 scalable
+step-type sequence editor; PyInstaller frozen-sidecar packaging; the LabVIEW desk
+work (real Bridge, DAQ/controller handlers, Sequencer `Execute`, emitting
+`test-result`/`run-*` events with the minted `run_id`).
