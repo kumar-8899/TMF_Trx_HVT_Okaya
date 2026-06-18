@@ -796,6 +796,60 @@ construct an instance with `parameters`; run it; return its result.
 
 ---
 
+## 4b. Simplified authoring (1)
+
+### 4b.1 `parametric_test` — UI-authored flat parameter list
+
+The recipe-authoring shape for **phase 1** of the Recipe UI. A test is a flat
+list of `{ name, value, unit }` parameter rows — no step-type/schema picker. The
+operator clicks **Add** to create one of these and fills the table. The richer
+step-type catalog above is the **phase-2 sequence editor**; both persist as
+ordinary steps, so validation/versioning/run-fetch are unchanged.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/parametric_test/params",
+  "type": "object",
+  "required": ["parameters"],
+  "additionalProperties": false,
+  "properties": {
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name":  { "type": "string", "minLength": 1 },
+          "value": { "type": ["number", "string", "boolean", "null"] },
+          "unit":  { "type": "string" }
+        }
+      }
+    }
+  }
+}
+```
+
+**Example:**
+```json
+{
+  "step_id":   "ovp_trip",
+  "step_type": "parametric_test",
+  "name":      "Over-voltage protection",
+  "params":    { "parameters": [
+    { "name": "Trip voltage", "value": 320.0, "unit": "V" },
+    { "name": "Dwell",        "value": 100,   "unit": "ms" }
+  ] }
+}
+```
+
+**LabVIEW:** look up the test by `name`/`step_id`; consume the parameter rows by
+name. (Interpretation of the rows is owned by the test bench, like
+`test_reference`.)
+
+---
+
 ## 5. The 15 starter types at a glance
 
 | # | type_id | category | composite | Used most in |

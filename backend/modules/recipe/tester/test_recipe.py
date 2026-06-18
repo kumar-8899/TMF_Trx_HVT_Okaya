@@ -24,6 +24,7 @@ EXPECTED_TYPES = {
     "set_output", "measure", "compare", "measure_and_compare", "ramp_until",
     "wait", "wait_until", "prompt_operator", "log_message", "abort_if",
     "repeat", "sweep", "if_then_else", "group", "test_reference",
+    "parametric_test",
 }
 
 
@@ -46,10 +47,10 @@ def test_manifest_valid():
     assert m.contributes.api_prefix == "/recipes"
 
 
-async def test_fifteen_step_types(mod):
+async def test_step_types(mod):
     types = {t["type_id"] for t in mod.list_step_types()}
     assert types == EXPECTED_TYPES
-    assert len(types) == 15
+    assert len(types) == 16
     composites = {t["type_id"] for t in mod.list_step_types() if t["composite"]}
     assert composites == {"repeat", "sweep", "if_then_else", "group"}
 
@@ -117,7 +118,7 @@ async def test_rest_step_types(mod):
         v = {"Authorization": "Bearer viewer"}
         assert (await c.get("/recipes/step-types")).status_code == 401          # no token
         r = await c.get("/recipes/step-types", headers=v)
-        assert r.status_code == 200 and len(r.json()) == 15
+        assert r.status_code == 200 and len(r.json()) == 16
         s = await c.get("/recipes/step-types/measure/schema", headers=v)
         assert s.status_code == 200 and s.json()["$id"].endswith("measure/params")
         assert (await c.get("/recipes/step-types/ghost/schema", headers=v)).status_code == 404

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:recipe:step_types/parametric_test/params",
+  "type": "object",
+  "required": ["parameters"],
+  "additionalProperties": false,
+  "properties": {
+    "parameters": {
+      "type": "array",
+      "description": "Flat list of test-specific parameters authored in the recipe UI.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name":  { "type": "string", "minLength": 1 },
+          "value": { "type": ["number", "string", "boolean", "null"] },
+          "unit":  { "type": "string" }
+        }
+      }
+    }
+  }
+}
