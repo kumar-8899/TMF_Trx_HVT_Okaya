@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:runs/runs.config.schema.json",
+  "title": "Runs module config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "acquisition": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "How a run learns which recipe to run (runs §run.start).",
+      "properties": {
+        "default_mode": {
+          "enum": ["barcode", "recipe"],
+          "description": "Default Start-dialog mode for this bench."
+        },
+        "barcode": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "strategy": { "type": "string", "description": "Resolver strategy id (phase-1: 'prefix')." },
+            "length": { "type": "integer", "minimum": 1, "description": "Chars taken for the 'prefix' strategy." }
+          }
+        }
+      }
+    }
+  }
+}

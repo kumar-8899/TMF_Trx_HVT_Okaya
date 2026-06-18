@@ -5,7 +5,13 @@
   "modules": [
     { "id": "hello", "variant": "default" },
     { "id": "daq",   "variant": "default" },
-    { "id": "runs",  "variant": "default" },
+    {
+      "id": "runs",
+      "variant": "default",
+      "config": {
+        "acquisition": { "default_mode": "barcode", "barcode": { "strategy": "prefix", "length": 3 } }
+      }
+    },
     {
       "id": "auth",
       "variant": "local_db",

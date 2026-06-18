@@ -17,5 +17,5 @@
     "migrations": null,
     "frontend_flags": []
   },
-  "config_schema": null
+  "config_schema": "schemas/runs.config.schema.json"
 }

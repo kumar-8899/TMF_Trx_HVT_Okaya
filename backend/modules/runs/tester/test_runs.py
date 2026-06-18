@@ -10,6 +10,7 @@ from httpx import ASGITransport
 from core.framework.contract import CoreServices
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
+from modules.runs.acquisition import AcquisitionError
 from modules.runs.variants.default import DefaultRuns
 
 
@@ -47,12 +48,38 @@ def _event(etype, ts, **body):
 # --- run control -----------------------------------------------------------
 
 
-async def test_run_start_and_abort_send_commands(ctx):
+async def test_run_start_resolves_id_and_mints_run_id(ctx):
     module, bridge, _ = ctx
-    await module.run_start({"recipe": "demo"})
-    assert bridge.requests[-1] == ("run.start", {"recipe": "demo"})
+    out = await module.run_start({"recipe_id": "demo"})
+    op, args = bridge.requests[-1]
+    assert op == "run.start"
+    assert args["recipe_id"] == "demo" and args["run_id"]
+    assert out["recipe_id"] == "demo" and out["run_id"] == args["run_id"]
     await module.run_abort()
     assert bridge.requests[-1] == ("run.abort", {})
+
+
+async def test_run_start_from_barcode(ctx):
+    # default acquisition is prefix length 3 -> "INV12345" resolves to "INV"
+    module, bridge, _ = ctx
+    out = await module.run_start({"barcode": "INV12345"})
+    assert out["recipe_id"] == "INV"
+    _, args = bridge.requests[-1]
+    assert args["recipe_id"] == "INV"
+    assert args["run_parameters"]["barcode"] == "INV12345"
+
+
+async def test_run_start_requires_recipe_or_barcode(ctx):
+    module, _, _ = ctx
+    with pytest.raises(AcquisitionError):
+        await module.run_start({})
+
+
+async def test_acquisition_config(ctx):
+    module, _, _ = ctx
+    cfg = module.acquisition_config()
+    assert cfg["default_mode"] == "barcode"
+    assert cfg["barcode"]["length"] == 3
 
 
 # --- event -> records ------------------------------------------------------
@@ -72,6 +99,33 @@ async def test_run_lifecycle_persists_records(ctx):
 
     events = await db.repo.query("run_event")
     assert [e["data"]["type"] for e in events] == ["run-started", "step-completed", "run-finished"]
+
+
+async def test_test_result_rows_accumulate_on_run(ctx):
+    module, _, db = ctx
+    await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="R1", recipe_id="INV"))
+    await module._on_event("tmf/st1/event/test-result",
+                           _event("test-result", 1.1, run_id="R1", serial_no=1, test_name="OVP", expected="320", measured="319.4", result="PASS", cycle_time_ms=412))
+    await module._on_event("tmf/st1/event/test-result",
+                           _event("test-result", 1.2, run_id="R1", serial_no=2, test_name="UVP", result="FAIL"))
+
+    run = await module.get_run("R1")
+    rows = run["data"]["results"]
+    assert len(rows) == 2
+    assert rows[0]["test_name"] == "OVP" and rows[0]["result"] == "PASS"
+    assert rows[1]["result"] == "FAIL"
+    assert run["data"]["recipe_id"] == "INV"  # preserved across events (merge)
+    # rows are also in append-only history
+    types = [e["data"]["type"] for e in await db.repo.query("run_event")]
+    assert types.count("test-result") == 2
+
+
+async def test_run_aborted_sets_status(ctx):
+    module, _, _ = ctx
+    await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="R2"))
+    await module._on_event("tmf/st1/event/run-aborted", _event("run-aborted", 1.5, run_id="R2", reason="estop"))
+    run = await module.get_run("R2")
+    assert run["data"]["status"] == "finished" and run["data"]["result"] == "ABORTED"
 
 
 async def test_non_run_events_ignored(ctx):
@@ -102,13 +156,22 @@ async def test_rest_surface(ctx):
     module, bridge, _ = ctx
     await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="R1"))
     async with _client(module) as c:
-        started = await c.post("/runs/start", json={"recipe": "demo"})
+        started = await c.post("/runs/start", json={"recipe_id": "demo"})
         assert started.status_code == 200
-        assert bridge.requests[-1] == ("run.start", {"recipe": "demo"})
+        data = started.json()
+        assert data["recipe_id"] == "demo" and data["run_id"]
+        op, args = bridge.requests[-1]
+        assert op == "run.start" and args["recipe_id"] == "demo"
 
-        runs = await c.get("/runs")
-        assert runs.status_code == 200
-        assert [r["id"] for r in runs.json()] == ["R1"]
+        # no recipe_id and no barcode -> 422
+        bad = await c.post("/runs/start", json={})
+        assert bad.status_code == 422
+
+        acq = await c.get("/runs/acquisition")
+        assert acq.status_code == 200 and acq.json()["default_mode"] == "barcode"
+
+        ids = [r["id"] for r in (await c.get("/runs")).json()]
+        assert "R1" in ids
 
         one = await c.get("/runs/R1")
         assert one.status_code == 200 and one.json()["data"]["status"] == "running"

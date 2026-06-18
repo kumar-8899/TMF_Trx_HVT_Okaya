@@ -8,20 +8,26 @@ record is upserted per run_id for the run list.
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import WebSocket, WebSocketDisconnect
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.streaming import StreamHub
+from modules.runs.acquisition import resolve_recipe_id
 from modules.runs.api import build_router
 
 # Event types this module persists (LABVIEW_BRIDGE.md §4 event envelope).
-RUN_EVENT_PREFIXES = ("run-", "step-", "safety-")
+RUN_EVENT_PREFIXES = ("run-", "step-", "safety-", "test-")
 
 
 class DefaultRuns:
     def __init__(self, core: CoreServices, config: dict) -> None:
         self.core = core
         self.config = config
+        acq = config.get("acquisition", {}) or {}
+        self.acq_default_mode = acq.get("default_mode", "barcode")
+        self._barcode_cfg = acq.get("barcode", {}) or {}
         self._station_hub = StreamHub()   # event/* -> /ws/station
         self._diag_hub = StreamHub()      # diag    -> /diagnostics/stream
         self.router = build_router(self)
@@ -47,12 +53,57 @@ class DefaultRuns:
             detail="bridge online" if online else "bridge link not online",
         )
 
+    # --- acquisition -------------------------------------------------------
+
+    def acquisition_config(self) -> dict:
+        """What the Runs UI needs to render the Start dialog (default mode + hints)."""
+        return {
+            "default_mode": self.acq_default_mode,
+            "barcode": {
+                "strategy": self._barcode_cfg.get("strategy", "prefix"),
+                "length": self._barcode_cfg.get("length", 3),
+            },
+        }
+
+    def resolve(self, barcode: str) -> str:
+        return resolve_recipe_id(
+            barcode,
+            strategy=self._barcode_cfg.get("strategy", "prefix"),
+            length=self._barcode_cfg.get("length", 3),
+        )
+
     # --- run control -------------------------------------------------------
 
-    async def run_start(self, params: dict | None = None) -> dict:
-        reply = await self.core.bridge.request("run.start", params or {})
-        self.core.diag.info("runs", "run start", ok=reply.get("ok"))
-        return reply
+    async def run_start(self, body: dict | None = None) -> dict:
+        """Resolve the recipe (direct id or from a barcode), mint a run_id, and
+        tell LabVIEW to start. LabVIEW pulls the recipe JSON via recipe.fetch."""
+        body = body or {}
+        recipe_id = body.get("recipe_id")
+        barcode = body.get("barcode")
+        if not recipe_id and barcode:
+            recipe_id = self.resolve(barcode)  # AcquisitionError -> 422
+        if not recipe_id:
+            from modules.runs.acquisition import AcquisitionError
+            raise AcquisitionError("recipe_id or barcode required")
+
+        run_id = body.get("run_id") or uuid.uuid4().hex
+        run_parameters = dict(body.get("run_parameters") or {})
+        if barcode:
+            run_parameters.setdefault("barcode", barcode)
+
+        payload = {
+            "run_id": run_id, "recipe_id": recipe_id,
+            "version": body.get("version"), "run_parameters": run_parameters,
+        }
+        # Pre-create the run record so the UI shows it immediately.
+        await self._upsert_run(run_id, status="starting", recipe_id=recipe_id,
+                               run_parameters=run_parameters)
+        reply = await self.core.bridge.request("run.start", payload)
+        self.core.diag.info("runs", "run start", run_id=run_id, recipe_id=recipe_id, ok=reply.get("ok"))
+        out = {"run_id": run_id, "recipe_id": recipe_id}
+        if isinstance(reply, dict):
+            out.update({k: v for k, v in reply.items() if k != "id"})
+        return out
 
     async def run_abort(self) -> dict:
         reply = await self.core.bridge.request("run.abort", {})
@@ -60,6 +111,15 @@ class DefaultRuns:
         return reply
 
     # --- event intake -> records (CORE.md §7) ------------------------------
+
+    async def _upsert_run(self, run_id: str, **changes) -> None:
+        """Merge changes into the current-state run record (preserves recipe_id,
+        results[], etc. across the event lifecycle)."""
+        existing = await self.core.db.repo.get("run", run_id)
+        data = dict(existing["data"]) if existing else {"run_id": run_id}
+        data.update(changes)
+        await self.core.db.repo.put("run", data, id=run_id,
+                                    summary=f"run {run_id} {data.get('status', '')}".strip())
 
     async def _on_event(self, topic: str, payload: dict | None) -> None:
         if not payload:
@@ -79,19 +139,29 @@ class DefaultRuns:
             summary=f"{etype} {run_id or ''}".strip(),
         )
 
-        # current-state run record
         if not run_id:
             return
+
+        # body fields to merge, minus the keys handled positionally/explicitly.
+        rest = {k: v for k, v in body.items() if k not in ("run_id", "id", "status")}
+
+        # current-state run record
         if etype == "run-started":
-            await self.core.db.repo.put(
-                "run", {"status": "running", "started_ts": ts, **body},
-                id=run_id, summary=f"run {run_id} started",
-            )
+            await self._upsert_run(run_id, status="running", started_ts=ts, **rest)
         elif etype == "run-finished":
+            # result rides in body (PASS | FAIL | ABORTED).
+            await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
+        elif etype == "run-aborted":
+            rest.setdefault("result", "ABORTED")
+            await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
+        elif etype == "test-result":
+            # Append the row to the run's results table (live UI + history + reports).
             existing = await self.core.db.repo.get("run", run_id)
-            data = dict(existing["data"]) if existing else {}
-            data.update({"status": "finished", "finished_ts": ts, **body})
-            await self.core.db.repo.put("run", data, id=run_id, summary=f"run {run_id} finished")
+            data = dict(existing["data"]) if existing else {"run_id": run_id, "status": "running"}
+            results = list(data.get("results") or [])
+            results.append({k: v for k, v in body.items() if k != "run_id"})
+            data["results"] = results
+            await self.core.db.repo.put("run", data, id=run_id, summary=f"run {run_id} {len(results)} results")
 
     # --- queries -----------------------------------------------------------
 

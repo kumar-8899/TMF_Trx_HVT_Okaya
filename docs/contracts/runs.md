@@ -4,26 +4,57 @@ Controller run-control proxy + run-record persistence + station/diag fan-out.
 LabVIEW owns execution; this module relays control and turns controller events
 into durable records (CORE.md §7). One variant: `default`. Entitlement key `runs`.
 
+## Acquisition (which recipe to run)
+A run learns its recipe either from a **barcode** (EOL benches — the leading
+characters encode the model/recipe) or a **directly chosen recipe id** (endurance
+benches — operator picks from a list). Resolution is a pluggable strategy
+(`modules/runs/acquisition.py`); phase-1 ships `prefix` (first N barcode chars).
+
+Config (`acquisition`):
+```json
+{ "default_mode": "barcode", "barcode": { "strategy": "prefix", "length": 3 } }
+```
+`GET /runs/acquisition` returns this so the Runs UI can render the Start dialog.
+
 ## Commands issued (Py → LV)
-`run.start` `{recipe?, params?}`, `run.abort` `{}`.
+- `run.start` `{ run_id, recipe_id, version?, run_parameters? }` — Python resolves
+  the recipe id (direct or from a barcode), **mints `run_id`**, and starts. LabVIEW
+  then pulls the run-parameter-substituted recipe JSON via `query/recipe.fetch`
+  (RECIPE §11). A scanned `barcode` is folded into `run_parameters`.
+- `run.abort` `{}`.
 
 ## Subscriptions (LV → Py)
-`event/#` (persisted + fanned out), `diag` (fanned out).
+`event/#` (persisted + fanned out), `diag` (fanned out). Event kinds consumed:
+`run-started`, `run-finished` (`result` = PASS|FAIL|ABORTED), `run-aborted`,
+`step-*`, `safety-*`, and **`test-result`** rows.
+
+### `test-result` event
+One result row per event (multiple may arrive during a run):
+```json
+{ "type": "test-result", "ts": 0,
+  "payload": { "run_id": "…", "serial_no": 1, "test_name": "OVP trip",
+               "expected": "320 V", "measured": "319.4 V", "result": "PASS",
+               "cycle_time_ms": 412 } }
+```
 
 ## Persistence (CORE.md §7, base Repository)
-- Every `run-*` / `step-*` / `safety-*` event → an append-only `run_event` record.
-- `run-started` / `run-finished` upsert a current-state `run` record keyed by
-  `run_id` (`running` → `finished`, merging `result`). The RAG envelope (id, type,
-  ts, station, source_version, summary) is stamped automatically.
+- Every `run-*` / `step-*` / `safety-*` / `test-result` event → an append-only
+  `run_event` record.
+- The current-state `run` record (keyed by `run_id`) is **merged** across the
+  lifecycle: `run_start` pre-creates it (`starting`, `recipe_id`); `run-started`
+  → `running`; `run-finished`/`run-aborted` → `finished` (+ `result`, ABORTED for
+  aborted); each `test-result` appends to the record's `results[]` array. The RAG
+  envelope is stamped automatically.
 
 ## HTTP / WS surface
 | Method | Path | Behaviour |
 |---|---|---|
-| POST | `/runs/start` | body = params → `run.start` |
+| GET  | `/runs/acquisition` | acquisition config for the Start dialog |
+| POST | `/runs/start` | body `{ recipe_id? \| barcode?, version?, run_parameters? }` → resolve + mint run_id + `run.start`; returns `{ run_id, recipe_id }` |
 | POST | `/runs/abort` | `run.abort` |
 | GET  | `/runs` | run records (`since`, `limit`) |
-| GET  | `/runs/{id}` | one run record (404 if absent) |
-| WS   | `/ws/station` | fan-out of all `event/*` envelopes |
+| GET  | `/runs/{id}` | one run record incl `results[]` (404 if absent) |
+| WS   | `/ws/station` | fan-out of all `event/*` envelopes (incl `test-result`) |
 | WS   | `/diagnostics/stream` | fan-out of `diag` events |
 
 ## Standalone test

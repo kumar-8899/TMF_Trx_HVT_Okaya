@@ -177,14 +177,21 @@ LabVIEW reads `reply_to` + `id` from each command payload (§5).
 | `daq.ai.read` / `daq.di.read` | `{ channels? }` | `{ values: { ai0: … } }` |
 | `variable.read` | `{ name }` | `{ value, ts }` |
 | `variable.write` | `{ name, value }` | `{ written: true }` |
-| `run.start` | `{ recipe?, params? }` | `{ run_id }` |
+| `run.start` | `{ run_id, recipe_id, version?, run_parameters? }` | `{ started: true }` |
 | `run.abort` | `{}` | `{ aborted: true }` |
 
+`run.start`: **Python mints `run_id`** and resolves `recipe_id` (directly or from
+a scanned barcode). LabVIEW reads the recipe by publishing
+`query/recipe.fetch { recipe_id, version, run_parameters }` and running the
+returned (substituted) JSON.
+
 Controller events (LV → Py, `event/{kind}`, envelope `{type, ts, payload}`) the
-`runs` module persists: `run-started` `{run_id, recipe}`, `step-started` /
-`step-completed` `{run_id, step_id, status, …}`, `run-finished`
-`{run_id, result}`, `safety-trip` `{reason}`. `run_id` is required for a record
-to join the current-state run.
+`runs` module persists: `run-started` `{run_id, recipe_id}`, `step-started` /
+`step-completed` `{run_id, step_id, status, …}`, `test-result`
+`{run_id, serial_no?, test_name, expected, measured, result, cycle_time_ms}`,
+`run-finished` `{run_id, result}` (`result` = PASS|FAIL|ABORTED), `run-aborted`
+`{run_id, reason}`, `safety-trip` `{reason}`. `run_id` is required for a record to
+join the current-state run.
 
 ---
 

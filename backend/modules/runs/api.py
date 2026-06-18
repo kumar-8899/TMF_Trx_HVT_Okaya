@@ -6,11 +6,14 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, WebSocket
 
 from core.services.bridge import BridgeError, BridgeTimeout
+from modules.runs.acquisition import AcquisitionError
 
 
 async def _guard(coro):
     try:
         return await coro
+    except AcquisitionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except BridgeTimeout as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except BridgeError as exc:
@@ -19,6 +22,10 @@ async def _guard(coro):
 
 def build_router(module) -> APIRouter:
     router = APIRouter(tags=["runs"])
+
+    @router.get("/runs/acquisition")
+    async def acquisition() -> dict:
+        return module.acquisition_config()
 
     @router.post("/runs/start")
     async def run_start(params: dict | None = None) -> dict:
