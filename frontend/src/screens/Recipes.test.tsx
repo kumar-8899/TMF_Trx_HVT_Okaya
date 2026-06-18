@@ -21,14 +21,14 @@ describe("Recipes list", () => {
 describe("RecipeEditor", () => {
   it("validates a draft and shows the result", async () => {
     mockFetch({ "POST /recipes/validate": { body: { ok: true, errors: [], warnings: [] } } });
-    render(<MemoryRouter><RecipeEditor /></MemoryRouter>);
+    render(<MemoryRouter><AuthProvider><RecipeEditor /></AuthProvider></MemoryRouter>);
     await userEvent.click(screen.getByRole("button", { name: /validate/i }));
     await waitFor(() => expect(screen.getByText("Valid.")).toBeInTheDocument());
   });
 
   it("surfaces validation errors", async () => {
     mockFetch({ "POST /recipes/validate": { body: { ok: false, errors: ["w: duration_ms required"], warnings: [] } } });
-    render(<MemoryRouter><RecipeEditor /></MemoryRouter>);
+    render(<MemoryRouter><AuthProvider><RecipeEditor /></AuthProvider></MemoryRouter>);
     await userEvent.click(screen.getByRole("button", { name: /validate/i }));
     await waitFor(() => expect(screen.getByText("w: duration_ms required")).toBeInTheDocument());
   });

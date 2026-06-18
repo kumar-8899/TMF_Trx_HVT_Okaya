@@ -163,7 +163,6 @@ export function Recipes() {
                 <TableCell sortDirection={sortKey === "latest_version" ? sortDir : false}>
                   <TableSortLabel active={sortKey === "latest_version"} direction={sortKey === "latest_version" ? sortDir : "asc"} onClick={() => sort("latest_version")}>Latest</TableSortLabel>
                 </TableCell>
-                <TableCell>Tags</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -174,12 +173,6 @@ export function Recipes() {
                   <TableCell sx={{ fontFamily: MONO_STACK, color: "text.secondary" }}>{r.recipe_id}</TableCell>
                   <TableCell><StatusChip label={r.status} kind={statusKind(r.status)} /></TableCell>
                   <TableCell><Chip size="small" variant="outlined" label={`v${r.latest_version}`} sx={{ fontFamily: MONO_STACK }} /></TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={0.5}>
-                      {(r.tags || []).slice(0, 2).map((t) => <Chip key={t} size="small" label={t} />)}
-                      {(r.tags || []).length > 2 && <Chip size="small" label={`+${(r.tags || []).length - 2}`} />}
-                    </Stack>
-                  </TableCell>
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                     <Tooltip title="View"><IconButton size="small" onClick={() => navigate(`/recipes/${r.recipe_id}`)}><Visibility fontSize="small" /></IconButton></Tooltip>
                     {can("RECIPE.EDIT") && <Tooltip title="Edit (fork draft)"><IconButton size="small" onClick={() => edit(r.recipe_id)}><Edit fontSize="small" /></IconButton></Tooltip>}
