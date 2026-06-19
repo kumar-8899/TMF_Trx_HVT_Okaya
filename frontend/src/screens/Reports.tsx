@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState, PageHeader, Section, StatusChip, statusKind } from "../components/ui";
+import { ResultsTable } from "../components/testing/ResultsTable";
 import { MONO_STACK } from "../theme/theme";
 
 interface Analytics {
@@ -120,14 +121,14 @@ export function Reports() {
           ) : (
             <Table>
               <TableHead><TableRow>
-                <TableCell>Run</TableCell><TableCell>Recipe</TableCell>
+                <TableCell>Serial No</TableCell><TableCell>Recipe</TableCell>
                 <TableCell>Result</TableCell><TableCell>Finished</TableCell>
               </TableRow></TableHead>
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.run_id} hover sx={{ cursor: "pointer" }} onClick={() => setOpen(r)}>
-                    <TableCell sx={{ fontFamily: MONO_STACK }}>{r.run_id}</TableCell>
-                    <TableCell sx={{ fontFamily: MONO_STACK }}>{r.recipe_id}</TableCell>
+                    <TableCell sx={{ fontFamily: MONO_STACK }}>{r.serial_no || r.run_id}</TableCell>
+                    <TableCell sx={{ fontFamily: MONO_STACK }}>{r.recipe_id || "—"}</TableCell>
                     <TableCell><StatusChip label={r.result} kind={statusKind(r.result)} /></TableCell>
                     <TableCell sx={{ color: "text.secondary" }}>
                       {r.finished_ts ? new Date(r.finished_ts * 1000).toLocaleString() : "-"}
@@ -145,14 +146,14 @@ export function Reports() {
           <>
             <DialogTitle>
               <Stack direction="row" spacing={1.5} alignItems="center">
-                <span style={{ fontFamily: MONO_STACK }}>Run {open.run_id}</span>
+                <span style={{ fontFamily: MONO_STACK }}>{open.serial_no || open.run_id}</span>
                 <StatusChip label={open.result} kind={statusKind(open.result)} />
               </Stack>
             </DialogTitle>
             <DialogContent>
               <Stack spacing={1.5}>
                 <Typography variant="caption" color="text.secondary">
-                  recipe {open.recipe_id} v{open.recipe_version}
+                  recipe {open.recipe_id || "—"}{open.recipe_version ? ` v${open.recipe_version}` : ""} · run {open.run_id}
                 </Typography>
                 {can("REPORT.EXPORT") && (
                   <Stack direction="row" spacing={1}>
@@ -162,13 +163,7 @@ export function Reports() {
                       onClick={() => downloadReport(open.run_id, "csv")}>Export CSV</Button>
                   </Stack>
                 )}
-                <Typography variant="subtitle2">Steps</Typography>
-                <Box component="pre" sx={{
-                  overflow: "auto", fontSize: 12, fontFamily: MONO_STACK, p: 1.5, borderRadius: 1, m: 0,
-                  bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.04)" : "rgba(2,6,23,0.04)"),
-                }}>
-                  {JSON.stringify(open.steps, null, 2)}
-                </Box>
+                <ResultsTable rows={open.rows || []} />
               </Stack>
             </DialogContent>
           </>

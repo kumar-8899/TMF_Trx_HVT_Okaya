@@ -54,7 +54,9 @@ class StandardReport:
         if not run_id:
             return
         events = [r["data"] for r in await self.core.db.repo.query("run_event", filter={"run_id": run_id})]
-        report = build_report(run_id, events, {**body, "ts": payload.get("ts")}, self.station)
+        rec = await self.core.db.repo.get("run", run_id)
+        run_record = rec["data"] if rec else None
+        report = build_report(run_id, events, {**body, "ts": payload.get("ts")}, self.station, run_record)
         is_pass = result_is_pass(report["result"])
         for sink in self._sinks:
             if when_matches(sink.when, is_pass):

@@ -36,11 +36,19 @@ class FolderSink:
 def report_to_csv(report: dict) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["run_id", "result", "recipe_id", "step_id", "name", "value", "units"])
-    meta = (report.get("run_id"), report.get("result"), report.get("recipe_id"))
-    measurements = report.get("measurements", [])
-    if not measurements:
-        w.writerow([*meta, "", "", "", ""])
-    for m in measurements:
-        w.writerow([*meta, m.get("step_id", ""), m.get("name", ""), m.get("value", ""), m.get("units", "")])
+    w.writerow(["run_id", "serial_no", "result", "recipe_id",
+                "test_name", "expected", "measured", "cycle_time_ms"])
+    meta = (report.get("run_id"), report.get("serial_no"), report.get("result"), report.get("recipe_id"))
+    rows = report.get("rows") or []
+    if rows:
+        for r in rows:
+            w.writerow([*meta, r.get("test_name", ""), r.get("expected", ""),
+                        r.get("measured", ""), r.get("cycle_time_ms", "")])
+    else:
+        # legacy step-measurement fallback
+        meas = report.get("measurements", [])
+        if not meas:
+            w.writerow([*meta, "", "", "", ""])
+        for m in meas:
+            w.writerow([*meta, m.get("step_id", ""), "", m.get("value", ""), ""])
     return buf.getvalue()

@@ -136,7 +136,7 @@ async def test_folder_sink_routes_by_result(tmp_path):
         # sqlite always
         assert await mod.get_report("R1") and await mod.get_report("R2")
         csv_text = (root / "FAIL" / "R2.csv").read_text()
-        assert csv_text.startswith("run_id,result,recipe_id")
+        assert csv_text.startswith("run_id,serial_no,result")
     finally:
         await db.close()
 
@@ -201,6 +201,6 @@ async def test_export_gated_and_formats(ctx):
 
         csv = await c.get("/reports/R1/export?format=csv", headers=exporter)
         assert csv.status_code == 200 and csv.headers["content-type"].startswith("text/csv")
-        assert csv.text.startswith("run_id,result,recipe_id")
+        assert csv.text.startswith("run_id,serial_no,result")
 
         assert (await c.get("/reports/none/export", headers=exporter)).status_code == 404
