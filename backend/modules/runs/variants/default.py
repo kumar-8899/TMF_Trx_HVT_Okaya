@@ -8,6 +8,7 @@ record is upserted per run_id for the run list.
 
 from __future__ import annotations
 
+import time
 import uuid
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -161,7 +162,9 @@ class DefaultRuns:
             return
         body = payload.get("payload", {}) or {}
         run_id = body.get("run_id") or body.get("id")
-        ts = payload.get("ts")
+        # Stamp server time when the controller omits ts, so started/finished_ts are
+        # always present (the daily analytics filters on finished_ts).
+        ts = payload.get("ts") or time.time()
 
         # append-only history
         await self.core.db.repo.put(

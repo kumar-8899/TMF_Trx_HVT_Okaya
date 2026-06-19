@@ -17,8 +17,10 @@ export function TodayStrip({ runs, onSelect }: { runs: any[]; onSelect: (id: str
     let pass = 0, fail = 0, total = 0;
     for (const r of runs) {
       const d = r.data ?? {};
-      const ts = d.finished_ts ?? 0;
-      if (d.status !== "finished" || ts < since) continue;
+      if (d.status !== "finished") continue;
+      let ts = Number(d.finished_ts ?? r.ts ?? 0);
+      if (ts > 1e12) ts /= 1000;              // ms -> s
+      if (ts && ts < since) continue;         // only drop if we KNOW it's before today
       const res = String(d.result || "").toUpperCase();
       total += 1;
       if (res === "PASS") pass += 1;
