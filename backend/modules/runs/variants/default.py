@@ -28,6 +28,10 @@ class DefaultRuns:
         acq = config.get("acquisition", {}) or {}
         self.acq_default_mode = acq.get("default_mode", "barcode")
         self._barcode_cfg = acq.get("barcode", {}) or {}
+        self._identity_cfg = config.get("identity", {}) or {}
+        self._live_variables = config.get("live_variables", []) or []
+        self._analytics_cfg = config.get("analytics", {"daily": True}) or {}
+        self._ui_cfg = config.get("ui", {}) or {}
         self._station_hub = StreamHub()   # event/* -> /ws/station
         self._diag_hub = StreamHub()      # diag    -> /diagnostics/stream
         self.router = build_router(self)
@@ -56,7 +60,7 @@ class DefaultRuns:
     # --- acquisition -------------------------------------------------------
 
     def acquisition_config(self) -> dict:
-        """What the Runs UI needs to render the Start dialog (default mode + hints)."""
+        """What the Start dialog needs (default mode + hints)."""
         return {
             "default_mode": self.acq_default_mode,
             "barcode": {
@@ -64,6 +68,31 @@ class DefaultRuns:
                 "length": self._barcode_cfg.get("length", 3),
             },
         }
+
+    def profile(self) -> dict:
+        """The bench profile that drives the operator testing window — declarative,
+        so the window's composition changes by config, not code."""
+        return {
+            "acquisition": self.acquisition_config(),
+            "identity": {
+                "model": self._identity_cfg.get("model", "prefix"),
+                "serial": self._identity_cfg.get("serial", "barcode"),
+            },
+            "live_variables": self._live_variables,
+            "analytics": {"daily": self._analytics_cfg.get("daily", True)},
+            "ui": {
+                "verdict_banner": self._ui_cfg.get("verdict_banner", True),
+                "message_line": self._ui_cfg.get("message_line", True),
+                "today_strip": self._ui_cfg.get("today_strip", True),
+            },
+        }
+
+    def _identity(self, barcode: str | None, recipe_id: str) -> dict:
+        """Derive Serial No + Model for the run record (identity config)."""
+        out: dict = {"model": recipe_id}
+        if barcode:
+            out["serial_no"] = barcode if self._identity_cfg.get("serial", "barcode") == "barcode" else barcode
+        return out
 
     def resolve(self, barcode: str) -> str:
         return resolve_recipe_id(
@@ -90,6 +119,8 @@ class DefaultRuns:
         run_parameters = dict(body.get("run_parameters") or {})
         if barcode:
             run_parameters.setdefault("barcode", barcode)
+        identity = self._identity(barcode, recipe_id)  # serial_no + model
+        run_parameters.update({k: v for k, v in identity.items() if k not in run_parameters})
 
         payload = {
             "run_id": run_id, "recipe_id": recipe_id,
@@ -97,10 +128,10 @@ class DefaultRuns:
         }
         # Pre-create the run record so the UI shows it immediately.
         await self._upsert_run(run_id, status="starting", recipe_id=recipe_id,
-                               run_parameters=run_parameters)
+                               run_parameters=run_parameters, **identity)
         reply = await self.core.bridge.request("run.start", payload)
         self.core.diag.info("runs", "run start", run_id=run_id, recipe_id=recipe_id, ok=reply.get("ok"))
-        out = {"run_id": run_id, "recipe_id": recipe_id}
+        out = {"run_id": run_id, "recipe_id": recipe_id, **identity}
         if isinstance(reply, dict):
             out.update({k: v for k, v in reply.items() if k != "id"})
         return out

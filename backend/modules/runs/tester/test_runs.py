@@ -64,9 +64,22 @@ async def test_run_start_from_barcode(ctx):
     module, bridge, _ = ctx
     out = await module.run_start({"barcode": "INV12345"})
     assert out["recipe_id"] == "INV"
+    assert out["model"] == "INV" and out["serial_no"] == "INV12345"
     _, args = bridge.requests[-1]
     assert args["recipe_id"] == "INV"
     assert args["run_parameters"]["barcode"] == "INV12345"
+    assert args["run_parameters"]["serial_no"] == "INV12345"
+    # identity persisted on the run record
+    run = await module.get_run(out["run_id"])
+    assert run["data"]["model"] == "INV" and run["data"]["serial_no"] == "INV12345"
+
+
+async def test_profile_shape(ctx):
+    module, _, _ = ctx
+    p = module.profile()
+    assert p["acquisition"]["default_mode"] == "barcode"
+    assert "identity" in p and "live_variables" in p and "analytics" in p and "ui" in p
+    assert p["ui"]["verdict_banner"] is True
 
 
 async def test_run_start_requires_recipe_or_barcode(ctx):

@@ -55,6 +55,10 @@ def build_router(module) -> APIRouter:
     for sig in ("ai", "di"):
         add_signal(sig)
 
+    @router.websocket("/instruments/values/ws")
+    async def values_ws(websocket: WebSocket) -> None:
+        await module.stream_values_ws(websocket)
+
     @router.get("/variables/{name}/value")
     async def read_variable(name: str) -> dict:
         try:

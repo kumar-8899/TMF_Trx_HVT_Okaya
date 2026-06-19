@@ -22,10 +22,12 @@ class DefaultDaq:
         self.config = config
         self._hubs: dict[str, StreamHub] = {s: StreamHub() for s in SIGNALS}
         self._running: dict[str, bool] = {s: False for s in SIGNALS}
+        self._values_hub = StreamHub()           # value/{name} -> /instruments/values/ws
+        self._values: dict[str, dict] = {}        # name -> {name, value, ts} (latest, for snapshot)
         self.router = build_router(self)
         self.mqtt_handlers = [(f"stream/{s}", self._make_handler(s)) for s in SIGNALS]
-        # Subscribe value/# so the bridge receives + caches retained values
-        # (snapshot-on-join, BRIDGE §6). The bridge caches; the handler is a no-op.
+        # Subscribe value/# so the bridge caches retained values (BRIDGE §6) and we
+        # fan live updates to the operator window.
         self.mqtt_handlers.append(("value/#", self._on_value))
 
     @classmethod
@@ -57,9 +59,14 @@ class DefaultDaq:
 
         return handler
 
-    def _on_value(self, _topic: str, _payload: dict | None) -> None:
-        # Subscription exists so the bridge receives + caches value/# (BRIDGE §6).
-        pass
+    def _on_value(self, topic: str, payload: dict | None) -> None:
+        # value topic = tmf/{station}/value/{name}; cache latest + fan out (BRIDGE §6).
+        if payload is None:
+            return
+        name = topic.split("value/", 1)[-1]
+        frame = {"name": name, **payload}
+        self._values[name] = frame
+        self._values_hub.broadcast(frame)
 
     # --- contract ----------------------------------------------------------
 
@@ -117,6 +124,19 @@ class DefaultDaq:
         if snapshot is not None:
             await ws.send_json(snapshot)
         async with self._hubs[signal].subscription() as q:
+            try:
+                while True:
+                    await ws.send_json(await q.get())
+            except WebSocketDisconnect:
+                pass
+
+    async def stream_values_ws(self, ws: WebSocket) -> None:
+        """Live station variable values for the operator window. Snapshot-on-join
+        (every cached value), then live value/{name} updates."""
+        await ws.accept()
+        for frame in list(self._values.values()):
+            await ws.send_json(frame)
+        async with self._values_hub.subscription() as q:
             try:
                 while True:
                     await ws.send_json(await q.get())

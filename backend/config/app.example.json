@@ -9,7 +9,13 @@
       "id": "runs",
       "variant": "default",
       "config": {
-        "acquisition": { "default_mode": "barcode", "barcode": { "strategy": "prefix", "length": 3 } }
+        "acquisition": { "default_mode": "barcode", "barcode": { "strategy": "prefix", "length": 3 } },
+        "identity": { "model": "prefix", "serial": "barcode" },
+        "live_variables": [
+          { "name": "vbus_main", "label": "DC Bus", "unit": "V", "format": "0.0" }
+        ],
+        "analytics": { "daily": true },
+        "ui": { "verdict_banner": true, "message_line": true, "today_strip": true }
       }
     },
     {

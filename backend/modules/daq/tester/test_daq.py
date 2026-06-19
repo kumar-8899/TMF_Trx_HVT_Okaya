@@ -113,6 +113,21 @@ async def test_ws_snapshot_then_live_frames():
     assert {"seq": 2} in ws.sent         # live frame
 
 
+async def test_values_ws_snapshot_then_live():
+    module, _ = _module()
+    # a value seen before the client joins -> snapshot
+    module._on_value("tmf/st1/value/vbus_main", {"value": 264.0, "ts": 1.0})
+    assert module._values["vbus_main"] == {"name": "vbus_main", "value": 264.0, "ts": 1.0}
+    ws = FakeWS()
+    task = asyncio.create_task(module.stream_values_ws(ws))
+    await asyncio.sleep(0.05)            # accept + snapshot + subscribe
+    module._on_value("tmf/st1/value/temp_c", {"value": 41.2, "ts": 2.0})
+    await asyncio.sleep(0.05)            # drain + send
+    task.cancel()
+    assert {"name": "vbus_main", "value": 264.0, "ts": 1.0} in ws.sent  # snapshot
+    assert {"name": "temp_c", "value": 41.2, "ts": 2.0} in ws.sent      # live
+
+
 # --- WS over the real ASGI transport (routing + gating) --------------------
 
 

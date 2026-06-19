@@ -16,6 +16,21 @@ Config (`acquisition`):
 ```
 `GET /runs/acquisition` returns this so the Runs UI can render the Start dialog.
 
+### Bench profile (operator window)
+The operator testing window is **config-driven**: `GET /runs/config` returns a
+declarative profile so the window's composition changes by config, not code.
+```json
+{ "acquisition": { … },
+  "identity": { "model": "prefix", "serial": "barcode" },
+  "live_variables": [ { "name": "vbus_main", "label": "DC Bus", "unit": "V", "format": "0.0" } ],
+  "analytics": { "daily": true },
+  "ui": { "verdict_banner": true, "message_line": true, "today_strip": true } }
+```
+`identity` derives **Model** (= resolved recipe id, `prefix`) and **Serial No**
+(= full `barcode`) at run start; both are written to `run_parameters` and the run
+record. `live_variables` are streamed to the window over the DAQ values WS
+(`/instruments/values/ws`). Daily pass/fail uses `GET /reports/analytics?since=<midnight>`.
+
 ## Commands issued (Py → LV)
 - `run.start` `{ run_id, recipe_id, version?, run_parameters? }` — Python resolves
   the recipe id (direct or from a barcode), **mints `run_id`**, and starts. LabVIEW
@@ -50,6 +65,7 @@ One result row per event (multiple may arrive during a run):
 | Method | Path | Behaviour |
 |---|---|---|
 | GET  | `/runs/acquisition` | acquisition config for the Start dialog |
+| GET  | `/runs/config` | bench profile (acquisition + identity + live_variables + analytics + ui) for the operator window |
 | POST | `/runs/start` | body `{ recipe_id? \| barcode?, version?, run_parameters? }` → resolve + mint run_id + `run.start`; returns `{ run_id, recipe_id }` |
 | POST | `/runs/abort` | `run.abort` |
 | GET  | `/runs` | run records (`since`, `limit`) |

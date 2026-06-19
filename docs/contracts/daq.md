@@ -18,6 +18,7 @@ last-value cache).
 | POST | `/instruments/daq/{ai,di}/stream/stop` | stop producing |
 | GET  | `/instruments/daq/{ai,di}/latest` | latest cached frame (404 if none) |
 | WS   | `/instruments/daq/{ai,di}/stream/ws` | gates on stream running (close 4409); snapshot-on-join, then live frames |
+| WS   | `/instruments/values/ws` | live station variable values: snapshot-on-join (every cached value), then `value/{name}` updates as `{ name, value, ts }` |
 | GET  | `/variables/{name}/value` | retained value, else `variable.read` |
 | PUT  | `/variables/{name}/value` | body `{value}` → `variable.write` |
 

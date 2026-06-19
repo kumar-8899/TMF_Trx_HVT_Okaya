@@ -27,6 +27,10 @@ def build_router(module) -> APIRouter:
     async def acquisition() -> dict:
         return module.acquisition_config()
 
+    @router.get("/runs/config")
+    async def run_config() -> dict:
+        return module.profile()
+
     @router.post("/runs/start")
     async def run_start(params: dict | None = None) -> dict:
         return await _guard(module.run_start(params))
