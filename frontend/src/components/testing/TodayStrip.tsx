@@ -1,27 +1,32 @@
 import { Box, Paper, Stack, Tooltip, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 
-import { api } from "../../api/client";
 import { StatusDot, statusKind } from "../ui";
 import { MONO_STACK } from "../../theme/theme";
-
-interface Analytics { total: number; passed: number; failed: number; yield: number }
 
 function midnightEpoch(): number {
   const d = new Date(); d.setHours(0, 0, 0, 0);
   return d.getTime() / 1000;
 }
 
-/** Today's pass/fail/yield (from the report module) + a recent-runs verdict strip. */
-export function TodayStrip({
-  runs, onSelect, refreshKey,
-}: { runs: any[]; onSelect: (id: string) => void; refreshKey?: unknown }) {
-  const [a, setA] = useState<Analytics | null>(null);
-
-  useEffect(() => {
-    api.get(`/reports/analytics?since=${midnightEpoch()}`)
-      .then((r) => setA(r)).catch(() => setA(null));
-  }, [refreshKey]);
+/** Today's pass/fail/yield + a recent-runs verdict strip — computed from the run
+ * records so the counts increment the moment a run finishes. */
+export function TodayStrip({ runs, onSelect }: { runs: any[]; onSelect: (id: string) => void }) {
+  const counts = useMemo(() => {
+    const since = midnightEpoch();
+    let pass = 0, fail = 0, total = 0;
+    for (const r of runs) {
+      const d = r.data ?? {};
+      const ts = d.finished_ts ?? 0;
+      if (d.status !== "finished" || ts < since) continue;
+      const res = String(d.result || "").toUpperCase();
+      total += 1;
+      if (res === "PASS") pass += 1;
+      else if (res === "FAIL") fail += 1;
+    }
+    const denom = pass + fail;
+    return { pass, fail, total, yield: denom ? Math.round((pass / denom) * 100) : 0 };
+  }, [runs]);
 
   const recent = runs.slice(0, 12);
 
@@ -29,10 +34,10 @@ export function TodayStrip({
     <Paper sx={{ p: 1.5 }}>
       <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap>
         <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>Today</Typography>
-        <Metric label="pass" value={a?.passed ?? 0} color="success.main" />
-        <Metric label="fail" value={a?.failed ?? 0} color="error.main" />
-        <Metric label="total" value={a?.total ?? 0} />
-        <Metric label="yield %" value={a ? Math.round(a.yield) : 0} color="info.main" />
+        <Metric label="pass" value={counts.pass} color="success.main" />
+        <Metric label="fail" value={counts.fail} color="error.main" />
+        <Metric label="total" value={counts.total} />
+        <Metric label="yield %" value={counts.yield} color="info.main" />
         <Box sx={{ flexGrow: 1 }} />
         <Stack direction="row" spacing={0.5} alignItems="center">
           {recent.map((r) => {

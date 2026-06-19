@@ -66,17 +66,24 @@ export function Runs() {
     // message/status line from any event
     if (body.message) setMessage(String(body.message));
     else if (t) setMessage(t.replace(/-/g, " "));
-    if (/fail|error|safety|abort/i.test(t)) setErrLine(String(body.reason || body.error || t));
+    if (/fail|error|safety|abort/i.test(t) || body.level === "error") setErrLine(String(body.reason || body.error || body.message || t));
     if (t === "run-started") setErrLine("");
     if (runId && body.run_id === runId) {
       if (t === "test-result") setResults((prev) => [...prev, body as ResultRow]);
-      else if (t === "run-finished") setRunStatus(body.result || "finished");
-      else if (t === "run-aborted") setRunStatus("ABORTED");
+      else if (t === "run-finished") { setRunStatus(body.result || "finished"); reopenForNext(); }
+      else if (t === "run-aborted") { setRunStatus("ABORTED"); reopenForNext(); }
     }
   }, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const running = runStatus === "running";
   const prefixLen = profile?.acquisition?.barcode?.length ?? 3;
   const resolvedPreview = barcode.trim().slice(0, prefixLen);
+
+  // After a run ends, auto-prompt for the next unit (operator presses Start once).
+  const reopenForNext = () => {
+    setMode(profile?.acquisition?.default_mode === "recipe" ? "recipe" : "barcode");
+    setBarcode(""); setPickRecipe(""); setOpen(true);
+  };
 
   const startRun = async () => {
     setError(null);
@@ -113,8 +120,8 @@ export function Runs() {
         subtitle="Operator testing window"
         actions={can("TEST.RUN") && (
           <>
-            <Button variant="contained" startIcon={<PlayArrow />} onClick={() => setOpen(true)}>Start test</Button>
-            <Button variant="outlined" color="error" startIcon={<Stop />} onClick={abort}>Abort</Button>
+            <Button variant="contained" startIcon={<PlayArrow />} disabled={running} onClick={() => setOpen(true)}>Start test</Button>
+            <Button variant="outlined" color="error" startIcon={<Stop />} disabled={!running} onClick={abort}>Abort</Button>
           </>
         )}
       />
@@ -144,7 +151,7 @@ export function Runs() {
           </Box>
         </Stack>
 
-        {ui.today_strip && <TodayStrip runs={runs} onSelect={openRun} refreshKey={runs.length} />}
+        {ui.today_strip && <TodayStrip runs={runs} onSelect={openRun} />}
       </Stack>
 
       {/* Start dialog */}
