@@ -165,6 +165,11 @@ async def test_create_save_publish(fsmod):
     rec = await db.repo.get("recipe.version", "inv-c:v1")
     assert rec is not None and rec["data"]["content_hash"] == pub["content_hash"]
 
+    # fetch is tolerant of a falsy/absent version -> latest (versions start at 1)
+    assert (await mod.get_recipe("inv-c", version=0))["version"] == 1
+    assert (await mod.get_recipe("inv-c", version=""))["version"] == 1   # type: ignore[arg-type]
+    assert (await mod.get_recipe("inv-c", version="1"))["version"] == 1  # type: ignore[arg-type]
+
 
 async def test_create_duplicate_and_validation(fsmod):
     mod, _ = fsmod

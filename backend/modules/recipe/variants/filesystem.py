@@ -117,7 +117,9 @@ class FilesystemRecipe:
 
     async def get_recipe(self, recipe_id: str, version: int | None = None) -> dict:
         meta = self.store.read_meta(recipe_id)
-        n = version if version is not None else meta.get("latest_version", 0)
+        # Versions start at 1; treat a falsy/absent version (None, 0, "") as "latest"
+        # and coerce a string version ("2") to int — tolerant of fetch callers.
+        n = int(version) if version else meta.get("latest_version", 0)
         if not n:
             raise RecipeStoreError(f"'{recipe_id}' has no published version")
         return self.store.read_version(recipe_id, n)
