@@ -11,6 +11,7 @@ import { Logs } from "./screens/Logs";
 import { Login } from "./screens/Login";
 import { RecipeDetail } from "./screens/RecipeDetail";
 import { RecipeEditor } from "./screens/RecipeEditor";
+import { Analytics } from "./screens/Analytics";
 import { Recipes } from "./screens/Recipes";
 import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
@@ -48,6 +49,7 @@ export function App() {
           <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
           <Route path="/daq" element={<Daq />} />
           <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
+          <Route path="/analytics" element={<RequirePermission perm="REPORT.VIEW"><Analytics /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
           <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />

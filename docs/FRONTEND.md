@@ -91,7 +91,8 @@ The visual vocabulary every screen reuses:
 | Recipes | `/recipes` | list: search/filter/sort, count cards, import/export, per-row View/Edit/Export (no Tags column) |
 | Recipe editor | `/recipes/new`, `/recipes/:id/edit` | two-pane: left rail of tests (search, All/Set/Empty, status dots) + right pane (fixed fields + Parameter Name/Value/Unit table); Owner auto = current user |
 | Recipe view | `/recipes/:id` | the editor surface **read-only** (not JSON) + versions/compare + Fork-to-edit |
-| Reports | `/reports` | analytics stat cards, by-recipe yield bars, report table + detail dialog with export |
+| Reports | `/reports` | per-run report list (serial), detail dialog with results + export |
+| Analytics | `/analytics` | premium dashboard (Recharts): filters (range/model/operator) + KPI band + tabs — Quality (FPY p-chart, pass/fail), Failures (Pareto + cumulative, parameter Pareto, by-model), Cycle time (histogram, I-MR). Fed by `GET /reports/analytics/dashboard` |
 | Users | `/users` | table with role **dropdowns** + state chips; New-user modal (role dropdown, temp password shown); super_admin hidden from non-super_admins |
 
 ### Recipe authoring model (phase 1)

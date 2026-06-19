@@ -1,6 +1,6 @@
 import {
   Article, Assessment, DarkMode, GroupsOutlined, LightMode, PlayCircleOutline,
-  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed,
+  QueryStatsOutlined, ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed,
 } from "@mui/icons-material";
 import {
   AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
   { label: "Runs", to: "/runs", icon: <PlayCircleOutline />, perm: "TEST.RUN" },
   { label: "Recipes", to: "/recipes", icon: <ScienceOutlined />, perm: "RECIPE.VIEW" },
   { label: "Reports", to: "/reports", icon: <Assessment />, perm: "REPORT.VIEW" },
+  { label: "Analytics", to: "/analytics", icon: <QueryStatsOutlined />, perm: "REPORT.VIEW" },
   { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
   { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
   { label: "Settings", to: "/settings", icon: <SettingsOutlined />, perm: "SYSTEM.RESET_DATA" },
