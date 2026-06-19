@@ -1,6 +1,6 @@
 import {
   Article, Assessment, DarkMode, GroupsOutlined, LightMode, PlayCircleOutline,
-  ScienceOutlined, SpaceDashboardOutlined, Speed,
+  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed,
 } from "@mui/icons-material";
 import {
   AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
   { label: "Reports", to: "/reports", icon: <Assessment />, perm: "REPORT.VIEW" },
   { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
   { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
+  { label: "Settings", to: "/settings", icon: <SettingsOutlined />, perm: "SYSTEM.RESET_DATA" },
 ];
 
 /** Poll /readyz for the station + bridge-link health lamp in the AppBar. */

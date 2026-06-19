@@ -14,6 +14,7 @@ import { RecipeEditor } from "./screens/RecipeEditor";
 import { Recipes } from "./screens/Recipes";
 import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
+import { Settings } from "./screens/Settings";
 import { Users } from "./screens/Users";
 
 function Protected() {
@@ -49,6 +50,7 @@ export function App() {
           <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
+          <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />
         </Route>
         {/* Operator testing window — same AppBar, no side-menu drawer. */}
         <Route element={<Layout hideNav />}>

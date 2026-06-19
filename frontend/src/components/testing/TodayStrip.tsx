@@ -30,7 +30,8 @@ export function TodayStrip({ runs, onSelect }: { runs: any[]; onSelect: (id: str
     return { pass, fail, total, yield: denom ? Math.round((pass / denom) * 100) : 0 };
   }, [runs]);
 
-  const recent = runs.slice(0, 12);
+  // list_runs returns oldest-first; show the most-recent runs in the strip.
+  const recent = [...runs].reverse().slice(0, 12);
 
   return (
     <Paper sx={{ p: 1.5 }}>

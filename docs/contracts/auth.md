@@ -31,6 +31,7 @@ domain; `*` grants everything. Matching is wildcard-aware
 | `REPORT.EXPORT` | report module (export reports) |
 | `MAINTENANCE.CALIBRATE` | maintenance |
 | `DIAGNOSTICS.VIEW` | diagnostics stream |
+| `SYSTEM.RESET_DATA` | settings: reset run/test/report data (super_admin only) |
 | `DOMAIN.*` | all actions in a domain |
 
 Modules gate routes with `require_permission(*perms)` from

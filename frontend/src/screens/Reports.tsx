@@ -47,7 +47,8 @@ export function Reports() {
       const q = new URLSearchParams();
       if (result) q.set("result", result);
       if (recipe) q.set("recipe_id", recipe);
-      setRows((await api.get(`/reports?${q.toString()}`)).items);
+      // newest first (the API returns oldest-first)
+      setRows([...(await api.get(`/reports?${q.toString()}`)).items].reverse());
     } catch (e: any) { setError(e.message); }
   }, [result, recipe]);
 

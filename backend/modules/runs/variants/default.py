@@ -142,6 +142,15 @@ class DefaultRuns:
         self.core.diag.warning("runs", "run abort", ok=reply.get("ok"))
         return reply
 
+    async def reset_data(self) -> dict:
+        """Purge all run/test/report records (Settings → Reset data). Gated to
+        SYSTEM.RESET_DATA (super_admin) at the route."""
+        horizon = time.time() + 1  # delete is ts < horizon -> everything
+        deleted = {t: await self.core.db.repo.delete(t, horizon)
+                   for t in ("run", "run_event", "report")}
+        self.core.diag.warning("runs", "test data reset", **deleted)
+        return {"deleted": deleted}
+
     # --- event intake -> records (CORE.md §7) ------------------------------
 
     async def _upsert_run(self, run_id: str, **changes) -> None:

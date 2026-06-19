@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
 
 from core.services.bridge import BridgeError, BridgeTimeout
+from core.services.security import require_permission
 from modules.runs.acquisition import AcquisitionError
 
 
@@ -38,6 +39,10 @@ def build_router(module) -> APIRouter:
     @router.post("/runs/abort")
     async def run_abort() -> dict:
         return await _guard(module.run_abort())
+
+    @router.post("/runs/reset-data", dependencies=[Depends(require_permission("SYSTEM.RESET_DATA"))])
+    async def reset_data() -> dict:
+        return await module.reset_data()
 
     @router.get("/runs")
     async def list_runs(since: float | None = None, limit: int | None = None) -> list[dict]:

@@ -74,6 +74,17 @@ async def test_run_start_from_barcode(ctx):
     assert run["data"]["model"] == "INV" and run["data"]["serial_no"] == "INV12345"
 
 
+async def test_reset_data_purges_records(ctx):
+    module, _, db = ctx
+    await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="R1"))
+    await module._on_event("tmf/st1/event/run-finished", _event("run-finished", 1.2, run_id="R1", result="PASS"))
+    assert await module.list_runs()  # has data
+    out = await module.reset_data()
+    assert out["deleted"]["run"] >= 1 and out["deleted"]["run_event"] >= 1
+    assert await module.list_runs() == []
+    assert await db.repo.query("run_event") == []
+
+
 async def test_profile_shape(ctx):
     module, _, _ = ctx
     p = module.profile()

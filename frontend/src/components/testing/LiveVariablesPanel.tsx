@@ -20,11 +20,14 @@ function fmt(v: ValueFrame["value"] | undefined, format?: string): string {
 export function LiveVariablesPanel({
   variables, values,
 }: { variables: LiveVariable[]; values: Record<string, ValueFrame> }) {
-  if (!variables.length) return null;
+  // Prefer the configured list; if none configured, show whatever values arrive
+  // on the WS so live parameters are always visible.
+  const vars: LiveVariable[] = variables.length ? variables : Object.keys(values).sort().map((name) => ({ name }));
+  if (!vars.length) return null;
   return (
     <Section title="Live values">
       <Grid container spacing={1.5}>
-        {variables.map((v) => (
+        {vars.map((v) => (
           <Grid item xs={6} sm={4} md={3} key={v.name}>
             <Box sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
               <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>
