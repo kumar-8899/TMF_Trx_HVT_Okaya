@@ -46,10 +46,13 @@ export function App() {
           <Route path="/recipes/:id" element={<RequirePermission perm="RECIPE.VIEW"><RecipeDetail /></RequirePermission>} />
           <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
           <Route path="/daq" element={<Daq />} />
-          <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><Runs /></RequirePermission>} />
           <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
+        </Route>
+        {/* Operator testing window — same AppBar, no side-menu drawer. */}
+        <Route element={<Layout hideNav />}>
+          <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><Runs /></RequirePermission>} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

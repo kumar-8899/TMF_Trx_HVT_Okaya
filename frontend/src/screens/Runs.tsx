@@ -1,38 +1,45 @@
 import { PlayArrow, QrCodeScanner, Stop } from "@mui/icons-material";
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack,
-  Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography,
+  Tab, Tabs, TextField, Typography,
 } from "@mui/material";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { EmptyState, PageHeader, Section, StatusChip, StatusDot, statusKind } from "../components/ui";
+import { PageHeader, Section } from "../components/ui";
+import { LiveVariablesPanel, type LiveVariable } from "../components/testing/LiveVariablesPanel";
+import { MessageLine } from "../components/testing/MessageLine";
+import { ResultsTable, type ResultRow } from "../components/testing/ResultsTable";
+import { TodayStrip } from "../components/testing/TodayStrip";
+import { VerdictBanner } from "../components/testing/VerdictBanner";
 import { useStream } from "../hooks/useStream";
+import { useValues } from "../hooks/useValues";
 import { MONO_STACK } from "../theme/theme";
 
 interface EventEnvelope { type: string; ts: number; payload?: Record<string, any> }
-interface ResultRow {
-  serial_no?: number; test_name?: string; expected?: any; measured?: any;
-  result?: string; cycle_time_ms?: number;
+interface Profile {
+  acquisition: { default_mode: string; barcode: { length: number } };
+  live_variables: LiveVariable[];
+  ui: { verdict_banner: boolean; message_line: boolean; today_strip: boolean };
 }
 
-function fmtTime(ts: number) {
-  if (!ts) return "";
-  return new Date(ts * (ts > 1e12 ? 1 : 1000)).toLocaleTimeString();
-}
+const FINAL = new Set(["PASS", "FAIL", "ABORTED"]);
 
 export function Runs() {
   const { can } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [runs, setRuns] = useState<any[]>([]);
-  const [events, setEvents] = useState<EventEnvelope[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // active run + live results
+  // active / selected run
   const [runId, setRunId] = useState<string | null>(null);
-  const [recipeId, setRecipeId] = useState<string>("");
-  const [runStatus, setRunStatus] = useState<string>("");
+  const [serial, setSerial] = useState("");
+  const [model, setModel] = useState("");
+  const [runStatus, setRunStatus] = useState("");
   const [results, setResults] = useState<ResultRow[]>([]);
+  const [message, setMessage] = useState("");
+  const [errLine, setErrLine] = useState("");
 
   // start dialog
   const [open, setOpen] = useState(false);
@@ -40,177 +47,104 @@ export function Runs() {
   const [barcode, setBarcode] = useState("");
   const [pickRecipe, setPickRecipe] = useState("");
   const [recipes, setRecipes] = useState<{ recipe_id: string; name: string }[]>([]);
-  const [prefixLen, setPrefixLen] = useState(3);
 
-  const { last, status } = useStream<EventEnvelope>("/ws/station");
+  const { last } = useStream<EventEnvelope>("/ws/station");
+  const values = useValues("/instruments/values/ws");
 
   const refresh = () => api.get("/runs").then(setRuns).catch((e) => setError(e.message));
   useEffect(() => {
     refresh();
-    api.get("/runs/acquisition").then((a) => {
-      setMode(a.default_mode === "recipe" ? "recipe" : "barcode");
-      setPrefixLen(a.barcode?.length ?? 3);
-    }).catch(() => {});
-    api.get("/recipes").then((rs) => setRecipes(rs)).catch(() => {});
+    api.get("/runs/config").then((p) => { setProfile(p); setMode(p.acquisition?.default_mode === "recipe" ? "recipe" : "barcode"); }).catch(() => {});
+    api.get("/recipes").then(setRecipes).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!last) return;
-    setEvents((prev) => [last, ...prev].slice(0, 50));
     const t = String(last.type);
     const body = last.payload ?? {};
     if (t.startsWith("run-")) refresh();
+    // message/status line from any event
+    if (body.message) setMessage(String(body.message));
+    else if (t) setMessage(t.replace(/-/g, " "));
+    if (/fail|error|safety|abort/i.test(t)) setErrLine(String(body.reason || body.error || t));
+    if (t === "run-started") setErrLine("");
     if (runId && body.run_id === runId) {
       if (t === "test-result") setResults((prev) => [...prev, body as ResultRow]);
-      else if (t === "run-started") setRunStatus("running");
       else if (t === "run-finished") setRunStatus(body.result || "finished");
       else if (t === "run-aborted") setRunStatus("ABORTED");
     }
   }, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const prefixLen = profile?.acquisition?.barcode?.length ?? 3;
   const resolvedPreview = barcode.trim().slice(0, prefixLen);
 
   const startRun = async () => {
     setError(null);
     try {
-      const body = mode === "barcode" ? { barcode } : { recipe_id: pickRecipe };
-      const res = await api.post("/runs/start", body);
-      setRunId(res.run_id); setRecipeId(res.recipe_id); setRunStatus("running"); setResults([]);
+      const reqBody = mode === "barcode" ? { barcode } : { recipe_id: pickRecipe };
+      const res = await api.post("/runs/start", reqBody);
+      setRunId(res.run_id); setModel(res.model || res.recipe_id || ""); setSerial(res.serial_no || "");
+      setRunStatus("running"); setResults([]); setErrLine(""); setMessage("Run started");
       setOpen(false); setBarcode(""); setPickRecipe("");
       refresh();
     } catch (e: any) { setError(e.message); }
   };
-
   const abort = async () => {
     setError(null);
     try { await api.post("/runs/abort", {}); } catch (e: any) { setError(e.message); }
   };
-
   const openRun = async (id: string) => {
     setError(null);
     try {
       const rec = await api.get(`/runs/${id}`);
       const d = rec.data ?? {};
-      setRunId(id); setRecipeId(d.recipe_id || ""); setResults(d.results || []);
-      setRunStatus(d.result || d.status || "");
+      setRunId(id); setModel(d.model || d.recipe_id || ""); setSerial(d.serial_no || "");
+      setResults(d.results || []); setRunStatus(d.result || d.status || "");
     } catch (e: any) { setError(e.message); }
   };
 
-  const passN = useMemo(() => results.filter((r) => String(r.result).toUpperCase() === "PASS").length, [results]);
+  const ui = profile?.ui ?? { verdict_banner: true, message_line: true, today_strip: true };
+  const finalVerdict = FINAL.has(String(runStatus).toUpperCase()) ? runStatus : undefined;
 
   return (
     <Box>
       <PageHeader
-        title="Runs"
-        subtitle="Start and monitor test executions on the station"
-        actions={
+        title="Test Bench"
+        subtitle="Operator testing window"
+        actions={can("TEST.RUN") && (
           <>
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mr: 1 }}>
-              <StatusDot kind={status === "open" ? "pass" : "idle"} />
-              <Typography variant="caption" color="text.secondary">{status === "open" ? "live" : "offline"}</Typography>
-            </Stack>
-            {can("TEST.RUN") && <Button variant="contained" startIcon={<PlayArrow />} onClick={() => setOpen(true)}>Start test</Button>}
-            {can("TEST.RUN") && <Button variant="outlined" color="error" startIcon={<Stop />} onClick={abort}>Abort</Button>}
+            <Button variant="contained" startIcon={<PlayArrow />} onClick={() => setOpen(true)}>Start test</Button>
+            <Button variant="outlined" color="error" startIcon={<Stop />} onClick={abort}>Abort</Button>
           </>
-        }
+        )}
       />
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {/* Active / selected run banner */}
-      {runId && (
-        <Section sx={{ mb: 2 }}>
-          <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Box>
-              <Typography variant="caption" color="text.secondary">RUN</Typography>
-              <Typography sx={{ fontFamily: MONO_STACK, fontWeight: 600 }}>{runId}</Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">RECIPE</Typography>
-              <Typography sx={{ fontFamily: MONO_STACK }}>{recipeId || "—"}</Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary" display="block">STATUS</Typography>
-              <StatusChip label={runStatus || "—"} kind={statusKind(runStatus)} />
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary" display="block">RESULTS</Typography>
-              <Typography variant="body2">{results.length} rows · {passN} pass</Typography>
-            </Box>
+      <Stack spacing={2}>
+        {/* identity + status banner */}
+        <Section>
+          <Stack direction="row" spacing={4} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Field label="Serial No" value={serial || "—"} />
+            <Field label="Model" value={model || "—"} />
+            <Field label="Run" value={runId || "—"} />
+            <Field label="Status" value={(runStatus || "idle").toString()} />
+            <Field label="Results" value={`${results.length}`} />
           </Stack>
         </Section>
-      )}
 
-      {/* Live results table */}
-      <Section title="Test results" subtitle={runId ? `Run ${runId}` : "Start a test to see results"} bodyPad={0} sx={{ mb: 2 }}>
-        {results.length === 0 ? (
-          <EmptyState message={runId ? "Waiting for results…" : "No active run."} />
-        ) : (
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ width: 64 }}>S.No</TableCell>
-                <TableCell>Test name</TableCell>
-                <TableCell align="right">Expected</TableCell>
-                <TableCell align="right">Measured</TableCell>
-                <TableCell>Result</TableCell>
-                <TableCell align="right">Cycle time</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {results.map((r, i) => (
-                <TableRow key={i}>
-                  <TableCell sx={{ fontFamily: MONO_STACK }}>{r.serial_no ?? i + 1}</TableCell>
-                  <TableCell>{r.test_name}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{String(r.expected ?? "")}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{String(r.measured ?? "")}</TableCell>
-                  <TableCell>{r.result ? <StatusChip label={r.result} kind={statusKind(r.result)} /> : "—"}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{r.cycle_time_ms != null ? `${r.cycle_time_ms} ms` : ""}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Section>
+        {ui.verdict_banner && <VerdictBanner result={finalVerdict} />}
+        {ui.message_line && <MessageLine message={message} error={errLine || undefined} />}
 
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-        <Section title="Run history" sx={{ flex: 1 }} bodyPad={0}>
-          {runs.length === 0 ? <EmptyState message="No runs yet." /> : (
-            <Table>
-              <TableHead><TableRow><TableCell>Run</TableCell><TableCell>Recipe</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
-              <TableBody>
-                {runs.map((r) => {
-                  const d = r.data ?? {};
-                  const s = d.result || d.status || "?";
-                  return (
-                    <TableRow key={r.id} hover sx={{ cursor: "pointer" }} onClick={() => openRun(r.id)}>
-                      <TableCell sx={{ fontFamily: MONO_STACK }}>{r.id}</TableCell>
-                      <TableCell sx={{ fontFamily: MONO_STACK }}>{d.recipe_id || "—"}</TableCell>
-                      <TableCell><StatusChip label={s} kind={statusKind(s)} /></TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </Section>
+        <Stack direction={{ xs: "column", lg: "row" }} spacing={2} alignItems="stretch">
+          <Box sx={{ flex: 2, minWidth: 0 }}>
+            <ResultsTable rows={results} subtitle={runId ? `Run ${runId}` : "Start a test to see results"} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <LiveVariablesPanel variables={profile?.live_variables ?? []} values={values} />
+          </Box>
+        </Stack>
 
-        <Section title="Station events" subtitle="Live feed" sx={{ flex: 1 }}>
-          {events.length === 0 ? <EmptyState message="Waiting for events…" /> : (
-            <Box sx={{ maxHeight: 320, overflow: "auto" }}>
-              <Stack spacing={0.75}>
-                {events.map((e, i) => (
-                  <Stack key={i} direction="row" spacing={1} alignItems="center" sx={{ py: 0.5, borderBottom: "1px solid", borderColor: "divider" }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_STACK, minWidth: 64 }}>{fmtTime(e.ts)}</Typography>
-                    <Typography variant="body2" fontWeight={600} sx={{ minWidth: 100 }}>{e.type}</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_STACK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {JSON.stringify(e.payload ?? {})}
-                    </Typography>
-                  </Stack>
-                ))}
-              </Stack>
-            </Box>
-          )}
-        </Section>
+        {ui.today_strip && <TodayStrip runs={runs} onSelect={openRun} refreshKey={runs.length} />}
       </Stack>
 
       {/* Start dialog */}
@@ -227,7 +161,7 @@ export function Runs() {
                 onChange={(e) => setBarcode(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && barcode) startRun(); }} />
               <Typography variant="caption" color="text.secondary">
-                Resolved recipe: <b style={{ fontFamily: MONO_STACK }}>{resolvedPreview || "—"}</b> (first {prefixLen} chars)
+                Model / recipe: <b style={{ fontFamily: MONO_STACK }}>{resolvedPreview || "—"}</b> · Serial: <b style={{ fontFamily: MONO_STACK }}>{barcode || "—"}</b>
               </Typography>
             </Stack>
           ) : (
@@ -240,11 +174,18 @@ export function Runs() {
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="contained" startIcon={<PlayArrow />}
-            disabled={mode === "barcode" ? !barcode : !pickRecipe} onClick={startRun}>
-            Start
-          </Button>
+            disabled={mode === "barcode" ? !barcode : !pickRecipe} onClick={startRun}>Start</Button>
         </DialogActions>
       </Dialog>
+    </Box>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: "0.06em", display: "block" }}>{label}</Typography>
+      <Typography sx={{ fontFamily: MONO_STACK, fontWeight: 600 }}>{value}</Typography>
     </Box>
   );
 }

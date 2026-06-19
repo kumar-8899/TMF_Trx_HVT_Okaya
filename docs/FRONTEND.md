@@ -87,7 +87,7 @@ The visual vocabulary every screen reuses:
 | Change password | `/change-password` | forced on first login (temp password) |
 | Dashboard | `/` | station readiness stat cards + module-status grid |
 | DAQ | `/daq` | AI/DI stream cards (live channel tiles + sparklines, channel/rate), Variables panel (read/write, DO set 0/1) |
-| Runs | `/runs` | **Start dialog** (Barcode / Select-recipe tabs), active-run banner, **live results table** (S.No, Test name, Expected, Measured, Result, Cycle time), run history, station-event feed |
+| Runs (Test Bench) | `/runs` | **operator testing window** — drawer-less layout (AppBar stays); identity (Serial No / Model) + Start dialog (Barcode / Select-recipe) + Abort; big **verdict banner**, message/status line, **live results table**, **live-values** tiles (DAQ values WS), **today strip** (pass/fail/yield + recent-run dots). Composition driven by `GET /runs/config` |
 | Recipes | `/recipes` | list: search/filter/sort, count cards, import/export, per-row View/Edit/Export (no Tags column) |
 | Recipe editor | `/recipes/new`, `/recipes/:id/edit` | two-pane: left rail of tests (search, All/Set/Empty, status dots) + right pane (fixed fields + Parameter Name/Value/Unit table); Owner auto = current user |
 | Recipe view | `/recipes/:id` | the editor surface **read-only** (not JSON) + versions/compare + Fork-to-edit |

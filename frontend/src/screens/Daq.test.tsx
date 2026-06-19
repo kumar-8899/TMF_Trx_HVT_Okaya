@@ -49,10 +49,19 @@ describe("Daq", () => {
 });
 
 describe("Runs", () => {
-  it("lists run records", async () => {
-    mockFetch({ "GET /runs": { body: [{ id: "R1", data: { status: "finished" } }] } });
+  it("renders the operator testing window", async () => {
+    (globalThis as any).WebSocket = class { close() {} }; // jsdom has none
+    mockFetch({
+      "GET /runs": { body: [{ id: "R1", data: { status: "finished", result: "PASS" } }] },
+      "GET /runs/config": { body: {
+        acquisition: { default_mode: "barcode", barcode: { length: 3 } },
+        live_variables: [], ui: { verdict_banner: true, message_line: true, today_strip: true },
+      } },
+      "GET /reports/analytics": { body: { total: 1, passed: 1, failed: 0, yield: 100 } },
+      "GET /recipes": { body: [] },
+    });
     render(wrap(<Runs />));
-    await waitFor(() => expect(screen.getByText("R1")).toBeInTheDocument());
-    expect(screen.getByText("finished")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Test Bench")).toBeInTheDocument());
+    expect(screen.getByText("No results yet.")).toBeInTheDocument();
   });
 });

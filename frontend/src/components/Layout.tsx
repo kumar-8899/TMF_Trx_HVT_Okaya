@@ -7,7 +7,7 @@ import {
   ListItemText, Stack, Toolbar, Tooltip, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Link as RouterLink, NavLink, Outlet } from "react-router-dom";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -68,7 +68,7 @@ function LinkStatus() {
   );
 }
 
-export function Layout() {
+export function Layout({ hideNav = false }: { hideNav?: boolean }) {
   const { can } = useAuth();
   const { mode, toggle } = useColorMode();
   const items = NAV.filter((n) => !n.perm || can(n.perm));
@@ -77,8 +77,11 @@ export function Layout() {
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
       <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar sx={{ gap: 1 }}>
-          <Box sx={{ mr: 1.25 }}><BrandMark size={28} /></Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          {/* Brand returns to the dashboard — the only "back" on the drawer-less test page. */}
+          <Box component={RouterLink} to="/" sx={{ mr: 1.25, display: "flex", textDecoration: "none" }}>
+            <BrandMark size={28} />
+          </Box>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: "inherit" }}>
             Test &amp; Measurement
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
@@ -92,21 +95,23 @@ export function Layout() {
           <SessionPanel />
         </Toolbar>
       </AppBar>
-      <Drawer
-        variant="permanent"
-        sx={{ width: DRAWER_WIDTH, flexShrink: 0,
-          [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: "border-box" } }}
-      >
-        <Toolbar />
-        <List sx={{ py: 1 }}>
-          {items.map((n) => (
-            <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.to === "/"} sx={{ mb: 0.5 }}>
-              <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
-              <ListItemText primary={n.label} primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
-            </ListItemButton>
-          ))}
-        </List>
-      </Drawer>
+      {!hideNav && (
+        <Drawer
+          variant="permanent"
+          sx={{ width: DRAWER_WIDTH, flexShrink: 0,
+            [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: "border-box" } }}
+        >
+          <Toolbar />
+          <List sx={{ py: 1 }}>
+            {items.map((n) => (
+              <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.to === "/"} sx={{ mb: 0.5 }}>
+                <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+                <ListItemText primary={n.label} primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
+              </ListItemButton>
+            ))}
+          </List>
+        </Drawer>
+      )}
       <Box component="main" sx={{ flexGrow: 1, p: 3, bgcolor: "background.default" }}>
         <Toolbar />
         <Outlet />
