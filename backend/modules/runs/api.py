@@ -3,11 +3,23 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 
 from core.services.bridge import BridgeError, BridgeTimeout
 from core.services.security import require_permission
 from modules.runs.acquisition import AcquisitionError
+
+
+def _operator(request: Request) -> str | None:
+    """Best-effort: the authenticated user who started the run (for analytics).
+    Does not gate the call — absent/invalid token just means no operator stamp."""
+    try:
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Bearer "):
+            return request.app.state.auth.verify(header[7:].strip()).subject
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 async def _guard(coro):
@@ -33,8 +45,12 @@ def build_router(module) -> APIRouter:
         return module.profile()
 
     @router.post("/runs/start")
-    async def run_start(params: dict | None = None) -> dict:
-        return await _guard(module.run_start(params))
+    async def run_start(request: Request, params: dict | None = None) -> dict:
+        body = dict(params or {})
+        op = _operator(request)
+        if op:
+            body.setdefault("operator", op)
+        return await _guard(module.run_start(body))
 
     @router.post("/runs/abort")
     async def run_abort() -> dict:

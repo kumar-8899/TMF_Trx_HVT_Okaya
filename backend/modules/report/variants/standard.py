@@ -9,6 +9,7 @@ from __future__ import annotations
 from core.framework.contract import CoreServices, Health, HealthStatus
 import json
 
+from modules.report.analytics import build_dashboard
 from modules.report.api import build_router
 from modules.report.assembly import build_report, result_is_pass
 from modules.report.sinks import build_sinks, when_matches
@@ -84,6 +85,10 @@ class StandardReport:
                 continue
             items.append(d)
         return {"items": items[:limit], "next_cursor": None, "total": len(items)}
+
+    async def dashboard(self, since=None, until=None, model=None, operator=None) -> dict:
+        reports = [r["data"] for r in await self.core.db.repo.query("report")]
+        return build_dashboard(reports, since=since, until=until, model=model, operator=operator)
 
     async def export(self, run_id: str, fmt: str = "json") -> bytes:
         report = await self.get_report(run_id)

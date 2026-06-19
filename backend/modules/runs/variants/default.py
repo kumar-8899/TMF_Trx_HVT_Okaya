@@ -122,6 +122,9 @@ class DefaultRuns:
             run_parameters.setdefault("barcode", barcode)
         identity = self._identity(barcode, recipe_id)  # serial_no + model
         run_parameters.update({k: v for k, v in identity.items() if k not in run_parameters})
+        operator = body.get("operator")
+        if operator:
+            run_parameters.setdefault("operator", operator)
 
         payload = {
             "run_id": run_id, "recipe_id": recipe_id,
@@ -129,7 +132,7 @@ class DefaultRuns:
         }
         # Pre-create the run record so the UI shows it immediately.
         await self._upsert_run(run_id, status="starting", recipe_id=recipe_id,
-                               run_parameters=run_parameters, **identity)
+                               run_parameters=run_parameters, operator=operator, **identity)
         reply = await self.core.bridge.request("run.start", payload)
         self.core.diag.info("runs", "run start", run_id=run_id, recipe_id=recipe_id, ok=reply.get("ok"))
         out = {"run_id": run_id, "recipe_id": recipe_id, **identity}
