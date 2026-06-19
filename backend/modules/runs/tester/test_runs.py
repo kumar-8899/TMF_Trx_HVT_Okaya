@@ -78,11 +78,15 @@ async def test_reset_data_purges_records(ctx):
     module, _, db = ctx
     await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="R1"))
     await module._on_event("tmf/st1/event/run-finished", _event("run-finished", 1.2, run_id="R1", result="PASS"))
+    await db.repo.put("error_log", {"level": "error", "message": "x"}, summary="e")
+    await db.repo.put("action_log", {"user": "op", "action": "y"}, summary="a")
     assert await module.list_runs()  # has data
     out = await module.reset_data()
     assert out["deleted"]["run"] >= 1 and out["deleted"]["run_event"] >= 1
+    assert out["deleted"]["error_log"] >= 1 and out["deleted"]["action_log"] >= 1
     assert await module.list_runs() == []
     assert await db.repo.query("run_event") == []
+    assert await db.repo.query("error_log") == [] and await db.repo.query("action_log") == []
 
 
 async def test_profile_shape(ctx):

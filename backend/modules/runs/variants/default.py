@@ -142,12 +142,15 @@ class DefaultRuns:
         self.core.diag.warning("runs", "run abort", ok=reply.get("ok"))
         return reply
 
+    # Record types wiped by Settings → Reset data: run/test history, reports, and
+    # the error/action logs. (Recipes + users are intentionally left alone.)
+    RESET_TYPES = ("run", "run_event", "report", "error_log", "action_log")
+
     async def reset_data(self) -> dict:
-        """Purge all run/test/report records (Settings → Reset data). Gated to
-        SYSTEM.RESET_DATA (super_admin) at the route."""
+        """Purge run/test/report records and error/action logs (Settings → Reset
+        data). Gated to SYSTEM.RESET_DATA (super_admin) at the route."""
         horizon = time.time() + 1  # delete is ts < horizon -> everything
-        deleted = {t: await self.core.db.repo.delete(t, horizon)
-                   for t in ("run", "run_event", "report")}
+        deleted = {t: await self.core.db.repo.delete(t, horizon) for t in self.RESET_TYPES}
         self.core.diag.warning("runs", "test data reset", **deleted)
         return {"deleted": deleted}
 

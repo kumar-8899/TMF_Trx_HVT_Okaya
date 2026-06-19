@@ -19,7 +19,7 @@ export function Settings() {
     try {
       const r = await api.post("/runs/reset-data", {});
       const d = r.deleted || {};
-      setNotice(`Test data reset — removed ${d.run ?? 0} runs, ${d.run_event ?? 0} events, ${d.report ?? 0} reports.`);
+      setNotice(`Reset — ${d.run ?? 0} runs, ${d.run_event ?? 0} events, ${d.report ?? 0} reports, ${d.error_log ?? 0} error logs, ${d.action_log ?? 0} action logs removed.`);
     } catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -36,8 +36,9 @@ export function Settings() {
             <Box>
               <Typography variant="subtitle2">Reset test data</Typography>
               <Typography variant="body2" color="text.secondary">
-                Permanently deletes all run records, run events, and reports (run history,
-                today's counts, and the Reports page). Recipes and users are not affected.
+                Permanently deletes run records, run events, reports, and the error/action
+                logs (run history, today's counts, the Reports page, and the Logs page).
+                Recipes and users are not affected.
               </Typography>
             </Box>
             <Button color="error" variant="contained" startIcon={<DeleteForever />} disabled={busy}
