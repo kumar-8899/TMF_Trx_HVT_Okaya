@@ -19,6 +19,7 @@ from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry, discover
 from core.services.auth_verify import TokenVerifier
 from core.services.bridge import BridgeClient
+from core.services.interlock import InterlockPort
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
@@ -59,6 +60,7 @@ def create_app(
         await db.connect()
 
         auth = TokenVerifier()
+        interlock = InterlockPort()  # MES gate port; fail-open until an MES module fills it
 
         # bridge.connect before the gate so modules needing it get it (CORE.md §5).
         bridge: BridgeClient | None = None
@@ -74,11 +76,13 @@ def create_app(
         app.state.db = db
         app.state.bridge = bridge
         app.state.auth = auth  # the core.auth port (CORE.md §6.4); Auth module fills it
+        app.state.interlock = interlock
 
         web.add_ready_check("db", lambda: _check(db.connected))
 
         # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
-        core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web, station=station)
+        core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web,
+                    interlock=interlock, station=station)
         license = Licensing(config, diag).load_and_verify(app_cfg.get("license"))
         discover()
         result: ActivationResult = await activate_modules(

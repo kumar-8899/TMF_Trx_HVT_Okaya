@@ -53,6 +53,7 @@ SERVICE_ALIASES = {
     "diag": "diag",
     "diagnostics": "diag",
     "web": "web",
+    "interlock": "interlock",
 }
 
 
@@ -66,6 +67,7 @@ class CoreServices:
     auth: Any = None
     diag: Any = None
     web: Any = None
+    interlock: Any = None
     station: str = ""
     get_contract: Callable[[str], Any] | None = None
 
@@ -82,6 +84,7 @@ class Core:
         auth: Any = None,
         diag: Any = None,
         web: Any = None,
+        interlock: Any = None,
         station: str = "",
     ) -> None:
         self.db = db
@@ -90,6 +93,7 @@ class Core:
         self.auth = auth
         self.diag = diag
         self.web = web
+        self.interlock = interlock
         self.station = station
         self.contracts: dict[str, Any] = {}  # active module_id -> instance (CORE.md §6.3)
 

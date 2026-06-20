@@ -32,6 +32,7 @@ domain; `*` grants everything. Matching is wildcard-aware
 | `MAINTENANCE.CALIBRATE` | maintenance |
 | `DIAGNOSTICS.VIEW` | diagnostics stream |
 | `SYSTEM.RESET_DATA` | settings: reset run/test/report data (super_admin only) |
+| `SYSTEM.SETTINGS` | settings: MES interlock config + station settings (super_admin) |
 | `DOMAIN.*` | all actions in a domain |
 
 Modules gate routes with `require_permission(*perms)` from

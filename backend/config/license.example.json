@@ -4,8 +4,8 @@
   "issued_to": "Local Dev Station",
   "expires": "2099-01-01T00:00:00Z",
   "entitlements": {
-    "modules":  { "hello": true, "daq": true, "runs": true, "auth": true, "logs": true, "recipe": true, "report": true },
-    "variants": { "hello": ["default"], "daq": ["default"], "runs": ["default"], "auth": ["local_db"], "logs": ["db"], "recipe": ["filesystem"], "report": ["standard"] },
+    "modules":  { "hello": true, "daq": true, "runs": true, "auth": true, "logs": true, "recipe": true, "report": true, "mes": true },
+    "variants": { "hello": ["default"], "daq": ["default"], "runs": ["default"], "auth": ["local_db"], "logs": ["db"], "recipe": ["filesystem"], "report": ["standard"], "mes": ["default"] },
     "features": {},
     "limits":   { "max_stations": 1, "max_users": 1 }
   },

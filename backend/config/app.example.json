@@ -67,6 +67,17 @@
           { "type": "folder", "when": "pass", "path": "data/reports/pass", "format": "json" }
         ]
       }
+    },
+    {
+      "id": "mes",
+      "variant": "default",
+      "config": {
+        "stage": "st1",
+        "provider": "folder",
+        "gate": { "enabled": false, "on_missing": "block" },
+        "publish": { "enabled": false },
+        "folder": { "upstream_dir": "data/mes/upstream", "downstream_dir": "data/mes/downstream" }
+      }
     }
   ]
 }

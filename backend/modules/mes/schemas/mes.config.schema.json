@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:mes/mes.config.schema.json",
+  "title": "MES Interlock module config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "stage": { "type": "string", "description": "This station's stage label." },
+    "provider": { "enum": ["folder", "database", "xml"], "description": "Transport (folder shipped; db/xml phase 2)." },
+    "gate": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Block runs unless the previous stage passed." },
+        "on_missing": { "enum": ["block", "allow"], "description": "Behaviour when no upstream record exists." }
+      }
+    },
+    "publish": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": { "enabled": { "type": "boolean", "description": "Write this stage's result downstream on run-finish." } }
+    },
+    "folder": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "upstream_dir": { "type": "string", "description": "Previous stage's output dir (has PASS/ FAIL/). Empty = first stage." },
+        "downstream_dir": { "type": "string", "description": "This stage's output dir (PASS/ FAIL/ written here)." }
+      }
+    }
+  }
+}

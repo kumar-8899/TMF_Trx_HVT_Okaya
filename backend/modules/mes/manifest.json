@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "mes",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "MES Interlock",
+    "description": "Cross-station interlock: gate a run on the previous stage's result and publish this stage's result for the next. Pluggable transport (folder/db/xml)."
+  },
+  "entitlement_key": "mes",
+  "variants": ["default"],
+  "core_dependencies": ["db", "diagnostics", "config", "web", "interlock"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": ["event/#"],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/mes.config.schema.json"
+}

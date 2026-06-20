@@ -126,6 +126,17 @@ class DefaultRuns:
         if operator:
             run_parameters.setdefault("operator", operator)
 
+        # MES interlock: block before creating a run if the previous stage didn't pass
+        # (fail-open when no MES module is loaded). InterlockError -> HTTP 409.
+        serial = identity.get("serial_no")
+        if self.core.interlock is not None and serial:
+            res = await self.core.interlock.check(serial, {
+                "recipe_id": recipe_id, "operator": operator, "station": self.core.station,
+            })
+            if not res.allowed:
+                from core.services.interlock import InterlockError
+                raise InterlockError(res.detail or "blocked by MES interlock")
+
         payload = {
             "run_id": run_id, "recipe_id": recipe_id,
             "version": body.get("version"), "run_parameters": run_parameters,

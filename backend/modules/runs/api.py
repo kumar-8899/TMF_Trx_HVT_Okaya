@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 
 from core.services.bridge import BridgeError, BridgeTimeout
+from core.services.interlock import InterlockError
 from core.services.security import require_permission
 from modules.runs.acquisition import AcquisitionError
 
@@ -25,6 +26,8 @@ def _operator(request: Request) -> str | None:
 async def _guard(coro):
     try:
         return await coro
+    except InterlockError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AcquisitionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except BridgeTimeout as exc:
