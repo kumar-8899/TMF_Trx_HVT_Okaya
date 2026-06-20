@@ -94,6 +94,7 @@ The visual vocabulary every screen reuses:
 | Reports | `/reports` | per-run report list (serial), detail dialog with results + export |
 | Analytics | `/analytics` | premium dashboard (Recharts): filters (range/model/operator) + KPI band + tabs — Quality (FPY p-chart, pass/fail), Failures (Pareto + cumulative, parameter Pareto, by-model), Cycle time (histogram, I-MR). Fed by `GET /reports/analytics/dashboard` |
 | Users | `/users` | table with role **dropdowns** + state chips; New-user modal (role dropdown, temp password shown); super_admin hidden from non-super_admins |
+| Settings | `/settings` | super_admin only; scalable section cards — Reset data, **MES interlock** (gate/publish toggles via `/mes/config`) |
 
 ### Recipe authoring model (phase 1)
 
