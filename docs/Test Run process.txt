@@ -1,0 +1,45 @@
+Step 1 — Python → LabVIEW: the start command
+
+Topic: tmf/{station}/cmd/run.start · QoS 1 · not retained
+Payload:
+{
+  "id": "9f3c1ab2e4d5",
+  "op": "run.start",
+  "args": {
+    "run_id": "7b1e0c9a8f24",
+    "recipe_id": "INV",
+    "version": null,
+    "run_parameters": {
+      "barcode": "INV12345",
+      "serial_no": "INV12345",
+      "model": "INV"
+    }
+  },
+  "reply_to": "tmf/st1/cmd/resp/tmf-py-1a2b3c4d"
+}
+run_id minted by Python. recipe_id/model = barcode prefix (3). serial_no = full barcode. Recipe-select mode → no barcode, recipe_id from dropdown.
+(Python also sets MQTT-5 ResponseTopic + CorrelationData props, but LabVIEW is 3.1.1 → use payload reply_to + id, props stripped.)
+Step 2 — LabVIEW → Python: the reply
+
+Topic: the reply_to from step 1 (tmf/st1/cmd/resp/tmf-py-1a2b3c4d) · QoS 1
+Payload — must echo same id:
+{ "id": "9f3c1ab2e4d5", "ok": true, "result": { "started": true } }
+Fail form:
+
+{ "id": "9f3c1ab2e4d5", "ok": false, "error": { "code": "...", "message": "...", "detail": "" } }
+No reply in 5s → Python returns HTTP 502.
+
+Step 3 — LabVIEW → Python: pull recipe JSON (LV serves nothing; Python serves this)
+
+Topic: tmf/{station}/query/recipe.fetch · QoS 1
+Payload:
+{
+  "id": "aa11bb22",
+  "args": { "recipe_id": "INV", "version": null, "run_parameters": { "barcode": "INV12345", "serial_no": "INV12345", "model": "INV" } },
+  "reply_to": "tmf/st1/query/resp/lv-1"
+}
+Python replies to that reply_to: { "id": "aa11bb22", "ok": true, "result": { ...full substituted recipe JSON... } }. ${run.x} placeholders substituted from run_parameters.
+Then LabVIEW runs, publishes back:
+
+tmf/{station}/event/test-result (per row) · tmf/{station}/event/run-finished {run_id, result: PASS|FAIL|ABORTED}.
+Must echo the run_id in every event payload — else UI can't match rows.

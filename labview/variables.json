@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "variables": [
-    { "name": "vbus_main", "units": "V", "description": "Main bus voltage" }
+    { "name": "vbus_main", "units": "V", "description": "Main bus voltage" },
+    { "name": "start_test", "units": "bool", "Start Test" }
   ]
 }
