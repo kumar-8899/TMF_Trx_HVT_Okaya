@@ -115,3 +115,36 @@ async def _bridge_roundtrip(core, cfg, params) -> dict:
     ok = bool(reply.get("ok", True))
     return {"status": "pass" if ok else "fail",
             "summary": f"round-trip {ms:.0f} ms", "data": {"elapsed_ms": round(ms, 1)}, "error": None}
+
+
+def _reply_ts(reply: dict):
+    return reply.get("ts") or (reply.get("result") or {}).get("ts") or (reply.get("echoed") or {}).get("ts")
+
+
+@register(CheckDescriptor(
+    id="bridge.clock_skew", domain="bridge", title="Clock skew", severity="warning",
+    description="LabVIEW timestamp vs Python within tolerance (skew corrupts every correlation).",
+    tags=["bridge"], requires=["bridge.online"]))
+async def _bridge_clock_skew(core, cfg, params) -> dict:
+    if core.bridge is None or not core.bridge.online:
+        return {"status": "unavailable", "summary": "bridge not online", "data": {}, "error": None}
+    tol = float(cfg.get("clock_skew_tolerance_s", 2.0))
+    reply = await core.bridge.request("hello.echo", {"from": "health"})
+    lv_ts = _reply_ts(reply)
+    if lv_ts is None:
+        return {"status": "error", "summary": "reply carried no timestamp", "data": {},
+                "error": {"type": "about:blank", "title": "no ts in reply"}}
+    skew = abs(time.time() - float(lv_ts))
+    ok = skew <= tol
+    return {"status": "pass" if ok else "fail",
+            "summary": f"clock skew {skew:.2f}s (tolerance {tol}s)",
+            "data": {"skew_s": round(skew, 3), "tolerance_s": tol}, "error": None}
+
+
+# Dispatched over the bridge to a LabVIEW handler (no local executor): the
+# controller answers `health.check.bridge.queue_depth` with a CheckVerdict
+# (HEALTH_CHECK.md §12). Absent handler / offline bridge -> unavailable/timeout.
+register(CheckDescriptor(
+    id="bridge.queue_depth", domain="bridge", title="Bridge queue depth", severity="warning",
+    description="LabVIEW reports its inbound bridge queue is not backed up.",
+    tags=["bridge"], requires=["bridge.online"]))(None)

@@ -23,7 +23,9 @@ _CRITICAL_BAD = {"fail", "timeout", "error"}
 
 _DEFAULT_SUITES = {
     "smoke": ["web.db_writable", "bridge.online"],
-    "full": ["web.db_writable", "web.disk_space", "bridge.online", "bridge.roundtrip"],
+    "bridge": ["bridge.online", "bridge.roundtrip", "bridge.clock_skew", "bridge.queue_depth"],
+    "full": ["web.db_writable", "web.disk_space", "bridge.online", "bridge.roundtrip",
+             "bridge.clock_skew", "bridge.queue_depth"],
 }
 
 

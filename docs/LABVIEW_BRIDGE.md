@@ -179,6 +179,16 @@ LabVIEW reads `reply_to` + `id` from each command payload (§5).
 | `variable.write` | `{ name, value }` | `{ written: true }` |
 | `run.start` | `{ run_id, recipe_id, version?, run_parameters? }` | `{ started: true }` |
 | `run.abort` | `{}` | `{ aborted: true }` |
+| `health.check.<id>` | `{ instance_id?, … }` | `CheckVerdict` `{ status, summary, data, error? }` |
+
+`health.check.<id>`: the Health module dispatches `bridge`/`hardware` checks that
+have no Python executor to a LabVIEW handler (HEALTH_CHECK.md §12). The handler
+runs the check, times it, and replies with a verdict whose `status` is one of
+`pass | fail | timeout | error` (the module fills `unavailable`/`timeout` itself
+when no handler answers). E.g. `health.check.bridge.queue_depth → {status:"pass",
+summary:"queue ok", data:{depth:2}}`. Connectivity checks `bridge.online` /
+`bridge.roundtrip` / `bridge.clock_skew` are computed Python-side (the last reuses
+`hello.echo`'s `ts`) and need **no** new handler.
 
 `run.start`: **Python mints `run_id`** and resolves `recipe_id` (directly or from
 a scanned barcode). LabVIEW reads the recipe by publishing
