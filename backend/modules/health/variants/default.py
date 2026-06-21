@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from dataclasses import replace
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -24,6 +25,8 @@ _CRITICAL_BAD = {"fail", "timeout", "error"}
 _DEFAULT_SUITES = {
     "smoke": ["web.db_writable", "bridge.online"],
     "bridge": ["bridge.online", "bridge.roundtrip", "bridge.clock_skew", "bridge.queue_depth"],
+    "hardware": ["hardware.instance_connected", "hardware.identify", "hardware.range_sane",
+                 "hardware.self_test", "hardware.loopback"],
     "full": ["web.db_writable", "web.disk_space", "bridge.online", "bridge.roundtrip",
              "bridge.clock_skew", "bridge.queue_depth"],
 }
@@ -34,6 +37,7 @@ class DefaultHealth:
         self.core = core
         self.config = config
         self.suites = config.get("suites") or _DEFAULT_SUITES
+        self.instances = config.get("instances", []) or []  # [{id, family, capabilities?}]
         self._hub = StreamHub()
         self._maintenance = False
         self._aborted: set[str] = set()
@@ -57,25 +61,65 @@ class DefaultHealth:
 
     # --- introspection -----------------------------------------------------
 
+    def _matches(self, select: dict, inst: dict) -> bool:
+        if not select:
+            return True
+        if "by_family" in select and inst.get("family") != select["by_family"]:
+            return False
+        if "by_capability" in select and select["by_capability"] not in (inst.get("capabilities") or []):
+            return False
+        return True
+
+    def _effective(self) -> tuple[dict, set[str]]:
+        """Concrete check set = static checks + templated bases expanded per matching
+        instance, with same-instance `requires` rewritten (§4.4, §5.3)."""
+        descs = registry.descriptors()
+        bases = {cid for cid, d in descs.items() if d.instance_templated}
+        eff: dict = {cid: d for cid, d in descs.items() if not d.instance_templated}
+        for bid in bases:
+            bd = descs[bid]
+            for inst in self.instances:
+                if not self._matches(bd.select, inst):
+                    continue
+                iid = inst["id"]
+                cid = f"{bid}:{iid}"
+                reqs = [f"{r}:{iid}" if r in bases else r for r in bd.requires]
+                eff[cid] = replace(bd, id=cid, base_id=bid, instance_id=iid,
+                                   requires=reqs, instance_templated=False)
+        return eff, bases
+
     def _reachable(self, d) -> bool:
         if registry.executor(d.id) is not None:
             return True
         return bool(self.core.bridge and self.core.bridge.online)
 
     def list_checks(self) -> list[dict]:
-        return [{**d.public(), "reachable": self._reachable(d)} for d in registry.descriptors().values()]
+        eff, _ = self._effective()
+        return [{**d.public(), "reachable": self._reachable(d)} for d in eff.values()]
 
     def list_suites(self) -> list[dict]:
         return [{"name": n, "check_ids": ids, "description": ""} for n, ids in self.suites.items()]
 
     # --- run control -------------------------------------------------------
 
-    def _resolve(self, suite: str | None, check_ids: list[str] | None) -> list[str]:
-        if suite:
-            if suite not in self.suites:
-                raise ValueError(f"unknown suite '{suite}'")
-            return list(self.suites[suite])
-        return list(check_ids or [])
+    def _resolve(self, suite, check_ids, eff: dict, bases: set[str]) -> list[str]:
+        """Requested ids → concrete ids. A templated base id expands to all its
+        instances; a concrete/static id passes through; unknown → error."""
+        requested = list(self.suites[suite]) if suite else list(check_ids or [])
+        if suite and suite not in self.suites:
+            raise ValueError(f"unknown suite '{suite}'")
+        out: list[str] = []
+        for rid in requested:
+            if rid in bases:
+                expanded = [cid for cid, d in eff.items() if d.base_id == rid]
+                if not expanded:
+                    continue  # templated base with no matching instance — silently empty
+                out.extend(expanded)
+            elif rid in eff:
+                out.append(rid)
+            else:
+                raise ValueError(f"unknown check '{rid}'")
+        return out
 
     def _order(self, ids: list[str], descs: dict) -> list[str]:
         """Topological order by `requires` (only within the selected set)."""
@@ -102,11 +146,8 @@ class DefaultHealth:
 
     async def run(self, *, suite=None, check_ids=None, mode="serial",
                   trigger="manual", operator=None) -> str:
-        ids = self._resolve(suite, check_ids)
-        all_d = registry.descriptors()
-        unknown = [c for c in ids if c not in all_d]
-        if unknown:
-            raise ValueError(f"unknown check(s): {', '.join(unknown)}")
+        all_d, bases = self._effective()
+        ids = self._resolve(suite, check_ids, all_d, bases)
         order = self._order(ids, all_d)
 
         hid = uuid.uuid4().hex
@@ -125,6 +166,7 @@ class DefaultHealth:
             else:
                 self._emit(hid, "check-started", {"check_id": cid, "title": d.title})
                 v = await self._dispatch(d)
+            v["instance_id"] = d.instance_id
             if v["status"] == "pass":
                 passed.add(cid)
             verdicts.append(v)
@@ -132,7 +174,7 @@ class DefaultHealth:
             self._emit(hid, "check-completed",
                        {"check_id": cid, "status": v["status"], "elapsed_ms": v["elapsed_ms"], "summary": v["summary"]})
 
-        record = self._assemble(hid, mode, trigger, operator, verdicts)
+        record = self._assemble(hid, mode, trigger, operator, verdicts, all_d)
         await self.core.db.repo.put("health_run", record, id=hid, summary=record["summary"])
         self._aborted.discard(hid)
         self._emit(hid, "health-run-finished", {"overall": record["overall"], "counts": record["counts"]})
@@ -140,12 +182,14 @@ class DefaultHealth:
 
     async def _dispatch(self, d) -> dict:
         t0 = time.time()
-        ex = registry.executor(d.id)
+        ex = registry.executor(d.base_id or d.id)
+        topic = f"health.check.{d.base_id or d.id}"
+        params = {"instance_id": d.instance_id} if d.instance_id else {}
         try:
             if ex is not None:
-                body = await asyncio.wait_for(ex(self.core, self.config, {}), d.timeout_ms / 1000)
+                body = await asyncio.wait_for(ex(self.core, self.config, params), d.timeout_ms / 1000)
             elif self.core.bridge is not None and self.core.bridge.online:
-                reply = await self.core.bridge.request(f"health.check.{d.id}", {}, timeout=d.timeout_ms / 1000)
+                reply = await self.core.bridge.request(topic, params, timeout=d.timeout_ms / 1000)
                 body = {"status": reply.get("status", "pass" if reply.get("ok") else "fail"),
                         "summary": reply.get("summary", ""), "data": reply.get("result", reply.get("data", {})),
                         "error": reply.get("error")}
@@ -167,11 +211,10 @@ class DefaultHealth:
         return {"check_id": check_id, "status": status, "started_ts": time.time(),
                 "elapsed_ms": 0.0, "summary": summary, "data": data or {}, "error": error, "signature": None}
 
-    def _assemble(self, hid, mode, trigger, operator, verdicts) -> dict:
+    def _assemble(self, hid, mode, trigger, operator, verdicts, descs) -> dict:
         counts: dict[str, int] = {}
         for v in verdicts:
             counts[v["status"]] = counts.get(v["status"], 0) + 1
-        descs = registry.descriptors()
         unhealthy = any(v["status"] in _CRITICAL_BAD and descs.get(v["check_id"]) and descs[v["check_id"]].severity == "critical" for v in verdicts)
         incomplete = any(v["status"] == "unavailable" and descs.get(v["check_id"]) and descs[v["check_id"]].severity == "critical" for v in verdicts)
         degraded = any(v["status"] == "fail" and descs.get(v["check_id"]) and descs[v["check_id"]].severity == "warning" for v in verdicts)

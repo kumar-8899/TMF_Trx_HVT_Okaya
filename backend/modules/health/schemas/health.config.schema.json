@@ -7,6 +7,21 @@
   "properties": {
     "data_root": { "type": "string", "description": "Root checked by web.disk_space." },
     "disk_min_gb": { "type": "number", "minimum": 0, "description": "Minimum free GB before web.disk_space fails." },
+    "clock_skew_tolerance_s": { "type": "number", "minimum": 0, "description": "Max LabVIEW↔Python skew before bridge.clock_skew fails." },
+    "instances": {
+      "type": "array",
+      "description": "Hardware instances templated checks expand against (HEALTH §4.4).",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "family": { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
     "suites": {
       "type": "object",
       "additionalProperties": { "type": "array", "items": { "type": "string" } },

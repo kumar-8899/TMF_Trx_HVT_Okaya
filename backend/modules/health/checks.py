@@ -26,6 +26,12 @@ class CheckDescriptor:
     severity: str = "critical"  # critical | warning | info
     tags: list[str] = field(default_factory=list)
     requires: list[str] = field(default_factory=list)
+    # instance templating (§4.4): a base check expands to one concrete check per
+    # matching instance at load. `select` filters instances (by_family/by_capability).
+    instance_templated: bool = False
+    select: dict = field(default_factory=dict)
+    base_id: str | None = None      # set on an expanded concrete check
+    instance_id: str | None = None  # set on an expanded concrete check
 
     def public(self) -> dict:
         return {
@@ -33,6 +39,8 @@ class CheckDescriptor:
             "description": self.description, "disruptive": self.disruptive,
             "timeout_ms": self.timeout_ms, "severity": self.severity,
             "tags": list(self.tags), "requires": list(self.requires),
+            "instance_templated": self.instance_templated,
+            "base_id": self.base_id, "instance_id": self.instance_id,
         }
 
 
@@ -148,3 +156,31 @@ register(CheckDescriptor(
     id="bridge.queue_depth", domain="bridge", title="Bridge queue depth", severity="warning",
     description="LabVIEW reports its inbound bridge queue is not backed up.",
     tags=["bridge"], requires=["bridge.online"]))(None)
+
+
+# --- hardware checks (R3) --------------------------------------------------
+# Hardware I/O is LabVIEW-owned (PRINCIPLES §0): these have NO local executor and
+# are dispatched per instance as health.check.<base> {instance_id} (§12). Each is
+# instance-templated — one definition covers every instance of a family (§4.4).
+
+def _hw(check_id, title, *, disruptive, severity, desc, requires):
+    register(CheckDescriptor(
+        id=check_id, domain="hardware", title=title, description=desc,
+        disruptive=disruptive, severity=severity, tags=["hardware"],
+        requires=requires, instance_templated=True))(None)
+
+
+_hw("hardware.instance_connected", "Instance connected", disruptive=False, severity="critical",
+    desc="The instance reports connected.", requires=["bridge.online"])
+_hw("hardware.identify", "Identify", disruptive=False, severity="info",
+    desc="*IDN?/identify() returns the expected vendor/model.",
+    requires=["hardware.instance_connected"])
+_hw("hardware.range_sane", "Range sane", disruptive=False, severity="warning",
+    desc="A read sits within the variable's expected range (catches floating/dead inputs).",
+    requires=["hardware.instance_connected"])
+_hw("hardware.self_test", "Self test", disruptive=True, severity="critical",
+    desc="Driver self_test() passes. Disruptive — maintenance mode only.",
+    requires=["hardware.instance_connected"])
+_hw("hardware.loopback", "Loopback", disruptive=True, severity="critical",
+    desc="Drive a known output, read it back, assert within tolerance. Disruptive.",
+    requires=["hardware.instance_connected"])

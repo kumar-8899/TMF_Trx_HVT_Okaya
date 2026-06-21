@@ -26,14 +26,17 @@ class FakeBridge:
         return r(args) if callable(r) else (r if r is not None else {"ok": True})
 
 
-async def _build(tmp_path, bridge=None):
+async def _build(tmp_path, bridge=None, instances=None):
     db = Database(":memory:", station="st1", source_version="0.0.0")
     await db.connect()
     core = CoreServices(
         db=db, bridge=bridge,
         diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
     )
-    module = DefaultHealth.construct(core, {"data_root": str(tmp_path), "disk_min_gb": 0.0})
+    cfg = {"data_root": str(tmp_path), "disk_min_gb": 0.0}
+    if instances is not None:
+        cfg["instances"] = instances
+    module = DefaultHealth.construct(core, cfg)
     await module.init()
     return module, core, db
 
@@ -145,5 +148,75 @@ async def test_dispatched_check_unavailable_when_offline(tmp_path):
         by = {v["check_id"]: v for v in (await module.get_run(hid))["verdicts"]}
         assert by["bridge.online"]["status"] == "fail"      # connected flag True, link offline
         assert by["bridge.queue_depth"]["status"] == "skipped"
+    finally:
+        await db.close()
+
+
+# --- R3: hardware checks, instance templating, maintenance gate ------------
+
+INSTANCES = [{"id": "daq_st1", "family": "daq"}, {"id": "dc_main_st1", "family": "psu"}]
+
+
+async def test_instance_templating_expands(tmp_path):
+    module, _, db = await _build(tmp_path, instances=INSTANCES)
+    try:
+        ids = {c["id"] for c in module.list_checks()}
+        assert "hardware.self_test:daq_st1" in ids
+        assert "hardware.self_test:dc_main_st1" in ids
+        # requires rewritten to the same instance
+        st = next(c for c in module.list_checks() if c["id"] == "hardware.self_test:daq_st1")
+        assert st["requires"] == ["hardware.instance_connected:daq_st1"]
+        assert st["base_id"] == "hardware.self_test" and st["instance_id"] == "daq_st1"
+    finally:
+        await db.close()
+
+
+async def test_disruptive_blocked_outside_maintenance(tmp_path):
+    bridge = FakeBridge(online=True, replies={
+        "hello.echo": lambda a: {"ok": True, "ts": time.time()},
+        "health.check.hardware.instance_connected": lambda a: {"ok": True, "status": "pass"},
+    })
+    module, _, db = await _build(tmp_path, bridge, instances=INSTANCES)
+    try:
+        hid = await module.run(check_ids=["hardware.self_test:daq_st1"])  # disruptive
+        by = {v["check_id"]: v for v in (await module.get_run(hid))["verdicts"]}
+        assert by["hardware.self_test:daq_st1"]["status"] == "skipped"
+        assert "maintenance" in by["hardware.self_test:daq_st1"]["summary"]
+    finally:
+        await db.close()
+
+
+async def test_hardware_runs_in_maintenance(tmp_path):
+    calls = []
+    def rec(op):
+        def fn(args):
+            calls.append((op, args.get("instance_id")))
+            return {"ok": True, "status": "pass", "summary": op, "data": {}}
+        return fn
+    bridge = FakeBridge(online=True, replies={
+        "health.check.hardware.instance_connected": rec("ic"),
+        "health.check.hardware.self_test": rec("st"),
+    })
+    module, _, db = await _build(tmp_path, bridge, instances=INSTANCES)
+    module._maintenance = True  # station entered maintenance (LabVIEW-owned)
+    try:
+        hid = await module.run(check_ids=["hardware.instance_connected:daq_st1", "hardware.self_test:daq_st1"])
+        by = {v["check_id"]: v for v in (await module.get_run(hid))["verdicts"]}
+        assert by["hardware.instance_connected:daq_st1"]["status"] == "pass"
+        assert by["hardware.self_test:daq_st1"]["status"] == "pass"
+        # dispatched to base topic with the instance_id param
+        assert ("st", "daq_st1") in calls
+    finally:
+        await db.close()
+
+
+async def test_maintenance_state_from_retained(tmp_path):
+    module, _, db = await _build(tmp_path, instances=INSTANCES)
+    try:
+        assert module._maintenance is False
+        module._on_maintenance("tmf/st1/state/maintenance", {"state": "on"})
+        assert module._maintenance is True
+        module._on_maintenance("tmf/st1/state/maintenance", {"state": "off"})
+        assert module._maintenance is False
     finally:
         await db.close()
