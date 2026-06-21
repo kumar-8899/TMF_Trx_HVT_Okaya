@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "health",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "System Health & Diagnostics",
+    "description": "On-demand health checks across web, bridge, and hardware; append-only health-run records; reachability-honest verdicts."
+  },
+  "entitlement_key": "health",
+  "variants": ["default"],
+  "core_dependencies": ["db", "bridge", "config", "auth", "diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": ["state/maintenance"],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/health.config.schema.json"
+}

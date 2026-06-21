@@ -26,11 +26,11 @@
         "session_ttl_min": 480,
         "password_policy": { "min_length": 5 },
         "roles": {
-          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*"],
-          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
-          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW"],
-          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT"],
-          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW"]
+          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*", "HEALTH.*"],
+          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE"],
+          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN"],
+          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT", "HEALTH.VIEW"],
+          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE"]
         },
         "users": [
           { "username": "admin", "password": "admin", "role": "super_admin" }
@@ -78,6 +78,11 @@
         "publish": { "enabled": false },
         "folder": { "upstream_dir": "data/mes/upstream", "downstream_dir": "data/mes/downstream" }
       }
+    },
+    {
+      "id": "health",
+      "variant": "default",
+      "config": { "data_root": "data", "disk_min_gb": 1.0 }
     }
   ]
 }

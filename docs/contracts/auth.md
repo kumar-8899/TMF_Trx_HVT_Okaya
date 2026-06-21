@@ -18,7 +18,7 @@ per-request callback into Auth).
 domain; `*` grants everything. Matching is wildcard-aware
 (`core.services.auth_verify.permission_granted`).
 
-**Domains:** `AUTH, TEST, RECIPE, REPORT, MAINTENANCE, SYSTEM, ADMIN, DIAGNOSTICS`.
+**Domains:** `AUTH, TEST, RECIPE, REPORT, MAINTENANCE, SYSTEM, ADMIN, DIAGNOSTICS, HEALTH`.
 
 **Known actions (extend as modules land):**
 | Permission | Used by |
@@ -33,6 +33,9 @@ domain; `*` grants everything. Matching is wildcard-aware
 | `DIAGNOSTICS.VIEW` | diagnostics stream |
 | `SYSTEM.RESET_DATA` | settings: reset run/test/report data (super_admin only) |
 | `SYSTEM.SETTINGS` | settings: MES interlock config + station settings (super_admin) |
+| `HEALTH.VIEW` | health: read checks/runs/current/issues |
+| `HEALTH.RUN` | health: run non-disruptive checks |
+| `HEALTH.MAINTENANCE` | health: run disruptive checks, enter/exit maintenance (R3) |
 | `DOMAIN.*` | all actions in a domain |
 
 Modules gate routes with `require_permission(*perms)` from

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:health/health.config.schema.json",
+  "title": "Health Check module config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "data_root": { "type": "string", "description": "Root checked by web.disk_space." },
+    "disk_min_gb": { "type": "number", "minimum": 0, "description": "Minimum free GB before web.disk_space fails." },
+    "suites": {
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } },
+      "description": "Named suites -> check id lists. Overrides the shipped defaults (smoke/full)."
+    }
+  }
+}
