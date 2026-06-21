@@ -180,6 +180,8 @@ LabVIEW reads `reply_to` + `id` from each command payload (§5).
 | `run.start` | `{ run_id, recipe_id, version?, run_parameters? }` | `{ started: true }` |
 | `run.abort` | `{}` | `{ aborted: true }` |
 | `health.check.<id>` | `{ instance_id?, … }` | `CheckVerdict` `{ status, summary, data, error? }` |
+| `maintenance.enter` | `{ operator, reason }` | `{ accepted, state }` \| `{ refused, reason }` |
+| `maintenance.exit` | `{ operator }` | `{ accepted, state }` |
 
 `health.check.<id>`: the Health module dispatches `bridge`/`hardware` checks that
 have no Python executor to a LabVIEW handler (HEALTH_CHECK.md §12). The handler
@@ -189,6 +191,12 @@ when no handler answers). E.g. `health.check.bridge.queue_depth → {status:"pas
 summary:"queue ok", data:{depth:2}}`. Connectivity checks `bridge.online` /
 `bridge.roundtrip` / `bridge.clock_skew` are computed Python-side (the last reuses
 `hello.echo`'s `ts`) and need **no** new handler.
+
+Maintenance mode is a **LabVIEW-owned** station state: the controller publishes
+retained `state/maintenance { state: off|entering|on|exiting, since, by, reason }`
+and is the arbiter of `maintenance.enter`/`exit` (MUST refuse `enter` while a run
+is active). Python + the frontend read the retained topic and proxy requests; the
+Health module gates disruptive checks on `state == "on"` (HEALTH_CHECK.md §8).
 
 `run.start`: **Python mints `run_id`** and resolves `recipe_id` (directly or from
 a scanned barcode). LabVIEW reads the recipe by publishing

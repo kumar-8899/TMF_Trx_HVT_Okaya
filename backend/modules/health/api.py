@@ -4,10 +4,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
 
+from core.services.auth_verify import Principal
+from core.services.bridge import BridgeError, BridgeTimeout
 from core.services.security import require_permission
 
 _VIEW = [Depends(require_permission("HEALTH.VIEW"))]
 _RUN = [Depends(require_permission("HEALTH.RUN"))]
+_MAINT = Depends(require_permission("HEALTH.MAINTENANCE"))
+
+
+async def _bridge_guard(coro):
+    try:
+        return await coro
+    except BridgeTimeout as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except BridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def build_router(module) -> APIRouter:
@@ -78,6 +90,20 @@ def build_router(module) -> APIRouter:
     async def ack_suggestion(sid: str, body: dict):
         if not await module.ack_suggestion(sid, (body or {}).get("outcome", "")):
             raise HTTPException(status_code=404, detail=f"no suggestion '{sid}'")
+
+    # --- maintenance (proxied to the LabVIEW authority, §8) ----------------
+
+    @router.get("/health/maintenance", dependencies=_VIEW)
+    async def maintenance_state() -> dict:
+        return module.maintenance_state()
+
+    @router.post("/health/maintenance/enter")
+    async def maintenance_enter(body: dict, principal: Principal = _MAINT) -> dict:
+        return await _bridge_guard(module.maintenance_enter(principal.subject, (body or {}).get("reason")))
+
+    @router.post("/health/maintenance/exit")
+    async def maintenance_exit(principal: Principal = _MAINT) -> dict:
+        return await _bridge_guard(module.maintenance_exit(principal.subject))
 
     @router.websocket("/health/run/{hid}/stream")
     async def stream(websocket: WebSocket, hid: str) -> None:

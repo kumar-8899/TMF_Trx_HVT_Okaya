@@ -47,6 +47,7 @@ class DefaultHealth:
         self._issues: list[dict] = []
         self._hub = StreamHub()
         self._maintenance = False
+        self._maint_state = {"state": "off", "since": None, "by": None, "reason": None}
         self._aborted: set[str] = set()
         self.router = build_router(self)
         self.mqtt_handlers = [("state/maintenance", self._on_maintenance)]
@@ -67,7 +68,19 @@ class DefaultHealth:
 
     def _on_maintenance(self, _topic: str, payload: dict | None) -> None:
         if payload is not None:
+            self._maint_state = payload
             self._maintenance = payload.get("state") == "on"
+
+    # --- maintenance mode (LabVIEW-owned; we read + proxy requests, §8) -----
+
+    def maintenance_state(self) -> dict:
+        return self._maint_state
+
+    async def maintenance_enter(self, operator: str | None, reason: str | None) -> dict:
+        return await self.core.bridge.request("maintenance.enter", {"operator": operator, "reason": reason})
+
+    async def maintenance_exit(self, operator: str | None) -> dict:
+        return await self.core.bridge.request("maintenance.exit", {"operator": operator})
 
     # --- introspection -----------------------------------------------------
 
