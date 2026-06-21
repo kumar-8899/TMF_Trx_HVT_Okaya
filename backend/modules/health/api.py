@@ -57,6 +57,28 @@ def build_router(module) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"no health run '{hid}'")
         return run
 
+    # --- known issues + suggestions (§7) -----------------------------------
+
+    @router.get("/health/known-issues", dependencies=_VIEW)
+    async def known_issues(q: str | None = None, check_id: str | None = None) -> list[dict]:
+        return module.list_known_issues(q=q, check_id=check_id)
+
+    @router.get("/health/known-issues/{issue_id}", dependencies=_VIEW)
+    async def known_issue(issue_id: str) -> dict:
+        iss = module.get_known_issue(issue_id)
+        if iss is None:
+            raise HTTPException(status_code=404, detail=f"no known issue '{issue_id}'")
+        return iss
+
+    @router.get("/health/suggestions", dependencies=_VIEW)
+    async def suggestions(since: float | None = None, matched: bool | None = None) -> list[dict]:
+        return await module.list_suggestions(since=since, matched=matched)
+
+    @router.post("/health/suggestions/{sid}/ack", dependencies=_RUN, status_code=204)
+    async def ack_suggestion(sid: str, body: dict):
+        if not await module.ack_suggestion(sid, (body or {}).get("outcome", "")):
+            raise HTTPException(status_code=404, detail=f"no suggestion '{sid}'")
+
     @router.websocket("/health/run/{hid}/stream")
     async def stream(websocket: WebSocket, hid: str) -> None:
         await module.stream_ws(websocket, hid)

@@ -1,0 +1,30 @@
+[
+  {
+    "issue_id": "bridge.offline",
+    "schema_version": 1,
+    "match": { "check_id": "bridge.online", "status": "fail" },
+    "title": "Bridge link down",
+    "symptom": "bridge.online fails; station shows link down.",
+    "cause": "The LabVIEW bridge has not published a retained status=online (controller not running, or broker unreachable).",
+    "remedy": {
+      "kind": "documentation",
+      "text": "Start the LabVIEW MQTT Bridge and confirm it publishes retained tmf/{station}/status {state:online}. Verify Mosquitto is up on :1883."
+    },
+    "references": ["docs/LABVIEW_BRIDGE.md", "docs/HOWTO_TEST_DAQ_WITH_LABVIEW.md"],
+    "confidence": "confirmed"
+  },
+  {
+    "issue_id": "hw.self_test.failed",
+    "schema_version": 1,
+    "match": { "check_id": "hardware.self_test", "status": "fail" },
+    "title": "Instrument self-test failed",
+    "symptom": "A hardware self_test reports FAIL.",
+    "cause": "The instrument's built-in self test failed — possible hardware fault, miscalibration, or fixture/wiring issue.",
+    "remedy": {
+      "kind": "documentation",
+      "text": "Re-seat the instrument and fixture, power-cycle, and re-run in maintenance mode. If it persists, calibrate or RMA per the instrument manual."
+    },
+    "references": [],
+    "confidence": "probable"
+  }
+]

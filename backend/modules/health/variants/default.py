@@ -12,11 +12,13 @@ import asyncio
 import time
 import uuid
 from dataclasses import replace
+from pathlib import Path
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.streaming import StreamHub
+from modules.health import catalog
 from modules.health import checks as registry
 from modules.health.api import build_router
 
@@ -38,6 +40,11 @@ class DefaultHealth:
         self.config = config
         self.suites = config.get("suites") or _DEFAULT_SUITES
         self.instances = config.get("instances", []) or []  # [{id, family, capabilities?}]
+        self._family = {i["id"]: i.get("family") for i in self.instances}
+        self._issue_dirs = [Path(__file__).resolve().parent.parent / "known_issues"]
+        if config.get("known_issues_dir"):
+            self._issue_dirs.append(Path(config["known_issues_dir"]))
+        self._issues: list[dict] = []
         self._hub = StreamHub()
         self._maintenance = False
         self._aborted: set[str] = set()
@@ -48,12 +55,15 @@ class DefaultHealth:
     def construct(cls, core: CoreServices, config: dict) -> "DefaultHealth":
         return cls(core, config)
 
-    async def init(self) -> None: pass
+    async def init(self) -> None:
+        self._issues = catalog.load_issues(self._issue_dirs)
+
     async def start(self) -> None: pass
     async def stop(self) -> None: pass
 
     async def health(self) -> Health:
-        return Health(status=HealthStatus.OK, detail=f"{len(registry.descriptors())} checks")
+        return Health(status=HealthStatus.OK,
+                      detail=f"{len(registry.descriptors())} checks · {len(self._issues)} known issues")
 
     def _on_maintenance(self, _topic: str, payload: dict | None) -> None:
         if payload is not None:
@@ -153,6 +163,7 @@ class DefaultHealth:
         hid = uuid.uuid4().hex
         self._emit(hid, "health-run-started", {"total_checks": len(order)})
         verdicts: list[dict] = []
+        suggestions: list[dict] = []
         passed: set[str] = set()
         for cid in order:
             d = all_d[cid]
@@ -173,8 +184,10 @@ class DefaultHealth:
             self.core.diag.info("health", "check verdict", check_id=cid, status=v["status"])
             self._emit(hid, "check-completed",
                        {"check_id": cid, "status": v["status"], "elapsed_ms": v["elapsed_ms"], "summary": v["summary"]})
+            if v["status"] in _CRITICAL_BAD and v.get("signature"):
+                suggestions.append(await self._suggest(hid, cid, v["signature"]))
 
-        record = self._assemble(hid, mode, trigger, operator, verdicts, all_d)
+        record = self._assemble(hid, mode, trigger, operator, verdicts, all_d, suggestions)
         await self.core.db.repo.put("health_run", record, id=hid, summary=record["summary"])
         self._aborted.discard(hid)
         self._emit(hid, "health-run-finished", {"overall": record["overall"], "counts": record["counts"]})
@@ -203,15 +216,40 @@ class DefaultHealth:
         v = self._verdict(d.id, body["status"], body.get("summary", ""), body.get("data", {}), body.get("error"))
         v["elapsed_ms"] = round((time.time() - t0) * 1000, 1)
         if v["status"] in _CRITICAL_BAD:
-            v["signature"] = {"check_id": d.id, "status": v["status"],
-                              "error_code": (body.get("error") or {}).get("code")}
+            err = body.get("error") or {}
+            v["signature"] = {
+                "check_id": d.base_id or d.id,            # family-level (§7.1)
+                "instance_family": self._family.get(d.instance_id),
+                "error_category": err.get("category"),
+                "error_code": err.get("code"),
+                "status": v["status"],
+            }
         return v
 
     def _verdict(self, check_id, status, summary, data=None, error=None) -> dict:
         return {"check_id": check_id, "status": status, "started_ts": time.time(),
                 "elapsed_ms": 0.0, "summary": summary, "data": data or {}, "error": error, "signature": None}
 
-    def _assemble(self, hid, mode, trigger, operator, verdicts, descs) -> dict:
+    async def _suggest(self, hid: str, check_id: str, signature: dict) -> dict:
+        """Match a failure signature against the catalog; persist a health_suggestion
+        record (incl. the valuable 'matched: false' unknown-signature case, §7.4)."""
+        issue = catalog.match(signature, self._issues)
+        remedy = (issue or {}).get("remedy") or {}
+        sid = uuid.uuid4().hex
+        rec = {
+            "health_run_id": hid, "check_id": check_id, "signature": signature,
+            "matched": bool(issue), "issue_id": (issue or {}).get("issue_id"),
+            "remedy_kind": remedy.get("kind"), "operator_ack": None,
+            "summary": (issue or {}).get("title") if issue else f"unknown signature for {check_id}",
+        }
+        await self.core.db.repo.put("health_suggestion", rec, id=sid, summary=rec["summary"])
+        self._emit(hid, "suggestion", {"check_id": check_id, "matched": rec["matched"],
+                                       "issue_id": rec["issue_id"], "remedy_kind": rec["remedy_kind"]})
+        # the run record carries the operator-facing view (remedy text + refs)
+        return {"id": sid, **rec, "remedy": remedy or None,
+                "references": (issue or {}).get("references", [])}
+
+    def _assemble(self, hid, mode, trigger, operator, verdicts, descs, suggestions) -> dict:
         counts: dict[str, int] = {}
         for v in verdicts:
             counts[v["status"]] = counts.get(v["status"], 0) + 1
@@ -223,7 +261,7 @@ class DefaultHealth:
         summary = f"{overall}: {len(bad)} issue(s)" + (f" — {', '.join(bad)}" if bad else "")
         return {"health_run_id": hid, "mode": mode, "trigger": trigger, "operator": operator,
                 "maintenance": self._maintenance, "overall": overall, "counts": counts,
-                "verdicts": verdicts, "suggestions": [], "summary": summary, "ts": time.time()}
+                "verdicts": verdicts, "suggestions": suggestions, "summary": summary, "ts": time.time()}
 
     def abort(self, hid: str) -> None:
         self._aborted.add(hid)
@@ -244,6 +282,30 @@ class DefaultHealth:
     async def current(self, trigger=None) -> dict | None:
         items = await self.list_runs(trigger=trigger)
         return items[-1] if items else None
+
+    # --- known issues + suggestions (§7) -----------------------------------
+
+    def list_known_issues(self, q=None, check_id=None) -> list[dict]:
+        return catalog.search(self._issues, q or "", check_id)
+
+    def get_known_issue(self, issue_id: str) -> dict | None:
+        return next((i for i in self._issues if i.get("issue_id") == issue_id), None)
+
+    async def list_suggestions(self, since=None, matched=None) -> list[dict]:
+        rows = await self.core.db.repo.query("health_suggestion", since=since)
+        items = [{"id": r["id"], **r["data"]} for r in rows]
+        if matched is not None:
+            items = [s for s in items if bool(s.get("matched")) == matched]
+        return items
+
+    async def ack_suggestion(self, sid: str, outcome: str) -> bool:
+        rec = await self.core.db.repo.get("health_suggestion", sid)
+        if rec is None:
+            return False
+        data = dict(rec["data"])
+        data["operator_ack"] = outcome
+        await self.core.db.repo.put("health_suggestion", data, id=sid, summary=data.get("summary", ""))
+        return True
 
     # --- WS ----------------------------------------------------------------
 

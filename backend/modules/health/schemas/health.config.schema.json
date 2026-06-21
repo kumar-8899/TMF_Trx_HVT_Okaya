@@ -8,6 +8,7 @@
     "data_root": { "type": "string", "description": "Root checked by web.disk_space." },
     "disk_min_gb": { "type": "number", "minimum": 0, "description": "Minimum free GB before web.disk_space fails." },
     "clock_skew_tolerance_s": { "type": "number", "minimum": 0, "description": "Max LabVIEW↔Python skew before bridge.clock_skew fails." },
+    "known_issues_dir": { "type": "string", "description": "Deployer dir of known-issue JSON files, overlaid on the shipped catalog." },
     "instances": {
       "type": "array",
       "description": "Hardware instances templated checks expand against (HEALTH §4.4).",

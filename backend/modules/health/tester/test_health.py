@@ -26,14 +26,14 @@ class FakeBridge:
         return r(args) if callable(r) else (r if r is not None else {"ok": True})
 
 
-async def _build(tmp_path, bridge=None, instances=None):
+async def _build(tmp_path, bridge=None, instances=None, disk_min_gb=0.0):
     db = Database(":memory:", station="st1", source_version="0.0.0")
     await db.connect()
     core = CoreServices(
         db=db, bridge=bridge,
         diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1",
     )
-    cfg = {"data_root": str(tmp_path), "disk_min_gb": 0.0}
+    cfg = {"data_root": str(tmp_path), "disk_min_gb": disk_min_gb}
     if instances is not None:
         cfg["instances"] = instances
     module = DefaultHealth.construct(core, cfg)
@@ -218,5 +218,61 @@ async def test_maintenance_state_from_retained(tmp_path):
         assert module._maintenance is True
         module._on_maintenance("tmf/st1/state/maintenance", {"state": "off"})
         assert module._maintenance is False
+    finally:
+        await db.close()
+
+
+# --- R4: known-issues catalog + signature matching + suggestions -----------
+
+
+async def test_known_issues_loaded_and_searchable(tmp_path):
+    module, _, db = await _build(tmp_path)
+    try:
+        assert module.get_known_issue("bridge.offline") is not None
+        hits = module.list_known_issues(q="bridge")
+        assert any(i["issue_id"] == "bridge.offline" for i in hits)
+    finally:
+        await db.close()
+
+
+async def test_failure_matches_known_issue(tmp_path):
+    bridge = FakeBridge(online=False)  # connected flag True -> bridge.online = fail
+    module, _, db = await _build(tmp_path, bridge)
+    try:
+        hid = await module.run(check_ids=["bridge.online"])
+        run = await module.get_run(hid)
+        assert run["suggestions"] and run["suggestions"][0]["issue_id"] == "bridge.offline"
+        assert run["suggestions"][0]["matched"] is True
+        assert "remedy" in run["suggestions"][0]
+        # persisted as a record + queryable
+        sugs = await module.list_suggestions(matched=True)
+        assert any(s["issue_id"] == "bridge.offline" for s in sugs)
+    finally:
+        await db.close()
+
+
+async def test_unknown_signature_recorded(tmp_path):
+    # huge min -> web.disk_space fails; no catalog entry for it -> matched False
+    module, _, db = await _build(tmp_path, disk_min_gb=1e12)
+    try:
+        hid = await module.run(check_ids=["web.disk_space"])
+        run = await module.get_run(hid)
+        assert run["suggestions"][0]["matched"] is False
+        assert run["suggestions"][0]["issue_id"] is None
+        unknown = await module.list_suggestions(matched=False)
+        assert unknown and unknown[0]["operator_ack"] is None
+    finally:
+        await db.close()
+
+
+async def test_suggestion_ack(tmp_path):
+    module, _, db = await _build(tmp_path, disk_min_gb=1e12)
+    try:
+        hid = await module.run(check_ids=["web.disk_space"])
+        sid = (await module.get_run(hid))["suggestions"][0]["id"]
+        assert await module.ack_suggestion(sid, "helped") is True
+        rec = await module.list_suggestions()
+        assert next(s for s in rec if s["id"] == sid)["operator_ack"] == "helped"
+        assert await module.ack_suggestion("nope", "helped") is False
     finally:
         await db.close()

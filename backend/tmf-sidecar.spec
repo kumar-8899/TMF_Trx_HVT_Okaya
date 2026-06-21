@@ -27,6 +27,7 @@ for pattern in (
     "modules/**/manifest.json",
     "modules/**/schemas/*.json",
     "modules/**/step_types/**/*.json",
+    "modules/**/known_issues/*.json",
     "core/schemas/*.json",
     "config/*.example.json",
 ):
