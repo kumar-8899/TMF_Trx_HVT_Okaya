@@ -90,16 +90,25 @@ export function Recipes() {
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `recipe-${id}.json`; a.click();
+    a.href = url; a.download = `recipe-${id}.zip`; a.click();
     URL.revokeObjectURL(url);
   };
 
   const onImportFile = async (file: File) => {
     setError(null); setNotice(null);
     try {
-      const bundle = JSON.parse(await file.text());
-      const res = await api.post(`/recipes/import?mode=add`, bundle);
-      setNotice(`Imported ${res.imported ?? ""} recipe(s).`);
+      // The export is a ZIP bundle — upload the raw bytes (NOT JSON).
+      const tok = localStorage.getItem("tmf.token");
+      const r = await fetch(`/recipes/import?mode=add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/zip", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: file,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail || `import failed (${r.status})`);
+      const n = Array.isArray(data.imported) ? data.imported.length : (data.imported ?? 0);
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      setNotice(`Imported ${n} recipe(s)${skipped ? `, ${skipped} skipped (already exist)` : ""}.`);
       refresh();
     } catch (e: any) { setError(e?.message || "Import failed"); }
   };
@@ -121,7 +130,7 @@ export function Recipes() {
                 New recipe
               </Button>
             )}
-            <input ref={fileRef} type="file" accept="application/json,.json" hidden
+            <input ref={fileRef} type="file" accept="application/zip,.zip" hidden
               onChange={(e) => { const f = e.target.files?.[0]; if (f) onImportFile(f); e.target.value = ""; }} />
           </>
         }
