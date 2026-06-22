@@ -51,7 +51,6 @@ activation gate with skip-and-continue), CoreServices DI, and the core services:
 
 | Module | Entitlement | What it does | Status |
 |---|---|---|---|
-| `hello` | hello | reference module (`hello.echo`) | done |
 | `daq` | daq | AI/DI streaming + WS relays, station variables (read/write) | backend done; live needs real LabVIEW |
 | `runs` | runs | run control proxy, run records, `/ws/station` + `/diagnostics/stream`, **barcode/recipe acquisition**, **test-result rows** | backend done |
 | `auth` | auth | permission-first auth, sessions, full user management, **protected super_admin**, **temp-password creation** | backend done |

@@ -46,8 +46,9 @@ export function TodayStrip({ runs, onSelect }: { runs: any[]; onSelect: (id: str
           {recent.map((r) => {
             const d = r.data ?? {};
             const s = d.result || d.status || "";
+            const label = d.serial_no || r.id;   // serial is more relatable; fall back to run id
             return (
-              <Tooltip key={r.id} title={`${r.id} · ${s}`}>
+              <Tooltip key={r.id} title={`${label} · ${s}`}>
                 <Box onClick={() => onSelect(r.id)} sx={{ cursor: "pointer" }}>
                   <StatusDot kind={statusKind(s)} />
                 </Box>

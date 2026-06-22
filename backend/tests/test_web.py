@@ -44,11 +44,11 @@ def test_request_id_echoed(config_dir):
 
 
 def test_modules_status_reports_gate(config_dir):
-    # The example app.json lists hello; with it registered + licensed, the gate
-    # loads it (bridge disabled here, but activation does not need a live link).
+    # A registered + licensed module loads through the gate (bridge disabled here,
+    # but activation does not need a live link).
     with _client(config_dir) as client:
         resp = client.get("/modules/status")
         assert resp.status_code == 200
         body = resp.json()
         assert "modules" in body and "loaded" in body and "skipped" in body
-        assert "hello" in body["loaded"]
+        assert "daq" in body["loaded"]

@@ -3,7 +3,6 @@
   "station": "st1",
   "license": "config/license.json",
   "modules": [
-    { "id": "hello", "variant": "default" },
     { "id": "daq",   "variant": "default" },
     {
       "id": "runs",
