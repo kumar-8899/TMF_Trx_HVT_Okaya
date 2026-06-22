@@ -112,6 +112,49 @@ class ConfigService:
 
         return sorted(ids(example) - ids(live))
 
+    def _read(self, name: str) -> tuple[dict, dict]:
+        """(live, example) parsed dicts for <name>.json / <name>.example.json ({} if absent)."""
+        def read(p: Path) -> dict:
+            try:
+                return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+            except (json.JSONDecodeError, OSError):
+                return {}
+        return read(self.config_dir / f"{name}.json"), read(self.config_dir / f"{name}.example.json")
+
+    @staticmethod
+    def _roles(app: dict) -> dict:
+        for m in app.get("modules", []):
+            if m.get("id") == "auth":
+                return (m.get("config", {}) or {}).get("roles", {}) or {}
+        return {}
+
+    def config_drift(self) -> dict:
+        """What the live config is missing versus the example — surfaced loudly at
+        boot so stale live config shows up as a warning, not a 403 later. Reports
+        missing modules, roles, per-role permissions, and licensed modules.
+        Live-only extras are never reported (the deployer may add their own)."""
+        live, example = self._read("app")
+        live_lic, ex_lic = self._read("license")
+        if not example:
+            return {"modules": [], "roles": [], "permissions": {}, "license_modules": []}
+
+        modules = self.example_only_modules()
+
+        lr, er = self._roles(live), self._roles(example)
+        roles = sorted(set(er) - set(lr))
+        perms: dict[str, list[str]] = {}
+        for role in set(er) & set(lr):
+            missing = sorted(set(er[role]) - set(lr[role]))
+            if missing:
+                perms[role] = missing
+
+        def licensed(d: dict) -> set[str]:
+            mods = ((d.get("entitlements", {}) or {}).get("modules", {}) or {})
+            return {k for k, v in mods.items() if v}
+        lic_modules = sorted(licensed(ex_lic) - licensed(live_lic)) if ex_lic else []
+
+        return {"modules": modules, "roles": roles, "permissions": perms, "license_modules": lic_modules}
+
     def load_module(self, module_id: str, raw: dict, schema_path: Path | str | None) -> dict:
         """Validate a single module's config block against its declared schema."""
         if schema_path is None:

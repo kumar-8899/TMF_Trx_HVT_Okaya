@@ -53,6 +53,15 @@ Live config (`config/app.json`, `config/license.json`) is gitignored — copy fr
 the `*.example.json` on first run. Dev login `admin` / `admin` (super_admin; a DEV
 credential — provision properly for production).
 
+When new modules/permissions land, the live config can fall behind the examples
+(surfacing as a 403/404). The backend logs a drift warning at boot; reconcile
+non-destructively with:
+```pwsh
+cd backend
+python -m tools.config_doctor          # dry-run: show missing modules/roles/perms/licenses
+python -m tools.config_doctor --apply  # add them (then restart + re-login)
+```
+
 ## Phase 0 — walking skeleton (complete)
 
 End to end: core services + module framework + activation gate + MQTT bridge

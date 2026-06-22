@@ -47,13 +47,14 @@ def create_app(
         diag = Diagnostics(station, __version__)
         diag.start()
 
-        drift = config.example_only_modules()
-        if drift:
+        drift = config.config_drift()
+        if any(drift.values()):
             diag.warning(
                 "config",
-                "live app.json is missing modules present in app.example.json; "
-                "delete config/app.json to regenerate it",
-                missing=drift,
+                "live config is stale vs the examples — run `python -m tools.config_doctor "
+                "--apply` to reconcile (non-destructive), then restart + re-login",
+                missing_modules=drift["modules"], missing_roles=drift["roles"],
+                missing_permissions=drift["permissions"], unlicensed_modules=drift["license_modules"],
             )
 
         db = Database(db_path, station=station, source_version=__version__)
