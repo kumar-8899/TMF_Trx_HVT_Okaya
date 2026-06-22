@@ -38,6 +38,11 @@ def check_semantic(recipe: dict) -> list[str]:
                 if p.get("end") is not None and p.get("start") is not None and p["end"] < p["start"]:
                     errors.append(f"{sid}: ramp_until end < start (step_size is positive; unreachable)")
 
+            elif stype == "parametric_test":
+                names = [r.get("name") for r in (p.get("parameters") or []) if r.get("name")]
+                for dup in sorted({n for n in names if names.count(n) > 1}):
+                    errors.append(f"{sid}: duplicate parameter name '{dup}' (must be unique within a test)")
+
             for key in _INNER_KEYS:
                 if isinstance(p.get(key), list):
                     walk(p[key])

@@ -60,8 +60,8 @@ def build_router(module) -> APIRouter:
         return await _guard(module.run_abort())
 
     @router.post("/runs/reset-data", dependencies=[Depends(require_permission("SYSTEM.RESET_DATA"))])
-    async def reset_data() -> dict:
-        return await module.reset_data()
+    async def reset_data(body: dict | None = None) -> dict:
+        return await module.reset_data((body or {}).get("targets"))
 
     @router.get("/runs")
     async def list_runs(since: float | None = None, limit: int | None = None) -> list[dict]:

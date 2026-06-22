@@ -225,6 +225,21 @@ class LocalDbAuth:
     async def deactivate(self, username: str) -> dict:
         return await self._set_state(username, INACTIVE, "user deactivated", revoke=True)
 
+    async def reset_users(self) -> int:
+        """Delete every non-super_admin user (+ credential + sessions). The protected
+        super_admin is always kept. For the Settings reset (SYSTEM.RESET_DATA)."""
+        n = 0
+        for u in await self.users.list():
+            if u.get("role") == PROTECTED_ROLE:
+                continue
+            un = u["username"]
+            await self.sessions.revoke_user(un)
+            await self.core.db.repo.delete_id("user", un)
+            await self.core.db.repo.delete_id("credential", f"{un}:password")
+            n += 1
+        self.core.diag.warning("auth", "users reset", removed=n)
+        return n
+
     async def admin_reset_password(self, username: str, temp_password: str | None = None) -> dict:
         await self._require_user(username)
         temp = temp_password or generate_temp_password()

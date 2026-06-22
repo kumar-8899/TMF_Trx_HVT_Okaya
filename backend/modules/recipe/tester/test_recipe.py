@@ -171,6 +171,20 @@ async def test_create_save_publish(fsmod):
     assert (await mod.get_recipe("inv-c", version="1"))["version"] == 1  # type: ignore[arg-type]
 
 
+def test_parametric_test_duplicate_param_name():
+    from modules.recipe.validation.semantic import check_semantic
+    recipe = {"steps": [{"step_id": "ovp", "step_type": "parametric_test",
+              "params": {"parameters": [{"name": "Vtrip"}, {"name": "Vtrip"}, {"name": "Dwell"}]}}]}
+    errors = check_semantic(recipe)
+    assert any("duplicate parameter name 'Vtrip'" in e for e in errors)
+    # same name in a DIFFERENT test is fine
+    ok = {"steps": [
+        {"step_id": "a", "step_type": "parametric_test", "params": {"parameters": [{"name": "Vtrip"}]}},
+        {"step_id": "b", "step_type": "parametric_test", "params": {"parameters": [{"name": "Vtrip"}]}},
+    ]}
+    assert check_semantic(ok) == []
+
+
 async def test_create_duplicate_and_validation(fsmod):
     mod, _ = fsmod
     await mod.create_recipe(PAYLOAD)

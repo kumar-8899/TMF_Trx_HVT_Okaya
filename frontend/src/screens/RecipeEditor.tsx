@@ -7,7 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { PageHeader } from "../components/ui";
 import { RecipeForm, type RecipeValue } from "../components/RecipeForm";
 
-interface EditState { recipeId: string; draftId: string; recipe: any }
+interface EditState { recipeId?: string; draftId?: string; recipe?: any; duplicate?: boolean }
 interface Report { ok: boolean; errors: string[]; warnings: string[] }
 
 export function RecipeEditor() {
@@ -17,11 +17,12 @@ export function RecipeEditor() {
   const initial = (loc.state as EditState | null) || null;
   const r0 = initial?.recipe ?? {};
 
+  const dup = Boolean(initial?.duplicate);
   const [value, setValue] = useState<RecipeValue>({
     recipe_id: r0.recipe_id || "",
-    name: r0.name || "",
-    // Owner auto-populated with the creator (kept if forking an existing recipe).
-    owner: r0.owner || principal?.username || "",
+    name: dup ? `${r0.name || r0.recipe_id || "recipe"} (copy)` : (r0.name || ""),
+    // Owner = the creator (a duplicate is owned by whoever copies it).
+    owner: dup ? (principal?.username || "") : (r0.owner || principal?.username || ""),
     description: r0.description || "",
     steps: r0.steps ?? [],
   });
@@ -73,8 +74,9 @@ export function RecipeEditor() {
   return (
     <Box>
       <PageHeader
-        title={draftId ? "Edit draft" : "New recipe"}
-        subtitle={value.recipe_id ? `${value.recipe_id}${dirty ? " · unsaved changes" : ""}` : "Author a test recipe"}
+        title={draftId ? "Edit draft" : dup ? "Duplicate recipe" : "New recipe"}
+        subtitle={dup ? "Set a new Recipe ID, then publish a fresh recipe"
+          : value.recipe_id ? `${value.recipe_id}${dirty ? " · unsaved changes" : ""}` : "Author a test recipe"}
         actions={
           <>
             <Button onClick={validate} disabled={busy} variant="outlined">Validate</Button>
@@ -93,7 +95,7 @@ export function RecipeEditor() {
         </Stack>
       )}
 
-      <RecipeForm value={value} onChange={onChange} idLocked={Boolean(initial)} errorIds={errorIds} />
+      <RecipeForm value={value} onChange={onChange} idLocked={Boolean(draftId)} errorIds={errorIds} />
     </Box>
   );
 }

@@ -7,6 +7,7 @@ Authoring/versioning (R2), validation (R3), execution wire (R4), export/import
 
 from __future__ import annotations
 
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -198,6 +199,16 @@ class FilesystemRecipe:
                                {"recipe_id": recipe_id, "version": n,
                                 "content_hash": recipe["content_hash"], "by": recipe.get("owner")})
         return recipe
+
+    async def reset_all(self) -> int:
+        """Delete every recipe (filesystem dirs + DB version mirror). For the
+        Settings reset (SYSTEM.RESET_DATA)."""
+        ids = self.store.list_recipe_ids()
+        for rid in ids:
+            shutil.rmtree(self.store.recipe_dir(rid), ignore_errors=True)
+        await self.core.db.repo.delete("recipe.version", time.time() + 1)
+        self.core.diag.warning("recipe", "all recipes reset", removed=len(ids))
+        return len(ids)
 
     async def deprecate(self, recipe_id: str, reason: str = "") -> dict:
         meta = self.store.read_meta(recipe_id)

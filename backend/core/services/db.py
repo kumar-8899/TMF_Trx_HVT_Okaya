@@ -125,6 +125,14 @@ class Repository:
         await self._conn.commit()
         return cur.rowcount
 
+    async def delete_id(self, record_type: str, id: str) -> int:
+        """Delete one record by id (selective admin purge, e.g. a single user)."""
+        cur = await self._conn.execute(
+            "DELETE FROM records WHERE type=? AND id=?", (record_type, id)
+        )
+        await self._conn.commit()
+        return cur.rowcount
+
 
 class Database:
     def __init__(self, path: Path | str, station: str = "st1", source_version: str = "0.0.0") -> None:

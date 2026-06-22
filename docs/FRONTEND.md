@@ -90,11 +90,12 @@ The visual vocabulary every screen reuses:
 | Runs (Test Bench) | `/runs` | **operator testing window** — drawer-less layout (AppBar stays); identity (Serial No / Model) + Start dialog (Barcode / Select-recipe) + Abort; big **verdict banner**, message/status line, **live results table**, **live-values** tiles (DAQ values WS), **today strip** (pass/fail/yield + recent-run dots). Composition driven by `GET /runs/config` |
 | Recipes | `/recipes` | list: search/filter/sort, count cards, import/export, per-row View/Edit/Export (no Tags column) |
 | Recipe editor | `/recipes/new`, `/recipes/:id/edit` | two-pane: left rail of tests (search, All/Set/Empty, status dots) + right pane (fixed fields + Parameter Name/Value/Unit table); Owner auto = current user |
-| Recipe view | `/recipes/:id` | the editor surface **read-only** (not JSON) + versions/compare + Fork-to-edit |
+| Recipe view | `/recipes/:id` | editor surface **read-only** + versions/compare; **Duplicate** (copy → new editable id) + **Deactivate** (deprecate) |
+| | list | per-row **Duplicate** (new editable id) replaces fork; export is a `.zip` bundle |
 | Reports | `/reports` | per-run report list (serial), detail dialog with results + export |
 | Analytics | `/analytics` | premium dashboard (Recharts): filters (range/model/operator) + KPI band + tabs — Quality (FPY p-chart, pass/fail), Failures (Pareto + cumulative, parameter Pareto, by-model), Cycle time (histogram, I-MR). Fed by `GET /reports/analytics/dashboard` |
 | Users | `/users` | table with role **dropdowns** + state chips; New-user modal (role dropdown, temp password shown); super_admin hidden from non-super_admins |
-| Settings | `/settings` | super_admin only; scalable section cards — Reset data, **MES interlock** (gate/publish toggles via `/mes/config`) |
+| Settings | `/settings` | super_admin only; **Data management** (per-item reset toggles: runs/reports/logs/recipes/users-except-super_admin → Reset selected), **MES interlock** (gate/publish toggles) |
 | Health | `/health` | HEALTH.VIEW; run suites/checks, live run progress (WS), overall + counts, verdict table, suggestions (remedy text), history |
 | Maintenance | `/maintenance` | HEALTH.MAINTENANCE; enter/exit maintenance, variable read/write (write-gated on maintenance), run a check, live values — composed from existing contracts |
 | Diagnostics | `/diagnostics` | DIAGNOSTICS.VIEW; live event tail (`/diagnostics/stream`) + readiness (`/readyz`) + module status (thin client, no backend) |

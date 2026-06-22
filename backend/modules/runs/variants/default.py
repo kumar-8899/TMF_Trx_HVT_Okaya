@@ -156,17 +156,42 @@ class DefaultRuns:
         self.core.diag.warning("runs", "run abort", ok=reply.get("ok"))
         return reply
 
-    # Record types wiped by Settings → Reset data: run/test history, reports, and
-    # the error/action logs. (Recipes + users are intentionally left alone.)
-    RESET_TYPES = ("run", "run_event", "report", "error_log", "action_log")
+    # Settings → Reset data, per selectable target. db-record targets purge here;
+    # recipes/users are delegated to their owning module (cross-module via the
+    # contract registry) so domain rules hold (e.g. super_admin is never deleted).
+    RESET_DB_TYPES = {
+        "runs": ("run", "run_event"),
+        "reports": ("report",),
+        "logs": ("error_log", "action_log"),
+    }
+    DEFAULT_TARGETS = ("runs", "reports", "logs")
 
-    async def reset_data(self) -> dict:
-        """Purge run/test/report records and error/action logs (Settings → Reset
-        data). Gated to SYSTEM.RESET_DATA (super_admin) at the route."""
-        horizon = time.time() + 1  # delete is ts < horizon -> everything
-        deleted = {t: await self.core.db.repo.delete(t, horizon) for t in self.RESET_TYPES}
-        self.core.diag.warning("runs", "test data reset", **deleted)
+    async def reset_data(self, targets: list[str] | None = None) -> dict:
+        """Purge the selected targets. Gated SYSTEM.RESET_DATA at the route.
+        targets ⊆ {runs, reports, logs, recipes, users}; default = the db history."""
+        targets = list(targets) if targets else list(self.DEFAULT_TARGETS)
+        horizon = time.time() + 1
+        deleted: dict = {}
+        for t in targets:
+            if t in self.RESET_DB_TYPES:
+                for rt in self.RESET_DB_TYPES[t]:
+                    deleted[rt] = await self.core.db.repo.delete(rt, horizon)
+            elif t == "recipes":
+                deleted["recipes"] = await self._delegate_reset("recipe", "reset_all")
+            elif t == "users":
+                deleted["users"] = await self._delegate_reset("auth", "reset_users")
+        self.core.diag.warning("runs", "data reset", targets=targets, **deleted)
         return {"deleted": deleted}
+
+    async def _delegate_reset(self, contract: str, method: str) -> int:
+        get = getattr(self.core, "get_contract", None)
+        if get is None:
+            return 0
+        try:
+            mod = get(contract)
+        except KeyError:
+            return 0   # module not loaded — nothing to reset
+        return await getattr(mod, method)()
 
     # --- event intake -> records (CORE.md §7) ------------------------------
 

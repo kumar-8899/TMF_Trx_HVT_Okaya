@@ -1,4 +1,4 @@
-import { CallSplit } from "@mui/icons-material";
+import { Block, ContentCopy } from "@mui/icons-material";
 import { Alert, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -42,12 +42,17 @@ export function RecipeDetail() {
     catch (e: any) { setError(e.message); }
   };
   const runDiff = async () => {
-    try { setDiff(await api.get(`/recipes/${id}/diff?from_=${from}&to=${to}`)); }
+    try { setDiff(await api.get(`/recipes/${id}/diff?from=${from}&to=${to}`)); }
     catch (e: any) { setError(e.message); }
   };
-  const fork = async () => {
-    const res = await api.post(`/recipes/${id}/drafts`);
-    navigate(`/recipes/${id}/edit`, { state: { recipeId: id, draftId: res.draft_id, recipe: res.recipe } });
+  const duplicate = () => {
+    // copy the selected version into a fresh, editable-id recipe
+    navigate("/recipes/new", { state: { recipe: { ...recipe, recipe_id: id }, duplicate: true } });
+  };
+  const deprecate = async () => {
+    setError(null);
+    try { await api.post(`/recipes/${id}/deprecate`, { reason: "deactivated from UI" }); navigate("/recipes"); }
+    catch (e: any) { setError(e.message); }
   };
 
   const value: RecipeValue | null = recipe && {
@@ -63,7 +68,8 @@ export function RecipeDetail() {
         actions={
           <>
             {selected != null && <Button variant="outlined" onClick={validate}>Validate</Button>}
-            {can("RECIPE.EDIT") && <Button variant="contained" startIcon={<CallSplit />} onClick={fork}>Fork to edit</Button>}
+            {can("RECIPE.EDIT") && <Button variant="outlined" color="warning" startIcon={<Block />} onClick={deprecate}>Deactivate</Button>}
+            {can("RECIPE.EDIT") && <Button variant="contained" startIcon={<ContentCopy />} onClick={duplicate}>Duplicate</Button>}
           </>
         }
       />

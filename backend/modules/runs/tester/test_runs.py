@@ -89,6 +89,19 @@ async def test_reset_data_purges_records(ctx):
     assert await db.repo.query("error_log") == [] and await db.repo.query("action_log") == []
 
 
+async def test_reset_data_targets_select(ctx):
+    module, _, db = ctx
+    await module._on_event("tmf/st1/event/run-finished", _event("run-finished", 1.0, run_id="R1", result="PASS"))
+    await db.repo.put("error_log", {"level": "error", "message": "x"}, summary="e")
+    # only the 'logs' target -> runs/reports untouched
+    out = await module.reset_data(["logs"])
+    assert "error_log" in out["deleted"] and "run" not in out["deleted"]
+    assert await module.list_runs()                       # run record survived
+    # recipes/users delegate via get_contract; absent here -> 0, no crash
+    out2 = await module.reset_data(["recipes", "users"])
+    assert out2["deleted"]["recipes"] == 0 and out2["deleted"]["users"] == 0
+
+
 async def test_profile_shape(ctx):
     module, _, _ = ctx
     p = module.profile()

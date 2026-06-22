@@ -1,4 +1,4 @@
-import { Add, Download, Edit, FileUpload, Search, Visibility } from "@mui/icons-material";
+import { Add, ContentCopy, Download, FileUpload, Search, Visibility } from "@mui/icons-material";
 import {
   Box, Button, Chip, IconButton, InputAdornment, MenuItem, Paper, Stack, Table,
   TableBody, TableCell, TableHead, TableRow, TableSortLabel, TextField, Tooltip, Typography,
@@ -75,11 +75,11 @@ export function Recipes() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const edit = async (id: string) => {
+  const duplicate = async (id: string) => {
     setError(null);
     try {
-      const res = await api.post(`/recipes/${id}/drafts`);
-      navigate(`/recipes/${id}/edit`, { state: { recipeId: id, draftId: res.draft_id, recipe: res.recipe } });
+      const recipe = await api.get(`/recipes/${id}`);   // latest published version
+      navigate("/recipes/new", { state: { recipe: { ...recipe, recipe_id: id }, duplicate: true } });
     } catch (e: any) { setError(e.message); }
   };
 
@@ -184,7 +184,7 @@ export function Recipes() {
                   <TableCell><Chip size="small" variant="outlined" label={`v${r.latest_version}`} sx={{ fontFamily: MONO_STACK }} /></TableCell>
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                     <Tooltip title="View"><IconButton size="small" onClick={() => navigate(`/recipes/${r.recipe_id}`)}><Visibility fontSize="small" /></IconButton></Tooltip>
-                    {can("RECIPE.EDIT") && <Tooltip title="Edit (fork draft)"><IconButton size="small" onClick={() => edit(r.recipe_id)}><Edit fontSize="small" /></IconButton></Tooltip>}
+                    {can("RECIPE.EDIT") && <Tooltip title="Duplicate (new editable id)"><IconButton size="small" onClick={() => duplicate(r.recipe_id)}><ContentCopy fontSize="small" /></IconButton></Tooltip>}
                     <Tooltip title="Export"><IconButton size="small" onClick={() => exportRecipe(r.recipe_id)}><Download fontSize="small" /></IconButton></Tooltip>
                   </TableCell>
                 </TableRow>

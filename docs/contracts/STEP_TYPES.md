@@ -801,7 +801,9 @@ construct an instance with `parameters`; run it; return its result.
 ### 4b.1 `parametric_test` — UI-authored flat parameter list
 
 The recipe-authoring shape for **phase 1** of the Recipe UI. A test is a flat
-list of `{ name, value, unit }` parameter rows — no step-type/schema picker. The
+list of `{ name, value, unit }` parameter rows — no step-type/schema picker.
+Parameter **names must be unique within a test** (semantic validation, RECIPE §7);
+the same name may repeat in a different test. The
 operator clicks **Add** to create one of these and fills the table. The richer
 step-type catalog above is the **phase-2 sequence editor**; both persist as
 ordinary steps, so validation/versioning/run-fetch are unchanged.

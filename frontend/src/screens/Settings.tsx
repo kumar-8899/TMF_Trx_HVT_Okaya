@@ -13,6 +13,14 @@ interface MesStatus {
   on_missing: string; provider_detail: Record<string, any>;
 }
 
+const RESET_ITEMS = [
+  { key: "runs", label: "Runs & history", desc: "Run records + run events (run history, today's counts)." },
+  { key: "reports", label: "Reports", desc: "Per-run reports + analytics inputs." },
+  { key: "logs", label: "Logs", desc: "Error and action logs (the Logs page)." },
+  { key: "recipes", label: "Recipes", desc: "All recipes and their versions." },
+  { key: "users", label: "Users", desc: "All users except the super_admin." },
+];
+
 /** Station settings. Scalable: each concern is its own Section card; add more as
  * the app grows. Reachable only with SYSTEM.RESET_DATA (super_admin) — gated in
  * App.tsx + the nav. */
@@ -22,6 +30,7 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mes, setMes] = useState<MesStatus | null>(null);
+  const [sel, setSel] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     // MES section is shown only when the module is loaded (404 -> hidden).
@@ -34,12 +43,14 @@ export function Settings() {
     catch (e: any) { setError(e.message); }
   };
 
+  const targets = Object.keys(sel).filter((k) => sel[k]);
   const resetData = async () => {
     setError(null); setNotice(null); setBusy(true);
     try {
-      const r = await api.post("/runs/reset-data", {});
+      const r = await api.post("/runs/reset-data", { targets });
       const d = r.deleted || {};
-      setNotice(`Reset — ${d.run ?? 0} runs, ${d.run_event ?? 0} events, ${d.report ?? 0} reports, ${d.error_log ?? 0} error logs, ${d.action_log ?? 0} action logs removed.`);
+      setNotice(`Reset complete — ${Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(", ") || "nothing"}.`);
+      setSel({});
     } catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -51,21 +62,25 @@ export function Settings() {
       {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
 
       <Stack spacing={2}>
-        <Section title="Data management">
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }} justifyContent="space-between">
-            <Box>
-              <Typography variant="subtitle2">Reset test data</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Permanently deletes run records, run events, reports, and the error/action
-                logs (run history, today's counts, the Reports page, and the Logs page).
-                Recipes and users are not affected.
-              </Typography>
-            </Box>
-            <Button color="error" variant="contained" startIcon={<DeleteForever />} disabled={busy}
-              onClick={() => setConfirmReset(true)} sx={{ flexShrink: 0 }}>
-              Reset data
-            </Button>
+        <Section title="Data management" subtitle="Select what to permanently delete, then reset">
+          <Stack spacing={0.5}>
+            {RESET_ITEMS.map((it) => (
+              <FormControlLabel key={it.key}
+                control={<Switch checked={Boolean(sel[it.key])} onChange={(e) => setSel({ ...sel, [it.key]: e.target.checked })} />}
+                label={
+                  <Box>
+                    <Typography variant="subtitle2">{it.label}</Typography>
+                    <Typography variant="body2" color="text.secondary">{it.desc}</Typography>
+                  </Box>
+                } />
+            ))}
           </Stack>
+          <Box sx={{ mt: 2 }}>
+            <Button color="error" variant="contained" startIcon={<DeleteForever />} disabled={busy || targets.length === 0}
+              onClick={() => setConfirmReset(true)}>
+              Reset selected ({targets.length})
+            </Button>
+          </Box>
         </Section>
 
         {mes && (
@@ -104,9 +119,9 @@ export function Settings() {
 
       <ConfirmDialog
         open={confirmReset}
-        title="Reset all test data?"
-        body="This permanently deletes every run, run event, and report. This cannot be undone."
-        confirmLabel="Reset data"
+        title="Reset selected data?"
+        body={`Permanently delete: ${targets.map((t) => RESET_ITEMS.find((i) => i.key === t)?.label || t).join(", ")}. This cannot be undone.`}
+        confirmLabel="Reset"
         danger
         onConfirm={resetData}
         onClose={() => setConfirmReset(false)}
