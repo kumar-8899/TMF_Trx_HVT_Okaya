@@ -39,6 +39,8 @@ domain; `*` grants everything. Matching is wildcard-aware
 | `HEALTH.MAINTENANCE` | health: run disruptive checks, enter/exit maintenance (R3) |
 | `CONFIG.VIEW` | config: read instruments/transports, test connection |
 | `CONFIG.EDIT` | config: create/update/delete instruments |
+| `HELP.VIEW` | help: read user documentation (all roles) |
+| `HELP.DEV` | help: read developer documentation (super_admin) |
 | `DOMAIN.*` | all actions in a domain |
 
 Modules gate routes with `require_permission(*perms)` from

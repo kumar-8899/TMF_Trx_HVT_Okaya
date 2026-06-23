@@ -60,6 +60,7 @@ activation gate with skip-and-continue), CoreServices DI, and the core services:
 | `mes` | mes | cross-station interlock (gate/publish), pluggable transport | backend done |
 | `health` | health | check registry + sequencer, operator/technician/engineer UX, trends, scheduled runs, known-issues | backend done |
 | `config` | config | station config centre (cascaded menu); **instruments** (transport-driven profiles + LabVIEW connection test); barcode/shift/MES sections follow | instruments done; live test needs real LabVIEW |
+| `help` | help | in-app docs (user docs all-roles, developer docs super_admin) from the repo docs/ tree; context-aware **?** panel + `/help` page; future AI-chatbot corpus | done |
 
 Every module follows the same lifecycle (construct → init → start → stop →
 health), declares a `manifest.json` (+ optional config schema), and is gated by

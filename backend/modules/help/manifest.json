@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "help",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Help & Docs",
+    "description": "In-app documentation: user docs for all users + developer docs for super_admin, rendered from the repo docs/ tree. Source corpus for the planned AI help chatbot."
+  },
+  "entitlement_key": "help",
+  "variants": ["default"],
+  "core_dependencies": ["diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/help.config.schema.json"
+}

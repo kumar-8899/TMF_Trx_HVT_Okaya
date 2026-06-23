@@ -25,11 +25,11 @@
         "session_ttl_min": 480,
         "password_policy": { "min_length": 5 },
         "roles": {
-          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*", "HEALTH.*", "CONFIG.*"],
-          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT"],
-          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "CONFIG.VIEW", "CONFIG.EDIT"],
-          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT", "HEALTH.VIEW", "CONFIG.VIEW"],
-          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT"]
+          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*", "HEALTH.*", "CONFIG.*", "HELP.*"],
+          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"],
+          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"],
+          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT", "HEALTH.VIEW", "CONFIG.VIEW", "HELP.VIEW"],
+          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"]
         },
         "users": [
           { "username": "admin", "password": "admin", "role": "super_admin" }
@@ -85,6 +85,10 @@
     },
     {
       "id": "config",
+      "variant": "default"
+    },
+    {
+      "id": "help",
       "variant": "default"
     }
   ]

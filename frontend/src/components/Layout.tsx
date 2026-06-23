@@ -1,6 +1,6 @@
 import {
   Article, Assessment, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
-  GroupsOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
+  GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
   ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TuneOutlined,
 } from "@mui/icons-material";
@@ -15,6 +15,7 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
+import { HelpPanel } from "./help/HelpPanel";
 import { StatusDot } from "./ui";
 import { SessionPanel } from "./SessionPanel";
 
@@ -119,6 +120,20 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
   const { can } = useAuth();
   const { mode, toggle } = useColorMode();
   const items = NAV.filter((n) => !n.perm || can(n.perm));
+  const showHelp = can("HELP.VIEW");
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // F1 or Ctrl+/ opens contextual help from anywhere.
+  useEffect(() => {
+    if (!showHelp) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F1" || (e.key === "/" && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault(); setHelpOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showHelp]);
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
@@ -133,6 +148,14 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
           <LinkStatus />
+          {showHelp && (
+            <Tooltip title="Help (F1)">
+              <IconButton onClick={() => setHelpOpen(true)} size="small" aria-label="open help"
+                sx={{ color: "rgba(255,255,255,0.85)" }}>
+                <HelpOutlineOutlined fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title={mode === "dark" ? "Switch to light" : "Switch to dark"}>
             <IconButton onClick={toggle} size="small" aria-label="toggle color mode"
               sx={{ color: "rgba(255,255,255,0.85)" }}>
@@ -160,6 +183,7 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
         <Toolbar />
         <Outlet />
       </Box>
+      {showHelp && <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />}
     </Box>
   );
 }

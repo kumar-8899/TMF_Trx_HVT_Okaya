@@ -17,6 +17,7 @@ import { ConfigMes } from "./screens/config/Mes";
 import { ConfigBarcode, ConfigShift } from "./screens/config/Placeholder";
 import { Diagnostics } from "./screens/Diagnostics";
 import { Health } from "./screens/Health";
+import { Help } from "./screens/Help";
 import { Maintenance } from "./screens/Maintenance";
 import { Permissions } from "./screens/Permissions";
 import { Recipes } from "./screens/Recipes";
@@ -68,6 +69,7 @@ export function App() {
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
           <Route path="/permissions" element={<RequirePermission perm="AUTH.MANAGE_ROLES"><Permissions /></RequirePermission>} />
           <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />
+          <Route path="/help" element={<RequirePermission perm="HELP.VIEW"><Help /></RequirePermission>} />
         </Route>
         {/* Operator testing window — same AppBar, no side-menu drawer. */}
         <Route element={<Layout hideNav />}>
