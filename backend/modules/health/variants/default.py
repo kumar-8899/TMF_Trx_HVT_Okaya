@@ -107,7 +107,9 @@ class DefaultHealth:
                 iid = inst["id"]
                 cid = f"{bid}:{iid}"
                 reqs = [f"{r}:{iid}" if r in bases else r for r in bd.requires]
+                label = inst.get("label") or iid                  # human instrument name
                 eff[cid] = replace(bd, id=cid, base_id=bid, instance_id=iid,
+                                   title=f"{label} — {bd.title}", group=inst.get("group") or bd.group,
                                    requires=reqs, instance_templated=False)
         return eff, bases
 

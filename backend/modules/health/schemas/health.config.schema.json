@@ -18,6 +18,8 @@
         "additionalProperties": true,
         "properties": {
           "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "description": "Human instrument name shown to operators, e.g. 'Digital Multimeter'." },
+          "group": { "type": "string", "description": "Business group override (default 'Test Equipment')." },
           "family": { "type": "string" },
           "capabilities": { "type": "array", "items": { "type": "string" } }
         }

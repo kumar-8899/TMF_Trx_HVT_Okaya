@@ -26,6 +26,12 @@ class CheckDescriptor:
     severity: str = "critical"  # critical | warning | info
     tags: list[str] = field(default_factory=list)
     requires: list[str] = field(default_factory=list)
+    # operator-facing metadata (Health UX): plain-language purpose, the business
+    # impact if it fails, the steps to fix it, and the business-function group.
+    purpose: str = ""
+    impact: str = ""
+    user_action: list[str] = field(default_factory=list)
+    group: str = "System"           # business group: Core Software / Production Systems / Test Equipment / External Systems
     # instance templating (§4.4): a base check expands to one concrete check per
     # matching instance at load. `select` filters instances (by_family/by_capability).
     instance_templated: bool = False
@@ -38,7 +44,8 @@ class CheckDescriptor:
             "id": self.id, "domain": self.domain, "title": self.title,
             "description": self.description, "disruptive": self.disruptive,
             "timeout_ms": self.timeout_ms, "severity": self.severity,
-            "tags": list(self.tags), "requires": list(self.requires),
+            "purpose": self.purpose, "impact": self.impact, "user_action": list(self.user_action),
+            "group": self.group, "tags": list(self.tags), "requires": list(self.requires),
             "instance_templated": self.instance_templated,
             "base_id": self.base_id, "instance_id": self.instance_id,
         }
@@ -72,8 +79,11 @@ def executor(check_id: str) -> Executor | None:
 
 
 @register(CheckDescriptor(
-    id="web.db_writable", domain="web", title="Database writable", severity="critical",
-    description="Round-trips a scratch record through the repository.", tags=["web", "storage"]))
+    id="web.db_writable", domain="web", title="Database", severity="critical", group="Core Software",
+    description="Round-trips a scratch record through the repository.", tags=["web", "storage"],
+    purpose="Verify the database accepts reads and writes.",
+    impact="Test reports and records cannot be saved.",
+    user_action=["Check free disk space", "Check the data-folder permissions", "Restart the app", "Re-test"]))
 async def _db_writable(core, cfg, params) -> dict:
     probe = {"probe": "health", "ts": time.time()}
     await core.db.repo.put("health_probe", probe, id="__probe__", summary="health probe")
@@ -85,8 +95,11 @@ async def _db_writable(core, cfg, params) -> dict:
 
 
 @register(CheckDescriptor(
-    id="web.disk_space", domain="web", title="Disk space", severity="warning",
-    description="Free space under the data root is above the configured minimum.", tags=["web", "storage"]))
+    id="web.disk_space", domain="web", title="Disk space", severity="warning", group="Core Software",
+    description="Free space under the data root is above the configured minimum.", tags=["web", "storage"],
+    purpose="Ensure enough free disk for data and logs.",
+    impact="New reports and logs may fail to save.",
+    user_action=["Free up disk space", "Re-test"]))
 async def _disk_space(core, cfg, params) -> dict:
     root = cfg.get("data_root", "data")
     min_gb = float(cfg.get("disk_min_gb", 1.0))
@@ -99,8 +112,11 @@ async def _disk_space(core, cfg, params) -> dict:
 
 
 @register(CheckDescriptor(
-    id="bridge.online", domain="bridge", title="Bridge link online", severity="critical",
-    description="The MQTT bridge is connected and LabVIEW reports status=online.", tags=["bridge"]))
+    id="bridge.online", domain="bridge", title="LabVIEW engine", severity="critical", group="Production Systems",
+    description="The MQTT bridge is connected and LabVIEW reports status=online.", tags=["bridge"],
+    purpose="Verify the link to the LabVIEW controller.",
+    impact="Tests cannot run.",
+    user_action=["Start the LabVIEW Bridge", "Check the broker (Mosquitto) is running", "Re-test"]))
 async def _bridge_online(core, cfg, params) -> dict:
     if core.bridge is None:
         return {"status": "unavailable", "summary": "no bridge configured", "data": {}, "error": None}
@@ -111,9 +127,12 @@ async def _bridge_online(core, cfg, params) -> dict:
 
 
 @register(CheckDescriptor(
-    id="bridge.roundtrip", domain="bridge", title="Bridge round-trip", severity="warning",
+    id="bridge.roundtrip", domain="bridge", title="Engine response", severity="warning", group="Production Systems",
     description="hello.echo returns within budget over the bridge.", tags=["bridge"],
-    requires=["bridge.online"]))
+    requires=["bridge.online"],
+    purpose="The controller answers commands promptly.",
+    impact="Tests may run slowly or stall.",
+    user_action=["Check controller CPU/load", "Re-test"]))
 async def _bridge_roundtrip(core, cfg, params) -> dict:
     if core.bridge is None or not core.bridge.online:
         return {"status": "unavailable", "summary": "bridge not online", "data": {}, "error": None}
@@ -130,9 +149,12 @@ def _reply_ts(reply: dict):
 
 
 @register(CheckDescriptor(
-    id="bridge.clock_skew", domain="bridge", title="Clock skew", severity="warning",
+    id="bridge.clock_skew", domain="bridge", title="Clock alignment", severity="warning", group="Production Systems",
     description="LabVIEW timestamp vs Python within tolerance (skew corrupts every correlation).",
-    tags=["bridge"], requires=["bridge.online"]))
+    tags=["bridge"], requires=["bridge.online"],
+    purpose="Controller and PC clocks agree.",
+    impact="Timestamps and result correlation may be wrong.",
+    user_action=["Sync the controller and PC system clocks", "Re-test"]))
 async def _bridge_clock_skew(core, cfg, params) -> dict:
     if core.bridge is None or not core.bridge.online:
         return {"status": "unavailable", "summary": "bridge not online", "data": {}, "error": None}
@@ -153,9 +175,12 @@ async def _bridge_clock_skew(core, cfg, params) -> dict:
 # controller answers `health.check.bridge.queue_depth` with a CheckVerdict
 # (HEALTH_CHECK.md §12). Absent handler / offline bridge -> unavailable/timeout.
 register(CheckDescriptor(
-    id="bridge.queue_depth", domain="bridge", title="Bridge queue depth", severity="warning",
+    id="bridge.queue_depth", domain="bridge", title="Engine queue", severity="warning", group="Production Systems",
     description="LabVIEW reports its inbound bridge queue is not backed up.",
-    tags=["bridge"], requires=["bridge.online"]))(None)
+    tags=["bridge"], requires=["bridge.online"],
+    purpose="The controller is keeping up with commands.",
+    impact="Commands may lag; tests can stall.",
+    user_action=["Reduce station load", "Restart the controller if it persists"]))(None)
 
 
 # --- hardware checks (R3) --------------------------------------------------
@@ -163,24 +188,40 @@ register(CheckDescriptor(
 # are dispatched per instance as health.check.<base> {instance_id} (§12). Each is
 # instance-templated — one definition covers every instance of a family (§4.4).
 
-def _hw(check_id, title, *, disruptive, severity, desc, requires):
+def _hw(check_id, title, *, disruptive, severity, desc, requires, purpose, impact, user_action):
     register(CheckDescriptor(
         id=check_id, domain="hardware", title=title, description=desc,
         disruptive=disruptive, severity=severity, tags=["hardware"],
-        requires=requires, instance_templated=True))(None)
+        requires=requires, instance_templated=True, group="Test Equipment",
+        purpose=purpose, impact=impact, user_action=user_action))(None)
 
 
-_hw("hardware.instance_connected", "Instance connected", disruptive=False, severity="critical",
-    desc="The instance reports connected.", requires=["bridge.online"])
-_hw("hardware.identify", "Identify", disruptive=False, severity="info",
+_hw("hardware.instance_connected", "Instrument connected", disruptive=False, severity="critical",
+    desc="The instance reports connected.", requires=["bridge.online"],
+    purpose="The instrument is reachable.",
+    impact="This instrument's tests cannot run.",
+    user_action=["Check instrument power", "Check the LAN/USB cable", "Re-test"])
+_hw("hardware.identify", "Instrument identity", disruptive=False, severity="info",
     desc="*IDN?/identify() returns the expected vendor/model.",
-    requires=["hardware.instance_connected"])
-_hw("hardware.range_sane", "Range sane", disruptive=False, severity="warning",
+    requires=["hardware.instance_connected"],
+    purpose="The wired instrument matches the expected model.",
+    impact="A wrong or incompatible instrument may be connected.",
+    user_action=["Verify the correct instrument is wired to this channel", "Re-test"])
+_hw("hardware.range_sane", "Reading in range", disruptive=False, severity="warning",
     desc="A read sits within the variable's expected range (catches floating/dead inputs).",
-    requires=["hardware.instance_connected"])
-_hw("hardware.self_test", "Self test", disruptive=True, severity="critical",
+    requires=["hardware.instance_connected"],
+    purpose="A live reading is within the expected range.",
+    impact="Measurements may be wrong (floating or dead input).",
+    user_action=["Check wiring and the sensor/DUT connection", "Re-test"])
+_hw("hardware.self_test", "Instrument self-test", disruptive=True, severity="critical",
     desc="Driver self_test() passes. Disruptive — maintenance mode only.",
-    requires=["hardware.instance_connected"])
+    requires=["hardware.instance_connected"],
+    purpose="The instrument's built-in self-test passes.",
+    impact="Measurements from this instrument cannot be trusted.",
+    user_action=["Power-cycle the instrument", "Re-run in maintenance mode", "Calibrate or RMA if it persists"])
 _hw("hardware.loopback", "Loopback", disruptive=True, severity="critical",
     desc="Drive a known output, read it back, assert within tolerance. Disruptive.",
-    requires=["hardware.instance_connected"])
+    requires=["hardware.instance_connected"],
+    purpose="Output drives and reads back within tolerance.",
+    impact="Wiring or calibration drift; measurements are unreliable.",
+    user_action=["Check the loopback wiring", "Recalibrate", "Re-test"])

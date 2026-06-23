@@ -1,4 +1,4 @@
-import { Block, ContentCopy } from "@mui/icons-material";
+import { Block, ContentCopy, Edit } from "@mui/icons-material";
 import { Alert, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -45,6 +45,14 @@ export function RecipeDetail() {
     try { setDiff(await api.get(`/recipes/${id}/diff?from=${from}&to=${to}`)); }
     catch (e: any) { setError(e.message); }
   };
+  const edit = async () => {
+    // new version of this recipe (same id): fork a draft → publish increments version
+    setError(null);
+    try {
+      const res = await api.post(`/recipes/${id}/drafts`);
+      navigate(`/recipes/${id}/edit`, { state: { recipeId: id, draftId: res.draft_id, recipe: res.recipe } });
+    } catch (e: any) { setError(e.message); }
+  };
   const duplicate = () => {
     // copy the selected version into a fresh, editable-id recipe
     navigate("/recipes/new", { state: { recipe: { ...recipe, recipe_id: id }, duplicate: true } });
@@ -69,7 +77,8 @@ export function RecipeDetail() {
           <>
             {selected != null && <Button variant="outlined" onClick={validate}>Validate</Button>}
             {can("RECIPE.EDIT") && <Button variant="outlined" color="warning" startIcon={<Block />} onClick={deprecate}>Deactivate</Button>}
-            {can("RECIPE.EDIT") && <Button variant="contained" startIcon={<ContentCopy />} onClick={duplicate}>Duplicate</Button>}
+            {can("RECIPE.EDIT") && <Button variant="outlined" startIcon={<ContentCopy />} onClick={duplicate}>Duplicate</Button>}
+            {can("RECIPE.EDIT") && <Button variant="contained" startIcon={<Edit />} onClick={edit}>Edit (new version)</Button>}
           </>
         }
       />

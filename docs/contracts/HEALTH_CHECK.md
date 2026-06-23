@@ -150,10 +150,34 @@ CheckDescriptor:
                              #   by convention "health.check.<id>" over the bridge
     tags          [string]   # free grouping: "daq", "connectivity", "calibration"
     requires      [string]   # check ids that must PASS first (see §5.3)
+    # --- operator-facing metadata (UX §2.5) ---
+    purpose       string     # plain-language: what this verifies, no jargon
+    impact        string     # business consequence if it fails ("Tests cannot run")
+    user_action   [string]   # ordered steps an operator can take to fix it
+    group         string     # business function: "Core Software" | "Production Systems"
+                             #   | "Test Equipment" | "External Systems"
 ```
 
 `severity` is **not** the same as a verdict. Severity is a property of the
 check (how much do we care if it fails); the verdict is the runtime result.
+
+### 2.5 Operator-facing metadata and the three info levels
+
+Every check carries human metadata so the UI can answer *"what failed, what does
+it cost me, what do I do?"* without exposing internals. The Health page renders at
+three levels (toggle, default **Operator**):
+
+- **Operator** — `title`, status, and on failure `impact` + `user_action` steps +
+  a matched **known-issue** remedy (§7). No ids, no SCPI.
+- **Technician** — adds the verdict `summary` and `data` key/values (diagnostics).
+- **Engineer** — adds `check_id`, `elapsed_ms`, the failure `signature`, raw `error`.
+
+Checks are grouped by `group` (business function), **not** by technical domain. The
+top of the page is a single readiness verdict derived from `overall`:
+`healthy → ✓ Production Ready`, `degraded → ⚠ Ready with Warnings`,
+`unhealthy → ✖ Production Blocked`. Instance-templated hardware checks inherit
+`label`/`group` from the instance config (the operator sees "Digital Multimeter",
+not `hardware.self_test:dmm0`).
 
 ### 2.3 Verdict shape (what every executor returns)
 
