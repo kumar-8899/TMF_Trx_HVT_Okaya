@@ -71,7 +71,7 @@ async function refresh(){
 async function health(){
   const h = await (await fetch("/debug/health")).json();
   document.getElementById("stat").textContent =
-    `broker ${h.broker_connected?"●":"○"}  buffer ${h.buffer_used}/${h.buffer_capacity}  dropped ${h.dropped}  subs ${h.subscribers}  station ${h.station}`;
+    `broker ${h.broker_connected?"●":"○"}  buffer ${h.buffer_used}/${h.buffer_capacity}  dropped ${h.dropped}  coalesced ${h.coalesced??0}  subs ${h.subscribers}  station ${h.station}`;
 }
 function rowTimeline(r){
   const lvl = r.level||r.kind;

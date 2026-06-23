@@ -107,6 +107,18 @@ async def client():
         yield c, ing
 
 
+def test_status_repeats_coalesced_but_liveness_fresh():
+    ing = Ingestor(ST, capacity=100)
+    online = lambda ts: parse(f"tmf/{ST}/status", ST, json.dumps({"state": "online", "ts": ts}))
+    for ts in (1.0, 2.0, 3.0):
+        ing.ingest(online(ts))                       # retained repeat every "second"
+    assert len([r for r in ing.ring.all() if r.kind == "status"]) == 1   # only first kept
+    assert ing.coalesced == 2
+    assert ing.liveness.grid()[0]["last_seen"] == 3.0                     # but liveness advanced
+    ing.ingest(parse(f"tmf/{ST}/status", ST, json.dumps({"state": "offline", "ts": 4.0})))
+    assert len([r for r in ing.ring.all() if r.kind == "status"]) == 2   # state change recorded
+
+
 async def test_rest_surface(client):
     c, _ = client
     assert (await c.get("/debug/health")).json()["buffer_used"] == 5

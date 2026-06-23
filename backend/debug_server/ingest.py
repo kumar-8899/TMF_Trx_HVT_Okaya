@@ -14,7 +14,7 @@ import uuid
 
 from debug_server import __version__
 from debug_server.analysis import Liveness, Pairer, group_traces, validate
-from debug_server.capture import CapturedRecord, Ring
+from debug_server.capture import STATUS, VALUE, CapturedRecord, Ring
 
 
 class Ingestor:
@@ -26,10 +26,25 @@ class Ingestor:
         self.broker_connected = False
         self._subs: set[asyncio.Queue] = set()
         self._captures: dict[str, dict] = {}
+        self._last_retained: dict[str, str] = {}   # topic -> last payload (dedupe)
+        self.coalesced = 0                          # suppressed retained repeats
 
     # --- pipeline ----------------------------------------------------------
 
     def ingest(self, rec: CapturedRecord) -> CapturedRecord:
+        # Retained status/value republish on a timer (e.g. LabVIEW status every 1s).
+        # Coalesce identical repeats: keep liveness fresh but don't flood the ring.
+        if rec.kind in (STATUS, VALUE):
+            body = rec.payload
+            if isinstance(body, dict):   # ignore volatile stamps so a re-publish dedupes
+                body = {k: v for k, v in body.items() if k not in ("ts", "seq")}
+            key = json.dumps(body, sort_keys=True, default=str)
+            if self._last_retained.get(rec.topic) == key:
+                self.coalesced += 1
+                if rec.kind == STATUS:
+                    self.liveness.observe(rec)   # advance last_seen without a ring entry
+                return rec
+            self._last_retained[rec.topic] = key
         validate(rec)
         self.ring.add(rec)
         self.pairer.observe(rec)
@@ -59,7 +74,8 @@ class Ingestor:
 
     def health(self) -> dict:
         return {"buffer_used": len(self.ring), "buffer_capacity": self.ring.capacity,
-                "dropped": self.ring.dropped, "subscribers": len(self._subs),
+                "dropped": self.ring.dropped, "coalesced": self.coalesced,
+                "subscribers": len(self._subs),
                 "broker_connected": self.broker_connected, "station": self.station}
 
     def traces(self) -> list[dict]:
