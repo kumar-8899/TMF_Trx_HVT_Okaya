@@ -45,7 +45,7 @@ def main() -> None:
                 await task
 
     print(f"Debug Server: broker {config.broker_host}:{config.broker_port} "
-          f"station={config.station} → http://127.0.0.1:{config.port}  "
+          f"station={config.station} -> http://127.0.0.1:{config.port}  "
           f"(auth={'on' if config.require_auth else 'OFF'})")
     uvicorn.run(app, host="127.0.0.1", port=config.port, log_level="info", loop="asyncio")
 
