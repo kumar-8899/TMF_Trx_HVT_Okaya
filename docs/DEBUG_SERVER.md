@@ -562,4 +562,7 @@ Deviations / notes vs the contract:
 - **Schema validation** is presence/shape based (the core ships no per-message-type
   schemas yet); extend `analysis.validate` as typed schemas land.
 - The LabVIEW **diag-emit library (§7)** is the separate LabVIEW track; the Python
-  side is ready to capture what it publishes.
+  side is ready to capture what it publishes. Implementation spec:
+  [LABVIEW_DIAG_EMIT.md](LABVIEW_DIAG_EMIT.md). Note: it pins LabVIEW to the single
+  `tmf/<station>/diag` topic (subsystem in the payload) for compatibility with the
+  `logs`/`runs` consumers, which subscribe the exact `diag` topic.
