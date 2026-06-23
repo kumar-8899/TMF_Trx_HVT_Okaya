@@ -50,4 +50,5 @@ export const api = {
   get: (path: string, opts?: Opts) => request("GET", path, undefined, opts),
   post: (path: string, body?: unknown, opts?: Opts) => request("POST", path, body, opts),
   put: (path: string, body?: unknown, opts?: Opts) => request("PUT", path, body, opts),
+  del: (path: string, opts?: Opts) => request("DELETE", path, undefined, opts),
 };

@@ -182,6 +182,7 @@ LabVIEW reads `reply_to` + `id` from each command payload (§5).
 | `health.check.<id>` | `{ instance_id?, … }` | `CheckVerdict` `{ status, summary, data, error? }` |
 | `maintenance.enter` | `{ operator, reason }` | `{ accepted, state }` \| `{ refused, reason }` |
 | `maintenance.exit` | `{ operator }` | `{ accepted, state }` |
+| `instrument.test` | `{ transport, params, address }` | `{ ok, status, identity?, detail? }` |
 
 `health.check.<id>`: the Health module dispatches `bridge`/`hardware` checks that
 have no Python executor to a LabVIEW handler (HEALTH_CHECK.md §12). The handler
@@ -191,6 +192,11 @@ when no handler answers). E.g. `health.check.bridge.queue_depth → {status:"pas
 summary:"queue ok", data:{depth:2}}`. Connectivity checks `bridge.online` /
 `bridge.roundtrip` / `bridge.clock_skew` are computed Python-side (the last reuses
 `hello.echo`'s `ts`) and need **no** new handler.
+
+`instrument.test`: the Config module asks LabVIEW to open the device at
+`{transport, params, address}` and report reachability (and `*IDN?`-style
+`identity` where possible). Offline bridge → the module returns `unavailable`
+without dispatching (CONFIG.md).
 
 Maintenance mode is a **LabVIEW-owned** station state: the controller publishes
 retained `state/maintenance { state: off|entering|on|exiting, since, by, reason }`

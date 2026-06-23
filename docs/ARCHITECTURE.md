@@ -57,6 +57,9 @@ activation gate with skip-and-continue), CoreServices DI, and the core services:
 | `logs` | logs | error-log + action-log persistence, query/stats/retention | backend done |
 | `recipe` | recipe | versioned recipes, 16 step types (incl **`parametric_test`**), validation, `recipe.fetch` wire, export/import, diff | backend done |
 | `report` | report | run reports + analytics (counts/yield/by-recipe), multi-sink (SQLite/folder, pass/fail), export | backend done |
+| `mes` | mes | cross-station interlock (gate/publish), pluggable transport | backend done |
+| `health` | health | check registry + sequencer, operator/technician/engineer UX, trends, scheduled runs, known-issues | backend done |
+| `config` | config | station config centre (cascaded menu); **instruments** (transport-driven profiles + LabVIEW connection test); barcode/shift/MES sections follow | instruments done; live test needs real LabVIEW |
 
 Every module follows the same lifecycle (construct → init → start → stop →
 health), declares a `manifest.json` (+ optional config schema), and is gated by

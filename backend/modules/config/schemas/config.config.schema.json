@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:config:module",
+  "title": "config module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

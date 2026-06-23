@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "config",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Configuration",
+    "description": "Station configuration centre (cascaded Config menu). Instrument connection profiles with a transport-driven UI + LabVIEW connection test; barcode/shift/MES sections follow."
+  },
+  "entitlement_key": "config",
+  "variants": ["default"],
+  "core_dependencies": ["db", "diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/config.config.schema.json"
+}

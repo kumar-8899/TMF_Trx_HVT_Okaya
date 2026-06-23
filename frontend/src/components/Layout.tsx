@@ -1,14 +1,15 @@
 import {
-  Article, Assessment, BuildOutlined, DarkMode, FavoriteBorder, GroupsOutlined,
-  LightMode, MonitorHeartOutlined, PlayCircleOutline, QueryStatsOutlined,
-  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed,
+  Article, Assessment, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
+  GroupsOutlined, HubOutlined, LightMode, MemoryOutlined, MonitorHeartOutlined,
+  PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
+  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TuneOutlined,
 } from "@mui/icons-material";
 import {
-  AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
+  AppBar, Box, Collapse, Drawer, IconButton, List, ListItemButton, ListItemIcon,
   ListItemText, Stack, Toolbar, Tooltip, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
-import { Link as RouterLink, NavLink, Outlet } from "react-router-dom";
+import { Link as RouterLink, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -21,9 +22,10 @@ const DRAWER_WIDTH = 232;
 
 interface NavItem {
   label: string;
-  to: string;
+  to?: string;          // leaf has `to`; a group has `children` instead
   icon: React.ReactNode;
-  perm?: string; // undefined = always shown
+  perm?: string;        // undefined = always shown
+  children?: NavItem[]; // cascaded menu group
 }
 
 const NAV: NavItem[] = [
@@ -35,6 +37,14 @@ const NAV: NavItem[] = [
   { label: "Analytics", to: "/analytics", icon: <QueryStatsOutlined />, perm: "REPORT.VIEW" },
   { label: "Health", to: "/health", icon: <FavoriteBorder />, perm: "HEALTH.VIEW" },
   { label: "Maintenance", to: "/maintenance", icon: <BuildOutlined />, perm: "HEALTH.MAINTENANCE" },
+  {
+    label: "Config", icon: <TuneOutlined />, perm: "CONFIG.VIEW", children: [
+      { label: "Instruments", to: "/config/instruments", icon: <MemoryOutlined /> },
+      { label: "Barcode", to: "/config/barcode", icon: <QrCodeScannerOutlined /> },
+      { label: "Shift", to: "/config/shift", icon: <ScheduleOutlined /> },
+      { label: "MES", to: "/config/mes", icon: <HubOutlined /> },
+    ],
+  },
   { label: "Diagnostics", to: "/diagnostics", icon: <MonitorHeartOutlined />, perm: "DIAGNOSTICS.VIEW" },
   { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
   { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
@@ -74,6 +84,36 @@ function LinkStatus() {
   );
 }
 
+function NavLeaf({ n, nested = false }: { n: NavItem; nested?: boolean }) {
+  return (
+    <ListItemButton component={NavLink} to={n.to!} end={n.to === "/"} sx={{ mb: 0.5, pl: nested ? 4 : 2 }}>
+      <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+      <ListItemText primary={n.label} primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
+    </ListItemButton>
+  );
+}
+
+function NavGroup({ n, can }: { n: NavItem; can: (p: string) => boolean }) {
+  const loc = useLocation();
+  const kids = (n.children ?? []).filter((c) => !c.perm || can(c.perm));
+  const activeInside = kids.some((c) => loc.pathname.startsWith(c.to!));
+  const [open, setOpen] = useState(activeInside);
+  useEffect(() => { if (activeInside) setOpen(true); }, [activeInside]);
+  if (!kids.length) return null;
+  return (
+    <>
+      <ListItemButton onClick={() => setOpen((o) => !o)} sx={{ mb: 0.5 }}>
+        <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+        <ListItemText primary={n.label} primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
+        {open ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+      </ListItemButton>
+      <Collapse in={open} unmountOnExit>
+        <List disablePadding>{kids.map((c) => <NavLeaf key={c.to} n={c} nested />)}</List>
+      </Collapse>
+    </>
+  );
+}
+
 export function Layout({ hideNav = false }: { hideNav?: boolean }) {
   const { can } = useAuth();
   const { mode, toggle } = useColorMode();
@@ -109,12 +149,9 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
         >
           <Toolbar />
           <List sx={{ py: 1 }}>
-            {items.map((n) => (
-              <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.to === "/"} sx={{ mb: 0.5 }}>
-                <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
-                <ListItemText primary={n.label} primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
-              </ListItemButton>
-            ))}
+            {items.map((n) => n.children
+              ? <NavGroup key={n.label} n={n} can={can} />
+              : <NavLeaf key={n.to} n={n} />)}
           </List>
         </Drawer>
       )}
