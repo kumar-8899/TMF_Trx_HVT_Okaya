@@ -51,6 +51,7 @@ const NAV: NavItem[] = [
   { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
   { label: "Permissions", to: "/permissions", icon: <LockPersonOutlined />, perm: "AUTH.MANAGE_ROLES" },
   { label: "Settings", to: "/settings", icon: <SettingsOutlined />, perm: "SYSTEM.RESET_DATA" },
+  { label: "Help", to: "/help", icon: <HelpOutlineOutlined />, perm: "HELP.VIEW" },
 ];
 
 /** Poll /readyz for the station + bridge-link health lamp in the AppBar. */

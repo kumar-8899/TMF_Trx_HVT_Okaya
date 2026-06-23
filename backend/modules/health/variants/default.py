@@ -9,6 +9,7 @@ hardware checks with no local executor dispatch over the bridge and degrade to
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from dataclasses import replace
@@ -77,9 +78,12 @@ class DefaultHealth:
         self._sched_task = asyncio.create_task(self._scheduler_loop())
 
     async def stop(self) -> None:
-        if self._sched_task:
-            self._sched_task.cancel()
-            self._sched_task = None
+        task = self._sched_task
+        self._sched_task = None
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task   # await the cancel so it isn't a dangling task at loop close
         if self._sched["shutdown"]:
             try:
                 await asyncio.wait_for(self.run(suite=self._sched["suite"], trigger="shutdown"), timeout=30)

@@ -1,8 +1,8 @@
 /** Context-aware help slide-over. Opens to the doc for the current screen, with
  * search and a link to the full /help page. (DEBUG/Help module.) */
-import { Close, OpenInFull, Search } from "@mui/icons-material";
+import { Close, Search } from "@mui/icons-material";
 import {
-  Box, Drawer, IconButton, InputAdornment, List, ListItemButton, ListItemText,
+  Box, Button, Drawer, IconButton, InputAdornment, List, ListItemButton, ListItemText,
   Stack, TextField, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
@@ -49,7 +49,7 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
       PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, maxWidth: "100%" } }}>
       <Stack direction="row" alignItems="center" sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>Help</Typography>
-        <IconButton size="small" title="Open full help" onClick={() => { onClose(); navigate("/help"); }}><OpenInFull fontSize="small" /></IconButton>
+        <Button size="small" onClick={() => { onClose(); navigate("/help"); }} sx={{ mr: 0.5 }}>Open full help →</Button>
         <IconButton size="small" onClick={onClose}><Close fontSize="small" /></IconButton>
       </Stack>
       <Box sx={{ p: 1.5, pb: 1 }}>
