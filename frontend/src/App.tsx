@@ -18,6 +18,7 @@ import { ConfigBarcode, ConfigShift } from "./screens/config/Placeholder";
 import { Diagnostics } from "./screens/Diagnostics";
 import { Health } from "./screens/Health";
 import { Maintenance } from "./screens/Maintenance";
+import { Permissions } from "./screens/Permissions";
 import { Recipes } from "./screens/Recipes";
 import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
@@ -65,6 +66,7 @@ export function App() {
           <Route path="/diagnostics" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Diagnostics /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />
+          <Route path="/permissions" element={<RequirePermission perm="AUTH.MANAGE_ROLES"><Permissions /></RequirePermission>} />
           <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />
         </Route>
         {/* Operator testing window — same AppBar, no side-menu drawer. */}

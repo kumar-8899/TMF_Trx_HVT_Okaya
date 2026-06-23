@@ -21,6 +21,8 @@ async def _mgmt(coro):
         raise HTTPException(status_code=404, detail=f"no user: {exc}") from exc
     except PolicyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _token(request: Request) -> str:
@@ -81,6 +83,21 @@ def build_router(module) -> APIRouter:
     @router.get("/auth/roles")
     async def list_roles(principal: Principal = manage) -> list[str]:
         return module.list_assignable_roles(principal.role)
+
+    # --- role/permission matrix — gated on AUTH.MANAGE_ROLES (super_admin) --
+    roles_admin = Depends(require_permission("AUTH.MANAGE_ROLES"))
+
+    @router.get("/auth/permissions", dependencies=[roles_admin])
+    async def permission_catalog() -> list[dict]:
+        return module.permission_catalog()
+
+    @router.get("/auth/roles/matrix", dependencies=[roles_admin])
+    async def roles_matrix() -> dict:
+        return module.roles_matrix()
+
+    @router.put("/auth/roles/{role}", dependencies=[roles_admin])
+    async def set_role_permissions(role: str, body: dict) -> dict:
+        return await _mgmt(module.set_role_permissions(role, body.get("permissions", [])))
 
     @router.post("/auth/users", status_code=201)
     async def create_user(body: dict, principal: Principal = manage) -> dict:

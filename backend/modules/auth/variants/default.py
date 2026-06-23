@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.auth_verify import AuthError, permission_granted
+from modules.auth import permissions_catalog as catalog
 from modules.auth.api import build_router
 from modules.auth.authenticators import make_authenticator
 from modules.auth.authenticators.password import hash_password, verify_password
@@ -34,7 +35,10 @@ class LocalDbAuth:
     def __init__(self, core: CoreServices, config: dict) -> None:
         self.core = core
         self.config = config
-        self.roles: dict[str, list[str]] = config.get("roles", {})
+        # role -> permissions. Config is the baseline; DB overrides (set from the
+        # permissions UI) are merged over it in init() and refreshed on edit.
+        self._config_roles: dict[str, list[str]] = dict(config.get("roles", {}))
+        self.roles: dict[str, list[str]] = dict(self._config_roles)
         self.method_id = config.get("authenticator", "password")
         self.authenticator = make_authenticator(self.method_id)
         self.policy = PasswordPolicy(config.get("password_policy"))
@@ -52,6 +56,7 @@ class LocalDbAuth:
         # Fill the core.auth port with the (sync) session verifier (CORE.md §6.4).
         self.core.auth.register(self.sessions.verify)
         await self.sessions.load_active()
+        await self._load_role_overrides()
         await self._seed_users()
 
     async def start(self) -> None:
@@ -86,6 +91,46 @@ class LocalDbAuth:
 
     def _resolve_permissions(self, role: str) -> list[str]:
         return sorted(set(self.roles.get(role, [])))
+
+    # --- role/permission matrix (editable; resolve-at-login) ----------------
+
+    async def _load_role_overrides(self) -> None:
+        """Merge DB role overrides over the config baseline. super_admin is never
+        overridden (protected — always its config wildcard perms)."""
+        self.roles = dict(self._config_roles)
+        for rec in await self.core.db.repo.query("role"):
+            role = rec["id"]
+            if role == PROTECTED_ROLE or role not in self._config_roles:
+                continue   # only override predefined, non-protected roles
+            self.roles[role] = list(rec["data"].get("permissions", []))
+
+    def permission_catalog(self) -> list[dict]:
+        return catalog.PERMISSIONS
+
+    def roles_matrix(self) -> dict:
+        """The grid the permissions UI renders: every predefined role with the
+        catalog permissions it currently grants (wildcards expanded for display)."""
+        roles = []
+        for role, perms in self.roles.items():
+            held = frozenset(perms)
+            granted = [p["key"] for p in catalog.PERMISSIONS if permission_granted(held, p["key"])]
+            roles.append({"role": role, "protected": role == PROTECTED_ROLE,
+                          "permissions": granted})
+        return {"permissions": catalog.PERMISSIONS, "roles": roles}
+
+    async def set_role_permissions(self, role: str, perms: list[str]) -> dict:
+        if role == PROTECTED_ROLE:
+            raise ProtectedUserError(f"the {PROTECTED_ROLE} role cannot be edited")
+        if role not in self._config_roles:
+            raise UserNotFound(f"role '{role}'")
+        unknown = [p for p in perms if p not in catalog.KEYS]
+        if unknown:
+            raise ValueError(f"unknown permission(s): {', '.join(unknown)}")
+        clean = sorted(set(perms))
+        await self.core.db.repo.put("role", {"permissions": clean}, id=role, summary=f"{len(clean)} perms")
+        self.roles[role] = clean   # in-memory → next login resolves the new set
+        self.core.diag.warning("auth", "role permissions changed", role=role, count=len(clean))
+        return {"role": role, "permissions": clean}
 
     # --- role assignment policy --------------------------------------------
 

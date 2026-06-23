@@ -53,6 +53,38 @@ async def ctx():
 # --- login / verify / permissions -----------------------------------------
 
 
+async def test_roles_matrix_and_edit_takes_effect_next_login(ctx):
+    module, _, _ = ctx
+    m = module.roles_matrix()
+    assert {"key", "domain", "label"} <= set(m["permissions"][0])
+    roles = {r["role"]: r for r in m["roles"]}
+    assert roles["super_admin"]["protected"] is True
+    assert "TEST.RUN" in roles["super_admin"]["permissions"]      # wildcard expanded
+    assert "RECIPE.EDIT" not in roles["operator"]["permissions"]
+
+    # grant operator RECIPE.EDIT
+    await module.set_role_permissions("operator", ["TEST.RUN", "RECIPE.EDIT"])
+    assert "RECIPE.EDIT" in {r["role"]: r for r in module.roles_matrix()["roles"]}["operator"]["permissions"]
+    # resolve-at-login: a fresh login carries the new perm
+    res = await module.login("op", {"password": "oppass12"})
+    assert "RECIPE.EDIT" in res["principal"]["permissions"]
+
+
+async def test_role_edit_guards(ctx):
+    module, _, _ = ctx
+    with pytest.raises(ProtectedUserError):
+        await module.set_role_permissions("super_admin", ["TEST.RUN"])
+    with pytest.raises(ValueError):
+        await module.set_role_permissions("operator", ["BOGUS.PERM"])
+
+
+async def test_role_overrides_persist_across_reload(ctx):
+    module, core, _ = ctx
+    await module.set_role_permissions("engineer", ["TEST.RUN", "CONFIG.EDIT"])
+    await module._load_role_overrides()   # simulate a reboot reload
+    assert "CONFIG.EDIT" in module.roles["engineer"]
+
+
 async def test_login_resolves_permissions_and_fills_port(ctx):
     module, core, _ = ctx
     res = await module.login("admin", {"password": "admin123"})

@@ -1,11 +1,13 @@
-import { Add, LockReset, PersonAdd } from "@mui/icons-material";
+import { Add, LockPerson, LockReset, PersonAdd } from "@mui/icons-material";
 import {
   Alert, Avatar, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem,
   Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { EmptyState, PageHeader, Section, StatusChip, statusKind } from "../components/ui";
 import { MONO_STACK } from "../theme/theme";
 
@@ -18,6 +20,8 @@ interface User {
 const PROTECTED = "super_admin";
 
 export function Users() {
+  const navigate = useNavigate();
+  const { can } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [roleOptions, setRoleOptions] = useState<string[]>([]);
   const [roles, setRoles] = useState<Record<string, string>>({});
@@ -66,9 +70,16 @@ export function Users() {
         title="Users"
         subtitle="Accounts, roles, and access state"
         actions={
-          <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateOpen(true)}>
-            New user
-          </Button>
+          <Stack direction="row" spacing={1}>
+            {can("AUTH.MANAGE_ROLES") && (
+              <Button variant="outlined" startIcon={<LockPerson />} onClick={() => navigate("/permissions")}>
+                Permissions
+              </Button>
+            )}
+            <Button variant="contained" startIcon={<PersonAdd />} onClick={() => setCreateOpen(true)}>
+              New user
+            </Button>
+          </Stack>
         }
       />
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

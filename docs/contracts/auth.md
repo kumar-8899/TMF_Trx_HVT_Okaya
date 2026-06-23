@@ -24,6 +24,7 @@ domain; `*` grants everything. Matching is wildcard-aware
 | Permission | Used by |
 |---|---|
 | `AUTH.MANAGE_USERS` | Auth user-management API |
+| `AUTH.MANAGE_ROLES` | edit the role → permission matrix (super_admin) |
 | `TEST.RUN` | runs: run.start/abort |
 | `RECIPE.VIEW` | recipe module (read recipes/step-types) |
 | `RECIPE.EDIT` | recipe module (author/version) |
@@ -48,6 +49,19 @@ Modules gate routes with `require_permission(*perms)` from
 **One role per user.** Roles → permissions are **data** (config `roles` map); a
 customer adds a role by editing config, no code change. Default roles:
 `super_admin, admin, engineer, operator, maintenance`.
+
+### Editable permission matrix (`AUTH.MANAGE_ROLES`)
+The config `roles` map is the **baseline**; the Permissions UI edits a role's
+permission set at runtime. Overrides persist as DB records (type `role`,
+id=role name) and are **merged over config** at boot (`_load_role_overrides`) and
+in-memory on edit, so a change takes effect at each user's **next login**
+(permissions resolve at sign-in — live sessions are unaffected).
+- The permission **catalog** (granular `DOMAIN.ACTION` list + labels) is
+  [`permissions_catalog.py`](../../backend/modules/auth/permissions_catalog.py).
+- **`super_admin` is protected** — never overridable; always holds `DOMAIN.*`.
+- API (all `AUTH.MANAGE_ROLES`, super_admin): `GET /auth/permissions` (catalog),
+  `GET /auth/roles/matrix` (role × granted keys, wildcards expanded),
+  `PUT /auth/roles/{role}` `{permissions:[...]}`.
 
 ### Protected `super_admin` (singleton)
 `super_admin` is a protected singleton — the always-available root account:

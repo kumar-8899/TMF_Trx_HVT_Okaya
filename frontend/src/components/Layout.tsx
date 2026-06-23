@@ -1,6 +1,6 @@
 import {
   Article, Assessment, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
-  GroupsOutlined, HubOutlined, LightMode, MemoryOutlined, MonitorHeartOutlined,
+  GroupsOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
   ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TuneOutlined,
 } from "@mui/icons-material";
@@ -48,6 +48,7 @@ const NAV: NavItem[] = [
   { label: "Diagnostics", to: "/diagnostics", icon: <MonitorHeartOutlined />, perm: "DIAGNOSTICS.VIEW" },
   { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
   { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
+  { label: "Permissions", to: "/permissions", icon: <LockPersonOutlined />, perm: "AUTH.MANAGE_ROLES" },
   { label: "Settings", to: "/settings", icon: <SettingsOutlined />, perm: "SYSTEM.RESET_DATA" },
 ];
 
