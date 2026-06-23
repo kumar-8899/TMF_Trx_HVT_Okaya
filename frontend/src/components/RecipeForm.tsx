@@ -2,7 +2,7 @@
  * read-only by the detail view. Phase-1 model: each test is a `parametric_test`
  * step = fixed fields + a flat list of {name, value, unit} parameter rows. */
 import {
-  Add, ArrowDownward, ArrowUpward, DeleteOutline, NavigateBefore, NavigateNext, Search,
+  Add, ArrowDownward, ArrowUpward, ContentCopy, DeleteOutline, NavigateBefore, NavigateNext, Search,
 } from "@mui/icons-material";
 import {
   Box, Button, Checkbox, Divider, FormControlLabel, IconButton, LinearProgress, MenuItem,
@@ -19,6 +19,7 @@ export interface Test {
   step_id: string;
   step_type: string;
   name?: string;
+  test_group?: string;
   description?: string;
   enabled?: boolean;
   timeout_ms?: number;
@@ -86,6 +87,26 @@ export function RecipeForm({
     const n = steps.length + 1;
     const t: Test = { step_id: `test_${n}`, step_type: PARAM_TYPE, name: `Test ${n}`, enabled: true, params: { parameters: [] } };
     setSteps([...steps, t]); setSelected(steps.length);
+  };
+  // unique step_id by incrementing the trailing number (test_3 -> test_4 -> …)
+  const uniqueId = (base: string) => {
+    const ids = new Set(steps.map((s) => s.step_id));
+    const m = base.match(/^(.*?)(\d+)$/);
+    const stem = m ? m[1] : `${base}_`;
+    let n = m ? Number(m[2]) + 1 : 2;
+    let id = `${stem}${n}`;
+    while (ids.has(id)) { n++; id = `${stem}${n}`; }
+    return id;
+  };
+  const duplicateTest = (i: number) => {
+    const src = steps[i];
+    const copy: Test = {
+      ...src, step_id: uniqueId(src.step_id),
+      name: src.name ? `${src.name} (copy)` : src.name,
+      params: { ...src.params, parameters: (src.params?.parameters ?? []).map((p) => ({ ...p })) },
+    };
+    setSteps([...steps.slice(0, i + 1), copy, ...steps.slice(i + 1)]);
+    setSelected(i + 1);
   };
   const removeTest = (i: number) => { setSteps(steps.filter((_, j) => j !== i)); setSelected((s) => Math.max(0, s > i ? s - 1 : s)); };
   const move = (i: number, d: number) => {
@@ -165,6 +186,7 @@ export function RecipeForm({
                   bgcolor: sel ? (t) => (t.palette.mode === "dark" ? "rgba(30,158,87,0.12)" : "rgba(26,107,60,0.07)") : "transparent",
                   opacity: st === "disabled" ? 0.5 : 1,
                   "&:hover": { bgcolor: sel ? undefined : "action.hover" },
+                  "&:hover .clone-btn": { opacity: 1 },
                 }}>
                   <StatusDot kind={DOT[st]} />
                   <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -175,6 +197,14 @@ export function RecipeForm({
                       {s.step_id}
                     </Typography>
                   </Box>
+                  {!readOnly && (
+                    <Tooltip title="Duplicate test">
+                      <IconButton className="clone-btn" size="small" sx={{ opacity: 0, transition: "opacity .15s" }}
+                        onClick={(e) => { e.stopPropagation(); duplicateTest(i); }}>
+                        <ContentCopy fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
               );
             })}
@@ -220,6 +250,9 @@ export function RecipeForm({
                     onChange={(e) => setField(selected, "step_id", e.target.value)} />
                   <TextField label="Test name" value={cur.name ?? ""} sx={{ flex: 1, minWidth: 180 }} disabled={readOnly}
                     onChange={(e) => setField(selected, "name", e.target.value)} />
+                  <TextField label="Test group" value={cur.test_group ?? ""} sx={{ width: 160 }} disabled={readOnly}
+                    onChange={(e) => setField(selected, "test_group", e.target.value || undefined)}
+                    inputProps={{ "aria-label": "test_group" }} />
                   <TextField label="Timeout (ms)" type="number" value={cur.timeout_ms ?? ""} sx={{ width: 130 }} disabled={readOnly}
                     onChange={(e) => setField(selected, "timeout_ms", e.target.value === "" ? undefined : Number(e.target.value))} />
                   <TextField label="Retry count" type="number" value={cur.retry_count ?? ""} sx={{ width: 130 }} disabled={readOnly}

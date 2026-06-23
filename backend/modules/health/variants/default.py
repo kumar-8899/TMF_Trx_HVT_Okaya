@@ -49,8 +49,22 @@ class DefaultHealth:
         self._maintenance = False
         self._maint_state = {"state": "off", "since": None, "by": None, "reason": None}
         self._aborted: set[str] = set()
+        self._sched = self._norm_schedule(config.get("schedule"))
+        self._sched_task: asyncio.Task | None = None
+        self._sched_marks: dict[str, float] = {}   # option -> last fired ts (dedupe)
         self.router = build_router(self)
         self.mqtt_handlers = [("state/maintenance", self._on_maintenance)]
+
+    @staticmethod
+    def _norm_schedule(raw) -> dict:
+        raw = raw or {}
+        return {
+            "suite": raw.get("suite", "smoke"),
+            "startup": bool(raw.get("startup", False)),
+            "shutdown": bool(raw.get("shutdown", False)),
+            "every_30min": bool(raw.get("every_30min", False)),
+            "daily": raw.get("daily") or None,        # "HH:MM" or None
+        }
 
     @classmethod
     def construct(cls, core: CoreServices, config: dict) -> "DefaultHealth":
@@ -59,8 +73,60 @@ class DefaultHealth:
     async def init(self) -> None:
         self._issues = catalog.load_issues(self._issue_dirs)
 
-    async def start(self) -> None: pass
-    async def stop(self) -> None: pass
+    async def start(self) -> None:
+        self._sched_task = asyncio.create_task(self._scheduler_loop())
+
+    async def stop(self) -> None:
+        if self._sched_task:
+            self._sched_task.cancel()
+            self._sched_task = None
+        if self._sched["shutdown"]:
+            try:
+                await asyncio.wait_for(self.run(suite=self._sched["suite"], trigger="shutdown"), timeout=30)
+            except Exception as exc:  # noqa: BLE001 — best-effort on the way down
+                self.core.diag.warning("health", "shutdown health run failed", error=str(exc))
+
+    # --- scheduled runs (predefined cadences) ------------------------------
+
+    async def _scheduler_loop(self) -> None:
+        """Tick once a minute; fire enabled cadences. Startup fires once after a
+        short grace so the bridge can connect first."""
+        if self._sched["startup"]:
+            await asyncio.sleep(8)
+            await self._fire("startup")
+        while True:
+            try:
+                await asyncio.sleep(60)
+                now = time.time()
+                if self._sched["every_30min"] and now - self._sched_marks.get("every_30min", 0) >= 1800:
+                    await self._fire("every_30min")
+                daily = self._sched["daily"]
+                if daily and time.strftime("%H:%M", time.localtime(now)) == daily:
+                    # once per calendar day
+                    day = time.strftime("%Y-%m-%d", time.localtime(now))
+                    if self._sched_marks.get("daily_day") != hash(day):
+                        self._sched_marks["daily_day"] = hash(day)
+                        await self._fire("daily")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — never let the loop die
+                self.core.diag.warning("health", "scheduler tick failed", error=str(exc))
+
+    async def _fire(self, option: str) -> None:
+        self._sched_marks[option] = time.time()
+        self.core.diag.info("health", "scheduled health run", trigger=option)
+        try:
+            await self.run(suite=self._sched["suite"], trigger=option)
+        except Exception as exc:  # noqa: BLE001
+            self.core.diag.warning("health", "scheduled run failed", trigger=option, error=str(exc))
+
+    def schedule_get(self) -> dict:
+        return {**self._sched, "suites": list(self.suites.keys())}
+
+    def schedule_set(self, patch: dict) -> dict:
+        # runtime update (not persisted to config on disk — survives until restart)
+        self._sched = self._norm_schedule({**self._sched, **(patch or {})})
+        return self.schedule_get()
 
     async def health(self) -> Health:
         return Health(status=HealthStatus.OK,
@@ -297,6 +363,60 @@ class DefaultHealth:
     async def current(self, trigger=None) -> dict | None:
         items = await self.list_runs(trigger=trigger)
         return items[-1] if items else None
+
+    async def trends(self, limit: int = 200) -> dict:
+        """Derive reliability metrics from health-run history (HEALTH §6 corpus):
+        MTBF, failure frequency, repeated failures, and flaky checks/hardware."""
+        runs = await self.list_runs(limit=limit)
+        meta = self._effective()[0]
+        if not runs:
+            return {"runs_analyzed": 0, "checks": [], "repeated_failures": [], "flaky": [],
+                    "overall_mtbf_s": None, "window_start": None, "window_end": None}
+        t_start, t_end = runs[0]["ts"], runs[-1]["ts"]
+        span = max(t_end - t_start, 1e-9)
+
+        # per-check series in chronological order
+        series: dict[str, list[tuple[float, bool]]] = {}   # check_id -> [(ts, is_fail)]
+        for r in runs:
+            for v in r.get("verdicts", []):
+                if v["status"] in ("skipped", "unavailable"):
+                    continue
+                series.setdefault(v["check_id"], []).append((r["ts"], v["status"] in _CRITICAL_BAD))
+
+        checks = []
+        repeated, flaky = [], []
+        for cid, pts in series.items():
+            total = len(pts)
+            fails = sum(1 for _, f in pts if f)
+            transitions = sum(1 for i in range(1, len(pts)) if pts[i][1] != pts[i - 1][1])
+            streak = 0
+            for _, f in reversed(pts):
+                if f:
+                    streak += 1
+                else:
+                    break
+            fail_rate = round(fails / total, 3) if total else 0.0
+            is_flaky = transitions >= 2 and 0.0 < fail_rate < 1.0
+            d = meta.get(cid)
+            checks.append({
+                "check_id": cid, "title": d.title if d else cid, "group": d.group if d else "System",
+                "domain": d.domain if d else "", "total": total, "fails": fails,
+                "fail_rate": fail_rate, "current_fail_streak": streak, "transitions": transitions,
+                "flaky": is_flaky, "last_status": "fail" if pts[-1][1] else "pass",
+                "mtbf_s": round(span / fails, 1) if fails else None,   # uptime / failures
+            })
+            if streak >= 2:
+                repeated.append(cid)
+            if is_flaky:
+                flaky.append(cid)
+
+        checks.sort(key=lambda c: (-c["fail_rate"], -c["fails"]))
+        bad_runs = sum(1 for r in runs if r.get("overall") in ("unhealthy", "degraded"))
+        return {
+            "runs_analyzed": len(runs), "window_start": t_start, "window_end": t_end,
+            "overall_mtbf_s": round(span / bad_runs, 1) if bad_runs else None,
+            "checks": checks, "repeated_failures": repeated, "flaky": flaky,
+        }
 
     # --- known issues + suggestions (§7) -----------------------------------
 

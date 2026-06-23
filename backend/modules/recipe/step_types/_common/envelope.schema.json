@@ -13,6 +13,7 @@
     },
     "step_type":       { "type": "string" },
     "name":            { "type": "string" },
+    "test_group":      { "type": "string", "description": "Optional grouping label for tests (e.g. 'Safety', 'Functional')." },
     "description":     { "type": "string" },
     "enabled":         { "type": "boolean",  "default": true },
     "timeout_ms":      { "type": "integer",  "minimum": 0 },

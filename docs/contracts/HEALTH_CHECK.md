@@ -410,6 +410,25 @@ address summary, the raw error, the expected-vs-actual. This is the discipline
 that makes the corpus answer future questions like "every loopback failure on
 ai1 across the fleet."
 
+### 6.4 Trend analysis — derived, not stored (`GET /health/trends`)
+
+Reliability metrics are **derived from the `health_run` corpus on demand** — no
+second store. Over the last N runs (default 200), per check: `fails`, `fail_rate`,
+`current_fail_streak`, `transitions`, and `mtbf_s` (window span ÷ failures).
+Top-level: `overall_mtbf_s`, `repeated_failures` (streak ≥ 2 — a check failing in
+consecutive recent runs), and `flaky` (≥ 2 pass↔fail transitions and 0 < fail_rate
+< 1 — oscillating, e.g. a loose hardware connection). `skipped`/`unavailable`
+verdicts are excluded so reachability gaps don't skew the numbers.
+
+### 6.5 Scheduled runs (`GET`/`PUT /health/schedule`)
+
+The module can trigger its own runs on predefined cadences (config `schedule`, or
+runtime via `PUT`): `startup` (once after an 8 s boot grace), `shutdown` (once on
+graceful stop), `every_30min`, and `daily` at a local `HH:MM`. A single
+minute-tick loop fires them with `trigger` set to the cadence (so history/trends
+can filter scheduled vs manual). Runtime `PUT` changes are **not** persisted — they
+reset to config on restart.
+
 ---
 
 ## 7. The known-issues catalog and signature matching

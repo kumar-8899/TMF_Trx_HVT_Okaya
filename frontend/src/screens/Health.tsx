@@ -1,7 +1,8 @@
 import { CheckCircle, Cancel, HelpOutline, PlayArrow, RemoveCircleOutline, Replay } from "@mui/icons-material";
 import {
-  Alert, Box, Button, Chip, Collapse, Divider, MenuItem, Paper, Stack, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Typography,
+  Alert, Box, Button, Chip, Collapse, Divider, FormControlLabel, MenuItem, Paper, Stack,
+  Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton,
+  ToggleButtonGroup, Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -36,6 +37,14 @@ const GOOD = new Set(["pass"]);
 
 type Level = "operator" | "technician" | "engineer";
 
+function fmtDur(s: number | null | undefined): string {
+  if (s == null) return "—";
+  if (s < 90) return `${Math.round(s)}s`;
+  if (s < 5400) return `${Math.round(s / 60)}m`;
+  if (s < 172800) return `${(s / 3600).toFixed(1)}h`;
+  return `${(s / 86400).toFixed(1)}d`;
+}
+
 function StatusGlyph({ status }: { status: string }) {
   if (GOOD.has(status)) return <CheckCircle fontSize="small" sx={{ color: "status.pass" }} />;
   if (BAD.has(status)) return <Cancel fontSize="small" sx={{ color: "status.fail" }} />;
@@ -54,17 +63,27 @@ export function Health() {
   const [activeRun, setActiveRun] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, string>>({});
   const [level, setLevel] = useState<Level>("operator");
+  const [trends, setTrends] = useState<any | null>(null);
+  const [sched, setSched] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api.get("/health/runs").then((r) => setRuns([...r].reverse())).catch((e) => setError(e.message));
     api.get("/health/current").then(setCurrent).catch(() => {});
+    api.get("/health/trends").then(setTrends).catch(() => {});
   }, []);
   useEffect(() => {
     api.get("/health/checks").then(setChecks).catch((e) => setError(e.message));
     api.get("/health/suites").then(setSuites).catch(() => {});
+    api.get("/health/schedule").then(setSched).catch(() => {});
     refresh();
   }, [refresh]);
+
+  const saveSched = async (patch: Record<string, any>) => {
+    setError(null);
+    try { setSched(await api.put("/health/schedule", patch)); }
+    catch (e: any) { setError(e.message); }
+  };
 
   const { last } = useStream<any>(activeRun ? `/health/run/${activeRun}/stream` : null);
   useEffect(() => {
@@ -222,6 +241,73 @@ export function Health() {
         </Box>
 
         <Box sx={{ flex: 1, minWidth: 0 }}>
+          {/* Scheduled runs */}
+          {sched && (
+            <Section title="Scheduled runs" subtitle="Automatic health checks" sx={{ mb: 2 }}>
+              <Stack spacing={0.5}>
+                {([["startup", "On startup"], ["shutdown", "On shutdown"], ["every_30min", "Every 30 minutes"]] as const).map(([k, label]) => (
+                  <FormControlLabel key={k}
+                    control={<Switch size="small" checked={Boolean(sched[k])} disabled={!can("HEALTH.RUN")}
+                      onChange={(e) => saveSched({ [k]: e.target.checked })} />}
+                    label={<Typography variant="body2">{label}</Typography>} />
+                ))}
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Switch size="small" checked={Boolean(sched.daily)} disabled={!can("HEALTH.RUN")}
+                    onChange={(e) => saveSched({ daily: e.target.checked ? "06:00" : null })} />
+                  <Typography variant="body2">Daily at</Typography>
+                  <TextField size="small" type="time" value={sched.daily || "06:00"} disabled={!can("HEALTH.RUN") || !sched.daily}
+                    onChange={(e) => saveSched({ daily: e.target.value })} sx={{ width: 120 }} />
+                </Stack>
+                <TextField select size="small" label="Suite" value={sched.suite} disabled={!can("HEALTH.RUN")}
+                  onChange={(e) => saveSched({ suite: e.target.value })} sx={{ mt: 1, width: 160 }}>
+                  {(sched.suites ?? []).map((s: string) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                </TextField>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Runtime setting — resets to config on restart.
+                </Typography>
+              </Stack>
+            </Section>
+          )}
+
+          {/* Trend analysis */}
+          {trends && trends.runs_analyzed > 0 && (
+            <Section title="Trend analysis" subtitle={`${trends.runs_analyzed} runs`} bodyPad={0} sx={{ mb: 2 }}>
+              <Box sx={{ p: 1.5 }}>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`Overall MTBF: ${fmtDur(trends.overall_mtbf_s)}`} />
+                  {trends.repeated_failures.length > 0 && <Chip size="small" color="error" label={`${trends.repeated_failures.length} repeated`} />}
+                  {trends.flaky.length > 0 && <Chip size="small" color="warning" label={`${trends.flaky.length} flaky`} />}
+                </Stack>
+              </Box>
+              <Divider />
+              <Table size="small">
+                <TableHead><TableRow>
+                  <TableCell>Check</TableCell><TableCell align="right">Fail&nbsp;rate</TableCell>
+                  <TableCell align="right">MTBF</TableCell><TableCell align="right">Flags</TableCell>
+                </TableRow></TableHead>
+                <TableBody>
+                  {trends.checks.filter((c: any) => c.fails > 0).slice(0, 12).map((c: any) => (
+                    <TableRow key={c.check_id} hover>
+                      <TableCell>
+                        <Typography variant="body2" noWrap>{c.title}</Typography>
+                        <Typography variant="caption" color="text.secondary">{c.fails}/{c.total} fails</Typography>
+                      </TableCell>
+                      <TableCell align="right">{Math.round(c.fail_rate * 100)}%</TableCell>
+                      <TableCell align="right">{fmtDur(c.mtbf_s)}</TableCell>
+                      <TableCell align="right">
+                        {c.current_fail_streak >= 2 && <Chip size="small" color="error" label={`×${c.current_fail_streak}`} sx={{ height: 18, mr: 0.5 }} />}
+                        {c.flaky && <Chip size="small" color="warning" label="flaky" sx={{ height: 18 }} />}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {trends.checks.filter((c: any) => c.fails > 0).length === 0 && (
+                    <TableRow><TableCell colSpan={4} sx={{ color: "text.secondary" }}>No failures recorded.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </Section>
+          )}
+
           <Section title="History" bodyPad={0}>
             {runs.length === 0 ? <EmptyState message="No runs." /> : (
               <Table size="small">

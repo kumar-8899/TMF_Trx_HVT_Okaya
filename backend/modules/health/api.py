@@ -62,6 +62,18 @@ def build_router(module) -> APIRouter:
     async def current(trigger: str | None = None) -> dict | None:
         return await module.current(trigger=trigger)
 
+    @router.get("/health/trends", dependencies=_VIEW)
+    async def trends(limit: int = 200) -> dict:
+        return await module.trends(limit=limit)
+
+    @router.get("/health/schedule", dependencies=_VIEW)
+    async def schedule_get() -> dict:
+        return module.schedule_get()
+
+    @router.put("/health/schedule", dependencies=_RUN)
+    async def schedule_set(body: dict) -> dict:
+        return module.schedule_set(body)
+
     @router.get("/health/runs/{hid}", dependencies=_VIEW)
     async def get_run(hid: str) -> dict:
         run = await module.get_run(hid)

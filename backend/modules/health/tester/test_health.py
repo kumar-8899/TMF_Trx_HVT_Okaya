@@ -62,6 +62,29 @@ async def test_list_checks_and_reachability(ctx):
     assert checks["web.db_writable"]["reachable"] is True  # python executor
 
 
+async def test_trends_metrics(ctx):
+    module, _, _ = ctx
+    # disk check passes; force a failing web check via a tiny disk_min to vary results
+    await module.run(check_ids=["web.db_writable"])              # pass
+    module.config["disk_min_gb"] = 10 ** 9
+    await module.run(check_ids=["web.disk_space"])               # fail
+    await module.run(check_ids=["web.disk_space"])               # fail again
+    t = await module.trends()
+    assert t["runs_analyzed"] == 3
+    disk = next(c for c in t["checks"] if c["check_id"] == "web.disk_space")
+    assert disk["fails"] == 2 and disk["current_fail_streak"] == 2
+    assert disk["mtbf_s"] is not None
+    assert "web.disk_space" in t["repeated_failures"]
+
+
+async def test_schedule_get_set(ctx):
+    module, _, _ = ctx
+    s = module.schedule_get()
+    assert s["startup"] is False and s["suite"] == "smoke" and "smoke" in s["suites"]
+    s2 = module.schedule_set({"every_30min": True, "daily": "06:30"})
+    assert s2["every_30min"] is True and s2["daily"] == "06:30"
+
+
 async def test_run_web_checks_pass(ctx):
     module, _, _ = ctx
     hid = await module.run(check_ids=["web.db_writable", "web.disk_space"])

@@ -95,15 +95,17 @@ The visual vocabulary every screen reuses:
 | Analytics | `/analytics` | premium dashboard (Recharts): filters (range/model/operator) + KPI band + tabs — Quality (FPY p-chart, pass/fail), Failures (Pareto + cumulative, parameter Pareto, by-model), Cycle time (histogram, I-MR). Fed by `GET /reports/analytics/dashboard` |
 | Users | `/users` | table with role **dropdowns** + state chips; New-user modal (role dropdown, temp password shown); super_admin hidden from non-super_admins |
 | Settings | `/settings` | super_admin only; **Data management** (per-item reset toggles: runs/reports/logs/recipes/users-except-super_admin → Reset selected), **MES interlock** (gate/publish toggles) |
-| Health | `/health` | HEALTH.VIEW; **Production Readiness** banner (Ready / Warnings / Blocked), **Operator/Technician/Engineer** view toggle, checks grouped by **business function** (Core Software / Production Systems / Test Equipment / External Systems) with impact + what-to-do + known-issue remedy on failure; per-check & suite Re-test, live progress (WS), history |
+| Health | `/health` | HEALTH.VIEW; **Production Readiness** banner (Ready / Warnings / Blocked), **Operator/Technician/Engineer** view toggle, checks grouped by **business function** (Core Software / Production Systems / Test Equipment / External Systems) with impact + what-to-do + known-issue remedy on failure; per-check & suite Re-test, live progress (WS), **Scheduled runs** (startup/shutdown/30-min/daily), **Trend analysis** (MTBF, fail rate, repeated, flaky), history |
 | Maintenance | `/maintenance` | HEALTH.MAINTENANCE; enter/exit maintenance, variable read/write (write-gated on maintenance), run a check, live values — composed from existing contracts |
 | Diagnostics | `/diagnostics` | DIAGNOSTICS.VIEW; live event tail (`/diagnostics/stream`) + readiness (`/readyz`) + module status (thin client, no backend) |
 
 ### Recipe authoring model (phase 1)
 
 A recipe is an ordered list of **tests**. Each test is a `parametric_test` step:
-fixed fields (Test ID, Name, Enabled, Timeout, Retry, On-fail, Safety-critical) +
-a flat **Parameter Name / Value / Unit** table. The shared
+fixed fields (Test ID, Name, **Test group**, Enabled, Timeout, Retry, On-fail,
+Safety-critical) + a flat **Parameter Name / Value / Unit** table. Hovering a test
+in the left rail shows a **clone** icon that duplicates it with an incremented
+`test_id`. The shared
 [`RecipeForm`](../frontend/src/components/RecipeForm.tsx) renders this read/write
 (editor) and read-only (view). The richer step-type sequence editor is phase 2;
 legacy/other step types still open read-only.

@@ -29,6 +29,18 @@
       "type": "object",
       "additionalProperties": { "type": "array", "items": { "type": "string" } },
       "description": "Named suites -> check id lists. Overrides the shipped defaults (smoke/full)."
+    },
+    "schedule": {
+      "type": "object",
+      "description": "Predefined scheduled health runs.",
+      "additionalProperties": false,
+      "properties": {
+        "suite": { "type": "string", "default": "smoke", "description": "Suite the scheduler runs." },
+        "startup": { "type": "boolean", "default": false, "description": "Run once shortly after boot." },
+        "shutdown": { "type": "boolean", "default": false, "description": "Run once on graceful shutdown." },
+        "every_30min": { "type": "boolean", "default": false, "description": "Run every 30 minutes." },
+        "daily": { "type": ["string", "null"], "pattern": "^[0-2][0-9]:[0-5][0-9]$", "description": "Daily run at local HH:MM (or null)." }
+      }
     }
   }
 }
