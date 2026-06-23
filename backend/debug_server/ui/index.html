@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TMF Debug Server</title>
+<style>
+  :root { --bg:#0e1726; --panel:#16233a; --line:#26354f; --fg:#dce6f5; --mut:#8aa0c0;
+          --pass:#3fb96a; --warn:#e8a020; --fail:#e5484d; --info:#4a90e2; --mono:'JetBrains Mono',Consolas,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui,Segoe UI,sans-serif; }
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:8px 14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0 12px 0 0; font-weight:700; }
+  input,select,button { background:#0c1424; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  button { cursor:pointer; } button:hover { border-color:var(--info); }
+  .tabs { display:flex; gap:4px; padding:8px 14px 0; }
+  .tabs button { border-bottom:none; border-radius:6px 6px 0 0; }
+  .tabs button.on { background:var(--panel); border-color:var(--line); color:#fff; }
+  main { padding:10px 14px; }
+  table { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px; }
+  th,td { text-align:left; padding:3px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); position:sticky; top:0; background:var(--bg); }
+  td.msg { white-space:normal; font-family:system-ui; }
+  .lv-error,.lv-critical { color:var(--fail); } .lv-warning { color:var(--warn); } .lv-info { color:var(--info); } .lv-debug { color:var(--mut); }
+  .bad { background:rgba(229,72,77,.14); } .orphan { color:var(--fail); font-weight:700; }
+  .pill { padding:1px 7px; border-radius:10px; font-size:11px; border:1px solid var(--line); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
+  .on-d { background:var(--pass);} .off-d{ background:var(--fail);}
+  .mut { color:var(--mut); } .right { margin-left:auto; }
+  #stat { font-family:var(--mono); font-size:11px; color:var(--mut); }
+</style>
+</head>
+<body>
+<header>
+  <h1>TMF Debug Server</h1>
+  <input id="token" placeholder="core bearer token" size="22" />
+  <button onclick="saveTok()">Set token</button>
+  <label><input type="checkbox" id="live" onchange="toggleLive()" /> live tail</label>
+  <span class="right" id="stat">—</span>
+</header>
+<div class="tabs" id="tabs"></div>
+<main>
+  <div id="bar" style="margin-bottom:8px; display:flex; gap:6px; flex-wrap:wrap;"></div>
+  <div id="view"></div>
+</main>
+<script>
+const TABS = ["timeline","traces","requests","liveness","violations","capture"];
+let tab = "timeline", ws = null, tok = localStorage.getItem("tmf.token") || "";
+document.getElementById("token").value = tok;
+function saveTok(){ tok = document.getElementById("token").value.trim(); localStorage.setItem("tmf.token", tok); refresh(); }
+const H = () => tok ? { Authorization: "Bearer "+tok } : {};
+async function api(p){ const r = await fetch(p, { headers:H() }); if(!r.ok) throw new Error(r.status+" "+(await r.text())); return r.json(); }
+const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const t2 = ts => ts? new Date(ts*1000).toLocaleTimeString([], {hour12:false})+"."+String(Math.floor((ts%1)*1000)).padStart(3,"0") : "";
+
+function renderTabs(){ document.getElementById("tabs").innerHTML =
+  TABS.map(t=>`<button class="${t===tab?'on':''}" onclick="go('${t}')">${t}</button>`).join(""); }
+function go(t){ tab=t; renderTabs(); refresh(); }
+
+async function refresh(){
+  try { health(); } catch(e){}
+  try {
+    if(tab==="timeline") await timeline();
+    else if(tab==="traces") await traces();
+    else if(tab==="requests") await requests();
+    else if(tab==="liveness") await liveness();
+    else if(tab==="violations") await violations();
+    else if(tab==="capture") capture();
+  } catch(e){ document.getElementById("view").innerHTML = `<p class="lv-error">${esc(e.message)}</p>`; }
+}
+async function health(){
+  const h = await (await fetch("/debug/health")).json();
+  document.getElementById("stat").textContent =
+    `broker ${h.broker_connected?"●":"○"}  buffer ${h.buffer_used}/${h.buffer_capacity}  dropped ${h.dropped}  subs ${h.subscribers}  station ${h.station}`;
+}
+function rowTimeline(r){
+  const lvl = r.level||r.kind;
+  return `<tr class="${r.valid===false?'bad':''}">
+    <td class="mut">${r.seq}</td><td>${t2(r.ts)}</td>
+    <td class="lv-${lvl}">${esc(lvl)}</td><td>${esc(r.subsystem||r.type||"")}</td>
+    <td class="mut">${esc(r.subtopic)}</td>
+    <td class="msg">${esc(r.message|| (r.payload&&r.payload.op) || r.type || "")}${r.error?` <span class="lv-error">⚠ ${esc(r.error)}</span>`:""}</td>
+    <td><span class="pill">${esc(r.trace||"")}</span></td></tr>`;
+}
+async function timeline(){
+  const f = `?limit=400`;
+  const rows = await api("/debug/events"+f);
+  document.getElementById("bar").innerHTML =
+    `<input id="ft" placeholder="text…" /><select id="flv"><option value="">all levels</option>${["debug","info","warning","error"].map(l=>`<option>${l}</option>`).join("")}</select>
+     <input id="ftop" placeholder="topic prefix e.g. event/" /><button onclick="timeline2()">Filter</button>`;
+  document.getElementById("view").innerHTML =
+    `<table><thead><tr><th>#</th><th>time</th><th>level</th><th>src</th><th>topic</th><th>message</th><th>trace</th></tr></thead><tbody id="tb">${rows.map(rowTimeline).join("")}</tbody></table>`;
+}
+async function timeline2(){
+  const q = new URLSearchParams({ limit:400 });
+  const txt=document.getElementById("ft").value, lv=document.getElementById("flv").value, tp=document.getElementById("ftop").value;
+  if(txt)q.set("text",txt); if(lv)q.set("level",lv); if(tp)q.set("topic",tp);
+  const rows = await api("/debug/events?"+q);
+  document.getElementById("tb").innerHTML = rows.map(rowTimeline).join("");
+}
+async function traces(){
+  const ts = await api("/debug/traces");
+  document.getElementById("bar").innerHTML = "";
+  document.getElementById("view").innerHTML =
+    `<table><thead><tr><th>trace</th><th>count</th><th>span</th><th>err</th></tr></thead><tbody>${
+      ts.map(t=>`<tr style="cursor:pointer" onclick="trace('${esc(t.trace)}')"><td>${esc(t.trace)}</td><td>${t.count}</td><td class="mut">${((t.last_ts-t.first_ts)*1000).toFixed(0)} ms</td><td>${t.has_error?'<span class="orphan">●</span>':''}</td></tr>`).join("")
+    }</tbody></table>`;
+}
+async function trace(tr){
+  const rows = await api("/debug/trace/"+encodeURIComponent(tr));
+  document.getElementById("view").innerHTML =
+    `<h3>${esc(tr)}</h3><table><thead><tr><th>time</th><th>level</th><th>src</th><th>topic</th><th>message</th></tr></thead><tbody>${
+      rows.map(r=>`<tr class="${r.valid===false?'bad':''}"><td>${t2(r.ts)}</td><td class="lv-${r.level||r.kind}">${esc(r.level||r.kind)}</td><td>${esc(r.subsystem||r.type||"")}</td><td class="mut">${esc(r.subtopic)}</td><td class="msg">${esc(r.message||r.type||"")}</td></tr>`).join("")
+    }</tbody></table>`;
+}
+async function requests(){
+  const rs = await api("/debug/requests");
+  document.getElementById("bar").innerHTML = "";
+  document.getElementById("view").innerHTML =
+    `<table><thead><tr><th>status</th><th>request</th><th>reply topic</th><th>latency</th><th>sent</th></tr></thead><tbody>${
+      rs.map(r=>`<tr><td class="${r.status==='orphan'?'orphan':''}">${r.status}</td><td>${esc(r.req_topic)}</td><td class="mut">${esc(r.reply_topic||"")}</td><td>${r.latency_ms!=null?r.latency_ms+" ms":""}</td><td class="mut">${t2(r.sent_ts)}</td></tr>`).join("")
+    }</tbody></table>`;
+}
+async function liveness(){
+  const ls = await api("/debug/liveness");
+  document.getElementById("bar").innerHTML = "";
+  document.getElementById("view").innerHTML =
+    `<table><thead><tr><th>client</th><th>status</th><th>last seen</th><th>LWT</th></tr></thead><tbody>${
+      ls.map(l=>`<tr><td><span class="dot ${l.online?'on-d':'off-d'}"></span>${esc(l.client)}</td><td>${esc(l.status)}</td><td class="mut">${t2(l.last_seen)}</td><td>${l.lwt_fired?'<span class="orphan">fired</span>':''}</td></tr>`).join("")
+    }</tbody></table>`;
+}
+async function violations(){
+  const vs = await api("/debug/violations");
+  document.getElementById("bar").innerHTML = "";
+  document.getElementById("view").innerHTML = vs.length?
+    `<table><thead><tr><th>time</th><th>topic</th><th>type</th><th>error</th></tr></thead><tbody>${
+      vs.map(v=>`<tr class="bad"><td>${t2(v.ts)}</td><td class="mut">${esc(v.topic)}</td><td>${esc(v.type)}</td><td class="lv-error">${esc(v.error)}</td></tr>`).join("")
+    }</tbody></table>` : `<p class="mut">No schema violations.</p>`;
+}
+let capId = null;
+function capture(){
+  document.getElementById("bar").innerHTML = "";
+  document.getElementById("view").innerHTML =
+    `<input id="cn" placeholder="capture name" /> <button onclick="capStart()">Start</button>
+     <button onclick="capStop()">Stop</button> <span id="cinfo" class="mut"></span>`;
+}
+async function capStart(){
+  const r = await (await fetch("/debug/capture/start",{method:"POST",headers:{...H(),"Content-Type":"application/json"},body:JSON.stringify({name:document.getElementById("cn").value||"capture"})})).json();
+  capId = r.capture_id; document.getElementById("cinfo").textContent = "capturing… "+capId;
+}
+async function capStop(){
+  if(!capId) return;
+  const r = await (await fetch("/debug/capture/stop",{method:"POST",headers:{...H(),"Content-Type":"application/json"},body:JSON.stringify({capture_id:capId})})).json();
+  document.getElementById("cinfo").innerHTML = `${r.event_count} events — <a href="/debug/capture/${capId}/export" style="color:var(--info)">export JSONL</a>`;
+}
+function toggleLive(){
+  if(document.getElementById("live").checked){
+    ws = new WebSocket(`ws://${location.host}/debug/stream?token=${encodeURIComponent(tok)}`);
+    ws.onmessage = e => { if(tab!=="timeline") return; const tb=document.getElementById("tb"); if(tb) tb.insertAdjacentHTML("beforeend", rowTimeline(JSON.parse(e.data))); };
+  } else if(ws){ ws.close(); ws=null; }
+}
+renderTabs(); refresh(); setInterval(health, 4000);
+</script>
+</body>
+</html>

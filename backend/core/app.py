@@ -22,7 +22,7 @@ from core.services.bridge import BridgeClient
 from core.services.interlock import InterlockPort
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
-from core.services.diagnostics import Diagnostics
+from core.services.diagnostics import BusDiagSink, Diagnostics
 from core.services.licensing import Licensing
 from core.services.web import install_web
 
@@ -69,6 +69,9 @@ def create_app(
             bridge = BridgeClient(station, host=broker_host, port=broker_port, diag=diag)
             await bridge.connect()
             web.add_ready_check("bridge", lambda: _check(bridge.online))
+            # Mirror Python diag onto diag/# so the Debug Server can capture it
+            # alongside LabVIEW's (DEBUG_SERVER.md §0/§3).
+            diag.add_sink(BusDiagSink(bridge))
 
         app.state.config = config
         app.state.app_config = app_cfg

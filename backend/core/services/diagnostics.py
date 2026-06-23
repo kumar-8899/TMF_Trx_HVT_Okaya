@@ -40,6 +40,29 @@ class JsonlSink:
             fh.write(json.dumps(event) + "\n")
 
 
+class BusDiagSink:
+    """Mirror every diag event onto the bus at `diag/<subsystem>` via the Bridge
+    (DEBUG_SERVER.md §0/§3) so the Debug Server can capture Python diagnostics on
+    the same timeline as LabVIEW's. Fire-and-forget; never blocks the emitter."""
+
+    def __init__(self, bridge) -> None:
+        self._bridge = bridge
+
+    def __call__(self, event: dict) -> None:
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no running loop (sync path / tests) — skip silently
+        loop.create_task(self._publish(event))
+
+    async def _publish(self, event: dict) -> None:
+        try:
+            await self._bridge.publish(f"diag/{event.get('subsystem', 'core')}", event, qos=1)
+        except Exception:  # noqa: BLE001 — a debug mirror must never affect the app
+            pass
+
+
 class Diagnostics:
     def __init__(
         self,

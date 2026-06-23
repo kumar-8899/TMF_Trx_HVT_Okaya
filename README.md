@@ -37,8 +37,14 @@ Backend only:
 ```pwsh
 cd backend
 python -m pip install -e ".[dev]"
-pytest -q                # 190 passing
+pytest -q                # 235 passing
 python run.py            # serves http://127.0.0.1:8000 ; GET /healthz
+```
+
+Debug Server (dev-only sidecar — correlated MQTT timeline, [docs/DEBUG_SERVER.md](docs/DEBUG_SERVER.md)):
+```pwsh
+cd backend
+python run_debug_server.py   # subscribes the station bus → UI on http://127.0.0.1:8001
 ```
 
 Frontend only:
