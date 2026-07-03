@@ -52,6 +52,7 @@ PAGES: list[Page] = [
     Page("dev-core-services", "Core services", "dev", "Overview", "help/dev/core-services.md"),
     Page("dev-extending", "Extension how-tos", "dev", "Overview", "help/dev/extending.md"),
     Page("dev-workflow", "Dev workflow", "dev", "Overview", "help/dev/workflow.md"),
+    Page("dev-instrument-library", "Instrument library", "dev", "Overview", "help/dev/instrument-library.md"),
     Page("dev-core", "CORE contract", "dev", "Contracts", "CORE.md"),
     Page("dev-step-types", "Step types", "dev", "Contracts", "contracts/STEP_TYPES.md"),
     Page("dev-recipe", "Recipe", "dev", "Contracts", "contracts/RECIPE.md"),

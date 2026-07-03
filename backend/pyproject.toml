@@ -27,7 +27,7 @@ include = ["core*", "modules*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "modules", "debug_server"]
+testpaths = ["tests", "modules", "debug_server", "instrumentlib"]
 
 [tool.ruff]
 line-length = 100
