@@ -90,6 +90,11 @@
     {
       "id": "help",
       "variant": "default"
+    },
+    {
+      "id": "variables",
+      "variant": "default",
+      "config": { "instances": [], "variables": {} }
     }
   ]
 }

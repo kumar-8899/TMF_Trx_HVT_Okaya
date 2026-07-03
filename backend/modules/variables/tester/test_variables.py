@@ -1,0 +1,125 @@
+"""variables standalone tester — engine + instance registry + bridge seam.
+
+Registers a SIM power-source library as the subject (product libraries live in the
+separate library repo). No broker; :memory: db.
+"""
+
+import pytest
+
+from core.framework.contract import CoreServices
+from core.services.db import Database
+from core.services.diagnostics import Diagnostics
+from instrumentlib import InstrumentBase, IPowerSource, instrument_library
+from modules.variables.engine import VariableError
+from modules.variables.instances import DoubleOpenError, InstanceRegistry
+from modules.variables.variants.default import DefaultVariables
+
+
+@instrument_library(
+    library_id="vtest_supply", vendor="T", model="PS", capability="power_source",
+    interface_version=1, transports=["sim"], library_version="1.0.0",
+    generated_by="test", manual_reference="none",
+)
+class VTestSupply(InstrumentBase, IPowerSource):
+    CMD = {"set_v": "VOLT {v}", "get_v": "VOLT?", "meas_i": "MEAS:CURR?"}
+
+    async def measure_current(self):
+        return float(await self.transport.query(self.CMD["meas_i"]))   # sim -> 1.0
+
+    async def get_voltage_setpoint(self):
+        return float(await self.transport.query(self.CMD["get_v"]))    # sim -> 1.0
+
+    async def set_voltage(self, volts):
+        await self.transport.write(self.CMD["set_v"].format(v=volts))
+
+
+class FakeBridge:
+    online = True
+    station = "st1"
+
+    def __init__(self):
+        self.served: dict = {}
+
+    def serve(self, op, handler):
+        self.served[op] = handler
+
+
+def _cfg():
+    return {
+        "instances": [{"id": "load_1", "library": "vtest_supply", "simulated": True}],
+        "variables": {
+            "out_current": {"instance": "load_1", "read": "measure_current",
+                            "scale": {"gain": 2.0, "offset": 1.0}, "units": "A"},
+            "dc_setpoint": {"instance": "load_1", "write": "set_voltage",
+                            "read": "get_voltage_setpoint", "clamp": {"min": 0.0, "max": 400.0}, "units": "V"},
+            "orphan": {"instance": "missing", "read": "measure_voltage"},
+        },
+    }
+
+
+@pytest.fixture
+async def mod():
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    bridge = FakeBridge()
+    core = CoreServices(db=db, bridge=bridge,
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    m = DefaultVariables.construct(core, _cfg())
+    await m.start()          # connects instances + registers bridge verbs
+    yield m, bridge
+    await m.stop()
+    await db.close()
+
+
+async def test_read_applies_scale(mod):
+    m, _ = mod
+    r = await m.engine.read("out_current")
+    assert r["raw"] == 1.0 and r["value"] == 3.0 and r["units"] == "A"   # 1*2+1
+
+
+async def test_write_clamps_and_inverse_scales(mod):
+    m, _ = mod
+    r = await m.engine.write("dc_setpoint", 500)
+    assert r["written"] == 400.0 and r["clamped"] is True
+    inst = m.instances.get("load_1")
+    assert "VOLT 400.0" in inst.transport.writes
+    lo = await m.engine.write("dc_setpoint", -5)
+    assert lo["written"] == 0.0 and lo["clamped"] is True
+
+
+async def test_direction_and_unknown_errors(mod):
+    m, _ = mod
+    with pytest.raises(VariableError):
+        await m.engine.read("nope")                # unknown
+    with pytest.raises(VariableError):
+        await m.engine.write("out_current", 1)     # read-only variable
+
+
+async def test_unbound_and_list(mod):
+    m, _ = mod
+    assert m.engine.unbound() == ["orphan"]        # instance 'missing' not loaded
+    names = {v["name"]: v for v in m.engine.list()}
+    assert names["out_current"]["bound"] is True and names["orphan"]["bound"] is False
+    assert await m.ready() is False                # unbound blocks readiness
+
+
+async def test_bridge_serves_variable_verbs(mod):
+    m, bridge = mod
+    assert set(bridge.served) == {"variable.read", "variable.write", "variable.read_many", "variable.write_many"}
+    out = await bridge.served["variable.read"]({"name": "out_current"})
+    assert out["value"] == 3.0
+
+
+def test_double_open_guard():
+    reg = InstanceRegistry(Diagnostics("st1", "0.0.0", sinks=[lambda e: None]))
+    with pytest.raises(DoubleOpenError):
+        reg.build([
+            {"id": "a", "library": "vtest_supply", "params": {"ip": "1.1.1.1"}},
+            {"id": "b", "library": "vtest_supply", "params": {"ip": "1.1.1.1"}},
+        ])
+
+
+def test_unknown_library_skipped_not_fatal():
+    reg = InstanceRegistry(Diagnostics("st1", "0.0.0", sinks=[lambda e: None]))
+    reg.build([{"id": "x", "library": "does_not_exist"}])
+    assert reg.all() == [] and reg.skipped[0]["library"] == "does_not_exist"

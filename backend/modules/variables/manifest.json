@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "variables",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Variable Engine",
+    "description": "Names scalar instrument signals (INSTRUMENT_LIBRARY.md §5.3): recipes/sequencer reference variable names, never hardware. Builds Python-owned instrument instances from config via the instrumentlib registry; serves variable.read/write/read_many/write_many over the bridge + a REST surface."
+  },
+  "entitlement_key": "variables",
+  "variants": ["default"],
+  "core_dependencies": ["db", "bridge", "diagnostics", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/variables.config.schema.json"
+}

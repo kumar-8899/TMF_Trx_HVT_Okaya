@@ -49,11 +49,20 @@ constant); device errors + implausible reads surface as **structured errors, nev
 values**; never import another library, touch the bridge, or emit diagnostics (the
 base does it).
 
+## Variable engine (IL2)
+The `variables` module (`backend/modules/variables/`) is the surviving ~200 lines
+(§5.3): a name → `{instance, read/write, scale, clamp, units}` map over instances it
+builds from config via the instrumentlib registry (double-open guard; unknown library
+skipped loudly). Read = `raw*gain+offset`; write = clamp (logged + returned) → inverse
+scale → `invoke`. Serves `variable.read/write/read_many/write_many` to LabVIEW over the
+bridge (Py-served `query/{op}`) plus REST (`GET /variables`,
+`GET`/`PUT /variables/{name}/value`, `POST /variables/{read,write}`). Reads gated
+`CONFIG.VIEW`, writes `HEALTH.MAINTENANCE`. Unbound variable names fail readiness.
+
 ## Status
-- **IL1 (this):** base + interfaces + fault transport + registry/index +
-  conformance. 15 tests incl. the full battery against a reference sim subject.
-- **IL2 (next):** variable engine (name → `instance.method` + scale/clamp), instance
-  registry, `variable.read/write` over the bridge, `GET /variables`.
-- **IL3:** the library repo + first real library + CI emitting `index.json`.
+- **IL1 — done:** base + interfaces + fault transport + registry/index + conformance.
+- **IL2 — done:** variable engine + instance registry + bridge verbs + REST + readiness.
+- **IL3 — next:** the library repo (`D:\Experiment\Instrument_Library`) + first real
+  library + CI emitting `index.json`.
 - **IL4:** `capability.request` seam + the Instruments config page consuming the
   index + per-instance health checks.

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:variables:module",
+  "title": "variables module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "instances": {
+      "type": "array",
+      "description": "Python-owned instrument instances (INSTRUMENT_LIBRARY.md §5.2).",
+      "items": {
+        "type": "object",
+        "required": ["id", "library"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "library": { "type": "string", "minLength": 1, "description": "library_id in the instrumentlib index." },
+          "params": { "type": "object", "description": "Connection params for the library." },
+          "simulated": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    "variables": {
+      "type": "object",
+      "description": "name -> binding (INSTRUMENT_LIBRARY.md §5.3). Non-scalar capabilities MUST NOT appear here.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["instance"],
+        "additionalProperties": false,
+        "properties": {
+          "instance": { "type": "string", "minLength": 1 },
+          "read": { "type": "string", "description": "capability read method (e.g. measure_current)." },
+          "write": { "type": "string", "description": "capability write method (e.g. set_voltage)." },
+          "units": { "type": "string" },
+          "scale": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "gain": { "type": "number", "default": 1.0 },
+              "offset": { "type": "number", "default": 0.0 }
+            }
+          },
+          "clamp": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "min": { "type": "number" },
+              "max": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

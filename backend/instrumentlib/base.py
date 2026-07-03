@@ -37,11 +37,13 @@ class InstrumentBase:
     EXPECTED_IDN: str | None = None       # library sets this; re-verified on reconnect
 
     def __init__(self, instance_id: str, *, transport: Transport | None = None,
-                 simulated: bool = False, fault_plan: list[dict] | None = None,
+                 simulated: bool = False, params: dict | None = None,
+                 fault_plan: list[dict] | None = None,
                  timeout_s: float = 5.0, on_command: Callable[[dict], None] | None = None,
                  backoff_start_s: float = 1.0, backoff_cap_s: float = 30.0):
         self.instance_id = instance_id
         self.simulated = simulated
+        self.params = params or {}       # connection params; a real library builds its transport from these
         self._timeout = timeout_s
         self._backoff_start = backoff_start_s
         self._backoff_cap = backoff_cap_s
