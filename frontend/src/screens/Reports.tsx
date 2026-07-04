@@ -13,8 +13,8 @@ import { MONO_STACK } from "../theme/theme";
 
 interface Analytics {
   total: number; passed: number; failed: number; yield: number;
-  by_recipe: Record<string, { total: number; passed: number; failed: number }>;
-  by_result: Record<string, number>;
+  by_recipe?: Record<string, { total: number; passed: number; failed: number }>;
+  by_result?: Record<string, number>;
 }
 
 const STAT_COLOR = { pass: "success.main", fail: "error.main", info: "info.main" } as const;
@@ -75,7 +75,7 @@ export function Reports() {
           </Grid>
         )}
 
-        {analytics && Object.keys(analytics.by_recipe).length > 0 && (
+        {analytics?.by_recipe && Object.keys(analytics.by_recipe).length > 0 && (
           <Section title="By recipe">
             <Table>
               <TableHead><TableRow>
@@ -84,7 +84,7 @@ export function Reports() {
                 <TableCell sx={{ width: 200 }}>Yield</TableCell>
               </TableRow></TableHead>
               <TableBody>
-                {Object.entries(analytics.by_recipe).map(([rid, s]) => {
+                {Object.entries(analytics.by_recipe ?? {}).map(([rid, s]) => {
                   const y = s.total ? (s.passed / s.total) * 100 : 0;
                   return (
                     <TableRow key={rid}>
