@@ -7,7 +7,7 @@
 import { Add, DeleteOutline, MemoryOutlined, WifiTethering } from "@mui/icons-material";
 import {
   Alert, Box, Button, Chip, Divider, FormControlLabel, IconButton, MenuItem, Paper,
-  Stack, Switch, TextField, Tooltip, Typography,
+  Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -18,14 +18,16 @@ import { MONO_STACK } from "../../theme/theme";
 
 interface Field { key: string; label: string; type: string; required: boolean; default?: any; placeholder?: string; help?: string; options?: string[] }
 interface Transport { id: string; label: string; address_template: string; fields: Field[] }
+interface Library { library_id: string; vendor: string; model: string; capability: string; connection_params?: Record<string, any>; library_version?: string; manual_reference?: string }
 interface Instrument {
-  id: string; label: string; model?: string; transport: string; params: Record<string, any>;
+  id: string; label: string; model?: string; owner?: "python" | "labview";
+  transport?: string; library?: string; simulated?: boolean; params: Record<string, any>;
   address?: string; family?: string; capabilities?: string[]; enabled?: boolean;
 }
 
 const TEST_KIND: Record<string, StatusKind> = { pass: "pass", fail: "fail", timeout: "fail", error: "fail", unavailable: "running" };
 const INSTANCE_KIND: Record<string, StatusKind> = { connected: "pass", faulted: "fail", reconnecting: "running", connecting: "running", disconnected: "idle", skipped: "idle" };
-const blank = (): Instrument => ({ id: "", label: "", model: "", transport: "", params: {}, family: "", capabilities: [], enabled: true });
+const blank = (): Instrument => ({ id: "", label: "", model: "", owner: "labview", transport: "", library: "", simulated: false, params: {}, family: "", capabilities: [], enabled: true });
 
 export function ConfigInstruments() {
   const { can } = useAuth();
@@ -38,7 +40,7 @@ export function ConfigInstruments() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [libs, setLibs] = useState<any[]>([]);
+  const [libs, setLibs] = useState<Library[]>([]);
   const [instances, setInstances] = useState<any[]>([]);
 
   const refresh = useCallback(() => {
@@ -52,7 +54,17 @@ export function ConfigInstruments() {
     refresh();
   }, [refresh]);
 
+  const isPython = draft?.owner === "python";
   const transport = useMemo(() => transports.find((t) => t.id === draft?.transport) || null, [transports, draft]);
+  const library = useMemo(() => libs.find((l) => l.library_id === draft?.library) || null, [libs, draft]);
+  // a library's connection_params -> the same Field shape the transport form renders
+  const libFields = useMemo<Field[]>(() => {
+    const cp = library?.connection_params || {};
+    return Object.entries(cp).map(([key, spec]: [string, any]) => ({
+      key, label: key, type: spec?.type === "int" || spec?.type === "number" ? "number" : "text",
+      required: !(spec && "default" in spec), default: spec?.default,
+    }));
+  }, [library]);
 
   const open = (inst: Instrument | null) => {
     setError(null); setNotice(null); setTest(null);
@@ -68,12 +80,22 @@ export function ConfigInstruments() {
     setDraft((d) => (d ? { ...d, transport: id, params } : d));
     setTest(null);
   };
+  const pickLibrary = (id: string) => {
+    const l = libs.find((x) => x.library_id === id);
+    const params: Record<string, any> = {};
+    Object.entries(l?.connection_params || {}).forEach(([k, spec]: [string, any]) => {
+      if (spec && "default" in spec) params[k] = spec.default;
+    });
+    setDraft((d) => (d ? { ...d, library: id, model: l ? `${l.vendor} ${l.model}` : d.model, params } : d));
+    setTest(null);
+  };
 
-  // live preview of the canonical resource string (mirrors the backend template)
+  // live preview of the canonical resource string
   const addressPreview = useMemo(() => {
+    if (isPython) return String(draft?.params?.resource ?? "");
     if (!transport) return "";
     return transport.address_template.replace(/\{(\w+)\}/g, (_, k) => String(draft?.params?.[k] ?? "")).trim();
-  }, [transport, draft]);
+  }, [isPython, transport, draft]);
 
   const save = async () => {
     if (!draft) return;
@@ -81,7 +103,8 @@ export function ConfigInstruments() {
     try {
       if (isNew) await api.post("/config/instruments", draft);
       else await api.put(`/config/instruments/${draft.id}`, draft);
-      setNotice(`Saved ${draft.id}.`); setIsNew(false); refresh();
+      setNotice(`Saved ${draft.id}.${isPython ? " Restart the backend to (re)build the instance." : ""}`);
+      setIsNew(false); refresh();
     } catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -95,7 +118,11 @@ export function ConfigInstruments() {
   const runTest = async () => {
     if (!draft) return;
     setBusy(true); setError(null); setTest(null);
-    try { setTest(await api.post("/config/instruments/test", { transport: draft.transport, params: draft.params })); }
+    try {
+      const body = isPython ? { id: draft.id, owner: "python" }
+                            : { transport: draft.transport, params: draft.params };
+      setTest(await api.post("/config/instruments/test", body));
+    }
     catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -157,7 +184,7 @@ export function ConfigInstruments() {
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{inst.label || inst.id}</Typography>
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block", fontFamily: MONO_STACK }}>
-                    {inst.transport} · {inst.id}
+                    {inst.owner === "python" ? `py:${inst.library}` : inst.transport} · {inst.id}
                   </Typography>
                 </Box>
               </Box>
@@ -180,22 +207,42 @@ export function ConfigInstruments() {
                       onChange={(e) => setF("model", e.target.value)} />
                   </Stack>
                   <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
-                    <TextField select label="Transport" value={draft.transport} sx={{ width: 220 }} disabled={!edit}
-                      onChange={(e) => pickTransport(e.target.value)} inputProps={{ "aria-label": "transport" }}>
-                      <MenuItem value=""><em>select…</em></MenuItem>
-                      {transports.map((t) => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
-                    </TextField>
+                    <ToggleButtonGroup size="small" exclusive value={draft.owner ?? "labview"}
+                      onChange={(_, v) => v && setDraft((d) => (d ? { ...d, owner: v, params: {}, transport: "", library: "" } : d))}
+                      disabled={!edit || !isNew}>
+                      <ToggleButton value="python">Python-owned (library)</ToggleButton>
+                      <ToggleButton value="labview">LabVIEW-owned (transport)</ToggleButton>
+                    </ToggleButtonGroup>
+                    {!isNew && <Typography variant="caption" color="text.secondary">owner is fixed after creation</Typography>}
+                  </Stack>
+                  <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
+                    {isPython ? (
+                      <TextField select label="Library" value={draft.library ?? ""} sx={{ width: 260 }} disabled={!edit}
+                        onChange={(e) => pickLibrary(e.target.value)} inputProps={{ "aria-label": "library" }}
+                        helperText={libs.length ? undefined : "no libraries loaded — wire variables.library_paths"}>
+                        <MenuItem value=""><em>select…</em></MenuItem>
+                        {libs.map((l) => <MenuItem key={l.library_id} value={l.library_id}>{l.vendor} {l.model} — {l.capability}</MenuItem>)}
+                      </TextField>
+                    ) : (
+                      <TextField select label="Transport" value={draft.transport ?? ""} sx={{ width: 220 }} disabled={!edit}
+                        onChange={(e) => pickTransport(e.target.value)} inputProps={{ "aria-label": "transport" }}>
+                        <MenuItem value=""><em>select…</em></MenuItem>
+                        {transports.map((t) => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
+                      </TextField>
+                    )}
+                    {isPython && <FormControlLabel control={<Switch checked={Boolean(draft.simulated)} disabled={!edit}
+                      onChange={(e) => setF("simulated", e.target.checked)} />} label="Simulated" />}
                     <FormControlLabel control={<Switch checked={draft.enabled !== false} disabled={!edit}
                       onChange={(e) => setF("enabled", e.target.checked)} />} label="Enabled" />
                   </Stack>
                 </Stack>
               </Section>
 
-              {transport && (
-                <Section title="Connection" subtitle={transport.label}>
+              {((isPython && library) || (!isPython && transport)) && (
+                <Section title="Connection" subtitle={isPython ? `${library!.vendor} ${library!.model}` : transport!.label}>
                   <Stack spacing={2}>
                     <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                      {transport.fields.map((f) => (
+                      {(isPython ? libFields : transport!.fields).map((f) => (
                         f.type === "select" ? (
                           <TextField key={f.key} select label={f.label} sx={{ width: 200 }} disabled={!edit}
                             value={draft.params[f.key] ?? f.default ?? ""} helperText={f.help}
@@ -216,12 +263,16 @@ export function ConfigInstruments() {
                     </Box>
                     <Divider />
                     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                      <Button variant="outlined" startIcon={<WifiTethering />} disabled={busy || !draft.transport} onClick={runTest}>
+                      <Button variant="outlined" startIcon={<WifiTethering />}
+                        disabled={busy || (isPython ? !draft.library : !draft.transport)} onClick={runTest}>
                         Test connection
                       </Button>
                       {test && <StatusChip label={test.status} kind={TEST_KIND[test.status] ?? "idle"} />}
                       {test && <Typography variant="body2" color="text.secondary">{test.detail}{test.identity ? ` · ${test.identity}` : ""}</Typography>}
                     </Stack>
+                    {isPython && <Typography variant="caption" color="text.secondary">
+                      Python instruments connect at startup — save, then <b>restart the backend</b>; Test then reports the live instance state.
+                    </Typography>}
                   </Stack>
                 </Section>
               )}
@@ -243,7 +294,8 @@ export function ConfigInstruments() {
 
               {edit && (
                 <Stack direction="row" spacing={1}>
-                  <Button variant="contained" disabled={busy || !draft.id || !draft.transport} onClick={save}>
+                  <Button variant="contained" onClick={save}
+                    disabled={busy || !draft.id || (isPython ? !draft.library : !draft.transport)}>
                     {isNew ? "Create" : "Save"}
                   </Button>
                   {!isNew && (

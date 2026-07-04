@@ -130,6 +130,30 @@ async def test_libraries_and_instance_status(mod):
     assert st["load_1"]["state"] == "connected" and st["load_1"]["library"] == "vtest_supply"
 
 
+async def test_instances_sourced_from_config_module():
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, bridge=None,
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+
+    class _FakeConfig:
+        async def python_instruments(self):
+            return [{"id": "cfg_psu", "library": "vtest_supply", "simulated": True, "params": {}}]
+
+    def _get(name):
+        if name == "config":
+            return _FakeConfig()
+        raise KeyError(name)
+    object.__setattr__(core, "get_contract", _get)
+
+    m = DefaultVariables.construct(core, {"variables": {
+        "cfg_v": {"instance": "cfg_psu", "read": "measure_current", "units": "A"}}})
+    await m.start()
+    assert any(s["id"] == "cfg_psu" for s in m.instance_status())   # built from the config module
+    assert (await m.engine.read("cfg_v"))["value"] == 1.0
+    await m.stop(); await db.close()
+
+
 async def test_library_import_is_loud_but_nonfatal():
     db = Database(":memory:", station="st1", source_version="0.0.0")
     await db.connect()

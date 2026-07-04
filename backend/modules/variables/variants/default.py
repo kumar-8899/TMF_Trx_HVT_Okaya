@@ -25,7 +25,9 @@ class DefaultVariables:
         self.config = config
         self._load_libraries()          # fills the instrumentlib registry BEFORE building instances
         self.instances = InstanceRegistry(core.diag)
-        self.instances.build(config.get("instances", []), on_command=self._on_cmd)
+        # Instances are built in start() — they come from the config module's
+        # owner=python instruments (single source of truth) merged with any declared
+        # inline here; the config module must be constructed first.
         self.engine = VariableEngine(self.instances, config.get("variables", {}), core.diag)
         self.router = build_router(self)
         self.mqtt_handlers: list = []
@@ -59,6 +61,16 @@ class DefaultVariables:
         pass
 
     async def start(self) -> None:
+        # Merge instrument instances: inline config first, then the config module's
+        # owner=python instruments (deduped by id in the registry).
+        configs = list(self.config.get("instances", []))
+        get = getattr(self.core, "get_contract", None)
+        if get is not None:
+            try:
+                configs += await get("config").python_instruments()
+            except KeyError:
+                pass   # config module not loaded — inline instances only
+        self.instances.build(configs, on_command=self._on_cmd)
         await self.instances.connect_all()
         b = self.core.bridge
         if b is not None:

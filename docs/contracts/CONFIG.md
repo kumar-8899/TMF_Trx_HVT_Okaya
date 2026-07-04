@@ -9,6 +9,24 @@ It is a **pure config surface** — it captures connection profiles and asks Lab
 to probe them. It performs **no instrument I/O itself** (PRINCIPLES §0: hardware is
 LabVIEW's).
 
+## Instrument ownership (one registry, two owners)
+
+Every instrument declares one **execution owner** (INSTRUMENT_LIBRARY §0 — disjoint):
+
+- **`owner: "labview"`** (default) — LabVIEW does the I/O. The **transport-driven**
+  form (below); `test connection` is dispatched to LabVIEW over the bridge.
+- **`owner: "python"`** — a **Python-owned** instrument backed by an `instrumentlib`
+  library. The form is driven by the chosen **library's `connection_params`** (from
+  the library index), plus a `simulated` flag. Validated against the registry
+  (unknown library / missing required param → 422). `test connection` reports the
+  **live instance state** from the variable engine (Python instruments connect at
+  startup — edits **apply on restart**).
+
+The `config` module is the **single instrument registry** (DB `instrument` records).
+The `variables` (variable-engine) module consumes `config.python_instruments()` at
+startup to build its instances — one source of truth, no duplication. Non-scalar
+capabilities are never bound in the variable map (INSTRUMENT_LIBRARY §2.2).
+
 ## Why a transport-driven UI (the scalability contract)
 
 Instruments differ by transport (VISA, Modbus, CAN, NI-DAQmx, …). Rather than a

@@ -32,6 +32,8 @@ class InstanceRegistry:
     def build(self, configs: list[dict], *, on_command=None) -> None:
         for cfg in configs or []:
             iid, lib_id = cfg["id"], cfg["library"]
+            if iid in self._by_id:
+                continue   # already built (inline config wins over the config-module copy)
             entry = REGISTRY.get(lib_id)
             if entry is None:
                 self.skipped.append({"id": iid, "library": lib_id, "reason": "library not registered"})

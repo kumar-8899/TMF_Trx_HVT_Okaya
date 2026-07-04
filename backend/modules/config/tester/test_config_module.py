@@ -5,7 +5,18 @@ import pytest
 from core.framework.contract import CoreServices
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
+from instrumentlib import InstrumentBase, IPowerSource, instrument_library
 from modules.config.variants.default import ConfigError, DefaultConfig
+
+
+@instrument_library(
+    library_id="ctest_supply", vendor="C", model="PS", capability="power_source",
+    interface_version=1, transports=["visa_lan"],
+    connection_params={"resource": {"type": "string"}, "timeout_ms": {"type": "int", "default": 5000}},
+    library_version="1.0.0", generated_by="test", manual_reference="none",
+)
+class _CTestSupply(InstrumentBase, IPowerSource):
+    pass
 
 
 class FakeBridge:
@@ -44,6 +55,34 @@ async def test_transports_catalog(ctx):
     assert {"visa", "modbus_tcp", "can", "nidaq"} <= ids
     visa = next(t for t in module.transports() if t["id"] == "visa")
     assert visa["fields"][0]["key"] == "resource" and visa["fields"][0]["required"]
+
+
+async def test_python_owned_instrument_crud(ctx):
+    module, _, _ = ctx
+    inst = await module.create_instrument({
+        "id": "psu9", "owner": "python", "library": "ctest_supply", "simulated": True,
+        "params": {"resource": "TCPIP0::1.2.3.4::inst0::INSTR"},
+    })
+    assert inst["owner"] == "python" and inst["library"] == "ctest_supply"
+    assert inst["address"] == "TCPIP0::1.2.3.4::inst0::INSTR"   # from params.resource
+    py = await module.python_instruments()
+    assert py == [{"id": "psu9", "library": "ctest_supply",
+                   "params": {"resource": "TCPIP0::1.2.3.4::inst0::INSTR"}, "simulated": True}]
+
+
+async def test_python_owned_validation(ctx):
+    module, _, _ = ctx
+    with pytest.raises(ConfigError):
+        await module.create_instrument({"id": "a", "owner": "python", "library": "nope", "params": {"resource": "r"}})
+    with pytest.raises(ConfigError):   # resource is required (no default)
+        await module.create_instrument({"id": "b", "owner": "python", "library": "ctest_supply", "params": {}})
+
+
+async def test_labview_owned_excluded_from_python_feed(ctx):
+    module, _, _ = ctx
+    await module.create_instrument({"id": "dmm0", "transport": "modbus_tcp",
+                                    "params": {"host": "10.0.0.5", "port": 502, "unit_id": 1}})
+    assert await module.python_instruments() == []   # owner defaults to labview
 
 
 async def test_crud_and_address_render(ctx):
