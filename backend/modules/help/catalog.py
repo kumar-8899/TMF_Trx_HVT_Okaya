@@ -48,6 +48,7 @@ PAGES: list[Page] = [
     # ---------- DEV (super_admin) ----------
     Page("dev-principles", "Principles", "dev", "Overview", "PRINCIPLES.md"),
     Page("dev-architecture", "Architecture", "dev", "Overview", "ARCHITECTURE.md"),
+    Page("dev-template", "Application template", "dev", "Overview", "TEMPLATE.md"),
     Page("dev-module-framework", "Module framework", "dev", "Overview", "help/dev/module-framework.md"),
     Page("dev-core-services", "Core services", "dev", "Overview", "help/dev/core-services.md"),
     Page("dev-extending", "Extension how-tos", "dev", "Overview", "help/dev/extending.md"),
@@ -63,6 +64,7 @@ PAGES: list[Page] = [
     Page("dev-health-check", "Health checks", "dev", "Contracts", "contracts/HEALTH_CHECK.md"),
     Page("dev-mes", "MES", "dev", "Contracts", "contracts/MES.md"),
     Page("dev-config", "Config", "dev", "Contracts", "contracts/CONFIG.md"),
+    Page("dev-instrument-library-contract", "Instrument library contract", "dev", "Contracts", "INSTRUMENT_LIBRARY.md"),
     Page("dev-frontend", "Frontend", "dev", "Frontend", "FRONTEND.md"),
     Page("dev-labview-bridge", "LabVIEW bridge", "dev", "Bus & LabVIEW", "LABVIEW_BRIDGE.md"),
     Page("dev-diag-emit", "LabVIEW diag-emit", "dev", "Bus & LabVIEW", "LABVIEW_DIAG_EMIT.md"),
