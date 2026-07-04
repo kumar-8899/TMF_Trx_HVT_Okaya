@@ -86,3 +86,16 @@ In the `variables` module config:
 }
 ```
 `library_paths` is a path pin today (becomes a pip dependency once the core is packaged).
+
+## Packaging & pinning the core
+The core ships as the distribution **`tmf-instrumentlib`** (nested
+`backend/instrumentlib/pyproject.toml`; version = `base_version`, §9). Build + publish:
+```pwsh
+cd backend/instrumentlib
+python -m build                      # -> dist/tmf_instrumentlib-<ver>-py3-none-any.whl (+ .tar.gz)
+# private index:  twine upload dist/*     then depend on  tmf-instrumentlib==<ver>
+```
+Library repos depend on the **pinned** package, not the source path — the sibling
+`Instrument_Library` vendors the wheel in `wheelhouse/` (`--find-links wheelhouse` +
+`tmf-instrumentlib==1.0.0`) so it installs standalone. Core devs use
+`pip install -e backend/instrumentlib` for live edits.
