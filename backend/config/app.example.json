@@ -1,6 +1,12 @@
 {
   "schema_version": 1,
   "station": "st1",
+  "branding": {
+    "name": "Super Test App",
+    "short": "S",
+    "product": "Super Test App — Test & Measurement",
+    "tagline": "Authorised access only. All sessions are encrypted."
+  },
   "license": "config/license.json",
   "modules": [
     { "id": "daq",   "variant": "default" },

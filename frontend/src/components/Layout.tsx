@@ -13,6 +13,7 @@ import { Link as RouterLink, NavLink, Outlet, useLocation } from "react-router-d
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useBranding } from "../hooks/useBranding";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
 import { HelpPanel } from "./help/HelpPanel";
@@ -120,6 +121,7 @@ function NavGroup({ n, can }: { n: NavItem; can: (p: string) => boolean }) {
 export function Layout({ hideNav = false }: { hideNav?: boolean }) {
   const { can } = useAuth();
   const { mode, toggle } = useColorMode();
+  const branding = useBranding();
   const items = NAV.filter((n) => !n.perm || can(n.perm));
   const showHelp = can("HELP.VIEW");
   const [helpOpen, setHelpOpen] = useState(false);
@@ -145,7 +147,7 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
             <BrandMark size={28} />
           </Box>
           <Typography variant="h6" sx={{ fontWeight: 700, color: "inherit" }}>
-            Test &amp; Measurement
+            {branding.name}
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
           <LinkStatus />

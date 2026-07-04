@@ -5,9 +5,11 @@ import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { BrandMark } from "../components/BrandMark";
+import { useBranding } from "../hooks/useBranding";
 
 export function Login() {
   const { login } = useAuth();
+  const branding = useBranding();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -47,9 +49,9 @@ export function Login() {
             p: 4, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1.5,
           }}>
             <BrandMark size={56} />
-            <Typography variant="h6" sx={{ color: "onNavy", textAlign: "center" }}>Test &amp; Measurement</Typography>
+            <Typography variant="h6" sx={{ color: "onNavy", textAlign: "center" }}>{branding.name}</Typography>
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)", textAlign: "center", lineHeight: 1.6 }}>
-              Authorised access only.<br />All sessions are encrypted.
+              {branding.tagline}
             </Typography>
           </Box>
 

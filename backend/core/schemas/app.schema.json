@@ -9,6 +9,17 @@
   "properties": {
     "schema_version": { "const": 1 },
     "station": { "type": "string", "minLength": 1 },
+    "branding": {
+      "type": "object",
+      "description": "App identity shown in the UI (TEMPLATE.md §1 — rebrand via config, not source).",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Shell/AppBar + login title." },
+        "short": { "type": "string", "maxLength": 2, "description": "Glyph initial(s)." },
+        "product": { "type": "string", "description": "Browser tab title." },
+        "tagline": { "type": "string", "description": "Login caption." }
+      }
+    },
     "license": { "type": "string", "minLength": 1 },
     "modules": {
       "type": "array",

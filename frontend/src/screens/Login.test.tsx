@@ -25,7 +25,10 @@ describe("Login", () => {
     await userEvent.type(screen.getByLabelText("password"), "admin");
     await userEvent.click(screen.getByRole("button", { name: /log in/i }));
     await waitFor(() => expect(f).toHaveBeenCalled());
-    const [url, opts] = (f as any).mock.calls[0];
+    // useBranding fires a GET /branding on mount — find the login call explicitly.
+    const call = (f as any).mock.calls.find(([u]: [string]) => String(u) === "/auth/login");
+    expect(call).toBeTruthy();
+    const [url, opts] = call;
     expect(url).toBe("/auth/login");
     expect(JSON.parse(opts.body)).toEqual({ username: "admin", credential: { password: "admin" } });
   });

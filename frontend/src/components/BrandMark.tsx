@@ -1,7 +1,11 @@
 import { Box } from "@mui/material";
 
-/** The teal app glyph — a rounded tile with a "T". Reused in shell + login. */
+import { useBranding } from "../hooks/useBranding";
+
+/** The app glyph — a rounded tile with the branding initial (config-driven,
+ * TEMPLATE.md §1: rebrand via app.json, never source). Reused in shell + login. */
 export function BrandMark({ size = 28 }: { size?: number }) {
+  const { short } = useBranding();
   return (
     <Box
       sx={{
@@ -12,7 +16,7 @@ export function BrandMark({ size = 28 }: { size?: number }) {
         fontWeight: 800, fontSize: size * 0.5, flexShrink: 0,
       }}
     >
-      T
+      {short}
     </Box>
   );
 }

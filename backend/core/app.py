@@ -124,6 +124,18 @@ def create_app(
         """Process alive. Trivial (CORE.md §5)."""
         return {"status": "ok", "version": __version__}
 
+    @app.get("/branding")
+    async def branding() -> dict:
+        """Public (pre-login) app identity — config `branding`, not source
+        (TEMPLATE.md §1: an application rebrands via app.json, never code edits)."""
+        cfg = getattr(app.state, "app_config", None) or {}
+        out = {"name": "Test & Measurement", "short": "T",
+               "product": "Test & Measurement Framework",
+               "tagline": "Authorised access only. All sessions are encrypted.",
+               "version": __version__}
+        out.update(cfg.get("branding", {}) or {})
+        return out
+
     @app.get("/readyz")
     async def readyz():
         """Core services up (+ bridge online, added P4). CORE.md §5."""
