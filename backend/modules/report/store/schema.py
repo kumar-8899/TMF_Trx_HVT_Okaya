@@ -13,8 +13,10 @@ from sqlalchemy import (
 
 metadata = MetaData()
 
+# Prefixed so we never collide with a client's existing tables (e.g. a LabVIEW app's
+# own `report` table) in a shared MySQL / SQL Server database.
 report = Table(
-    "report", metadata,
+    "tmf_report", metadata,
     Column("run_id", String(64), primary_key=True),
     Column("station", String(64)),
     Column("serial_no", String(128)),
@@ -36,9 +38,9 @@ report = Table(
 )
 
 report_result = Table(
-    "report_result", metadata,
+    "tmf_report_result", metadata,
     Column("id", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
-    Column("run_id", String(64), ForeignKey("report.run_id", ondelete="CASCADE")),
+    Column("run_id", String(64), ForeignKey("tmf_report.run_id", ondelete="CASCADE")),
     Column("seq", Integer),
     Column("test_name", String(255)),
     Column("test_group", String(128)),

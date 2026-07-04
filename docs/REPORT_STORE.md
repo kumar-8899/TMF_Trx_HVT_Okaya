@@ -16,12 +16,14 @@ local SQLite — this is scoped to reports.
 
 ## Schema (SQLAlchemy Core — one DDL for both providers)
 Normalized so per-application test parameters are **rows, not columns** — no per-app DDL.
-- `report` (header, one row/run): `run_id` (PK), station, serial_no, model, operator,
+Tables are **prefixed `tmf_`** so they never collide with a client's existing tables
+(e.g. a LabVIEW app's own `report` table) in a shared database.
+- `tmf_report` (header, one row/run): `run_id` (PK), station, serial_no, model, operator,
   recipe_id, recipe_version, result, started_ts, finished_ts, business_day, shift_label,
   created_at. Indexed on business_day / model / shift_label / result / started_ts.
-- `report_result` (child, one row/test): id, run_id (FK→report, CASCADE), seq, test_name,
-  test_group, expected, measured, result, unit, cycle_time_ms. Indexed on run_id /
-  test_name.
+- `tmf_report_result` (child, one row/test): id, run_id (FK→tmf_report, CASCADE), seq,
+  test_name, test_group, expected, measured, result, unit, cycle_time_ms. Indexed on
+  run_id / test_name.
 
 `SQLAlchemy Core` gives a dialect-agnostic schema + query layer; the sync engine runs in
 a thread executor. Drivers are lazy: **MySQL** `mysql+pymysql`, **SQL Server**
