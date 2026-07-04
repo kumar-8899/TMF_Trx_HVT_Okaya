@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "TMF Backend (FastAPI/uvicorn)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["run.py"],
+      "port": 8000
+    },
+    {
+      "name": "TMF Frontend (Vite)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

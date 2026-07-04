@@ -104,7 +104,7 @@ async def test_list_and_analytics(ctx):
 
 async def test_db_config_redacts_password(ctx):
     mod, _, _ = ctx
-    await mod.set_db_config({"provider": "sqlite", "path": "x", "password": "secret"})
+    await mod.set_db_config({"provider": "sqlite", "path": ":memory:", "password": "secret"})
     cfg = await mod.get_db_config()
     assert cfg["configured"] and cfg["has_password"] is True and "password" not in cfg
 
