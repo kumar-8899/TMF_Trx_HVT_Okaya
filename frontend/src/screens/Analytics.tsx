@@ -21,12 +21,14 @@ interface Dashboard {
   failure_pareto: { name: string; count: number; cum_pct: number }[];
   param_pareto: { name: string; count: number; cum_pct: number }[];
   by_model: { model: string; total: number; passed: number; failed: number; fpy: number }[];
+  by_shift: { shift: string; total: number; passed: number; failed: number; yield: number }[];
   cycle: {
     histogram: { bin: number; count: number }[];
     imr: { points: { i: number; x: number; mr: number | null }[]; xbar: number; ucl: number; lcl: number; mr_bar: number; mr_ucl: number };
   };
   models: string[];
   operators: string[];
+  shifts: string[];
 }
 
 const RANGES: Record<string, number | null> = {
@@ -51,6 +53,7 @@ export function Analytics() {
   const [range, setRange] = useState("30 days");
   const [model, setModel] = useState("");
   const [operator, setOperator] = useState("");
+  const [shift, setShift] = useState("");
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,9 +64,10 @@ export function Analytics() {
     if (since !== undefined) q.set("since", String(since));
     if (model) q.set("model", model);
     if (operator) q.set("operator", operator);
+    if (shift) q.set("shift", shift);
     try { setData(await api.get(`/reports/analytics/dashboard?${q.toString()}`)); }
     catch (e: any) { setError(e.message); }
-  }, [range, model, operator]);
+  }, [range, model, operator, shift]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -89,6 +93,12 @@ export function Analytics() {
               <MenuItem value="">All models</MenuItem>
               {(data?.models ?? []).map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
             </TextField>
+            {(data?.shifts?.length ?? 0) > 0 && (
+              <TextField select size="small" label="Shift" value={shift} onChange={(e) => setShift(e.target.value)} sx={{ width: 140 }}>
+                <MenuItem value="">All shifts</MenuItem>
+                {(data?.shifts ?? []).map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+              </TextField>
+            )}
             <TextField select size="small" label="Operator" value={operator} onChange={(e) => setOperator(e.target.value)} sx={{ width: 140 }}>
               <MenuItem value="">All operators</MenuItem>
               {(data?.operators ?? []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
@@ -177,7 +187,7 @@ export function Analytics() {
                   </ChartBox>
                 </Section>
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} md={(data.by_shift?.length ?? 0) > 0 ? 6 : 12}>
                 <Section title="Yield by model">
                   <ChartBox>
                     <BarChart data={data.by_model}>
@@ -190,6 +200,21 @@ export function Analytics() {
                   </ChartBox>
                 </Section>
               </Grid>
+              {(data.by_shift?.length ?? 0) > 0 && (
+                <Grid item xs={12} md={6}>
+                  <Section title="Yield by shift">
+                    <ChartBox>
+                      <BarChart data={data.by_shift}>
+                        <CartesianGrid stroke={C.grid} vertical={false} />
+                        <XAxis dataKey="shift" {...axis} /><YAxis {...axis} />
+                        <Tooltip {...tip} /><Legend />
+                        <Bar dataKey="passed" stackId="s" fill={C.pass} name="Pass" />
+                        <Bar dataKey="failed" stackId="s" fill={C.fail} name="Fail" />
+                      </BarChart>
+                    </ChartBox>
+                  </Section>
+                </Grid>
+              )}
             </Grid>
           )}
 

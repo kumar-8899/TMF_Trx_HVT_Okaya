@@ -58,6 +58,15 @@ export function Runs() {
     api.get("/recipes").then(setRecipes).catch(() => {});
   }, []);
 
+  // current shift (refresh each minute so it flips at a shift boundary)
+  const [shift, setShift] = useState<any | null>(null);
+  useEffect(() => {
+    const load = () => api.get("/config/shift/current").then(setShift).catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     if (!last) return;
     const t = String(last.type);
@@ -136,6 +145,7 @@ export function Runs() {
             <Field label="Run" value={runId || "—"} />
             <Field label="Status" value={(runStatus || "idle").toString()} />
             <Field label="Results" value={`${results.length}`} />
+            {shift?.enabled && <Field label="Shift" value={shift.shift_label || "—"} />}
           </Stack>
         </Section>
 

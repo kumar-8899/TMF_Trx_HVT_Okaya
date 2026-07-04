@@ -58,11 +58,30 @@ class StandardReport:
         rec = await self.core.db.repo.get("run", run_id)
         run_record = rec["data"] if rec else None
         report = build_report(run_id, events, {**body, "ts": payload.get("ts")}, self.station, run_record)
+        # Stamp business day + shift (by run START time) so analytics can group by
+        # business day even when a shift spans two calendar dates (forward-only).
+        start_ts = (run_record or {}).get("started_ts") or report.get("ts") or payload.get("ts")
+        stamp = await self._business_stamp(start_ts)
+        report["business_day"] = stamp["business_day"]
+        report["shift_label"] = stamp["shift_label"]
         is_pass = result_is_pass(report["result"])
         for sink in self._sinks:
             if when_matches(sink.when, is_pass):
                 await sink.write(report)
         self.core.diag.info("report", "report stored", run_id=run_id, result=report["result"])
+
+    async def _business_stamp(self, ts) -> dict:
+        from datetime import datetime
+        if not ts:
+            return {"business_day": None, "shift_label": None}
+        get = getattr(self.core, "get_contract", None)
+        if get is not None:
+            try:
+                info = await get("config").shift_for(ts)      # config owns the shift model
+                return {"business_day": info["business_day"], "shift_label": info.get("shift_label")}
+            except KeyError:
+                pass
+        return {"business_day": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"), "shift_label": None}
 
     # --- queries -----------------------------------------------------------
 
@@ -86,9 +105,9 @@ class StandardReport:
             items.append(d)
         return {"items": items[:limit], "next_cursor": None, "total": len(items)}
 
-    async def dashboard(self, since=None, until=None, model=None, operator=None) -> dict:
+    async def dashboard(self, since=None, until=None, model=None, operator=None, shift=None) -> dict:
         reports = [r["data"] for r in await self.core.db.repo.query("report")]
-        return build_dashboard(reports, since=since, until=until, model=model, operator=operator)
+        return build_dashboard(reports, since=since, until=until, model=model, operator=operator, shift=shift)
 
     async def export(self, run_id: str, fmt: str = "json") -> bytes:
         report = await self.get_report(run_id)
