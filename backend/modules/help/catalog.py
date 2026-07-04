@@ -70,6 +70,7 @@ PAGES: list[Page] = [
     Page("dev-labview-bridge", "LabVIEW bridge", "dev", "Bus & LabVIEW", "LABVIEW_BRIDGE.md"),
     Page("dev-diag-emit", "LabVIEW diag-emit", "dev", "Bus & LabVIEW", "LABVIEW_DIAG_EMIT.md"),
     Page("dev-debug-server", "Debug Server", "dev", "Bus & LabVIEW", "DEBUG_SERVER.md"),
+    Page("dev-report-store", "Report DB store", "dev", "Contracts", "REPORT_STORE.md"),
 ]
 
 _BY_ID = {p.id: p for p in PAGES}

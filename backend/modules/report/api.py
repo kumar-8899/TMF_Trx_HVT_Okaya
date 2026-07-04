@@ -8,6 +8,7 @@ from core.services.security import require_permission
 
 _VIEW = [Depends(require_permission("REPORT.VIEW"))]
 _EXPORT = [Depends(require_permission("REPORT.EXPORT"))]
+_SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
 
 
 def build_router(module) -> APIRouter:
@@ -17,10 +18,28 @@ def build_router(module) -> APIRouter:
     async def list_reports(
         since: float | None = None, until: float | None = None,
         recipe_id: str | None = None, result: str | None = None,
+        model: str | None = None, shift: str | None = None,
         limit: int = 200, cursor: str | None = None,
     ) -> dict:
+        offset = int(cursor) if cursor and cursor.isdigit() else 0
         return await module.list_reports(since=since, until=until, recipe_id=recipe_id,
-                                          result=result, limit=limit, cursor=cursor)
+                                          result=result, model=model, shift=shift,
+                                          limit=limit, offset=offset)
+
+    # --- report DB config (professional store) — super_admin ---------------
+    # Defined BEFORE /{run_id} so 'db-config' isn't captured as a run id.
+
+    @router.get("/db-config", dependencies=_SETTINGS)
+    async def get_db_config() -> dict:
+        return await module.get_db_config()
+
+    @router.put("/db-config", dependencies=_SETTINGS)
+    async def set_db_config(body: dict) -> dict:
+        return await module.set_db_config(body or {})
+
+    @router.post("/db-config/test", dependencies=_SETTINGS)
+    async def test_db_config(body: dict | None = None) -> dict:
+        return await module.test_db_config(body or {})
 
     @router.get("/analytics", dependencies=_VIEW)
     async def analytics(since: float | None = None, until: float | None = None,

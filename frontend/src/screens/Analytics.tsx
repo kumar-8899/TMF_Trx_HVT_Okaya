@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Box, Grid, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography, useTheme,
+  Alert, Box, Grid, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography, useTheme,
 } from "@mui/material";
 import {
   Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart,
@@ -29,6 +29,8 @@ interface Dashboard {
   models: string[];
   operators: string[];
   shifts: string[];
+  configured?: boolean;
+  detail_truncated?: boolean;
 }
 
 const RANGES: Record<string, number | null> = {
@@ -107,6 +109,12 @@ export function Analytics() {
         }
       />
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
+      {data && data.configured === false && (
+        <Alert severity="info" sx={{ mb: 2 }}>Report database not configured — set it in <b>Settings → Report database</b>.</Alert>
+      )}
+      {data?.detail_truncated && (
+        <Alert severity="warning" sx={{ mb: 2 }}>Detail charts (FPY, Pareto, cycle) are limited to the most recent runs in range — narrow the window for exact detail. Headline KPIs + by-day/model/shift are exact.</Alert>
+      )}
 
       {/* KPI band */}
       {k && (

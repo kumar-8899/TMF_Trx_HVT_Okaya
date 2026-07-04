@@ -1,6 +1,6 @@
 import { Download } from "@mui/icons-material";
 import {
-  Box, Button, Dialog, DialogContent, DialogTitle, Grid, LinearProgress, MenuItem,
+  Alert, Box, Button, Dialog, DialogContent, DialogTitle, Grid, LinearProgress, MenuItem,
   Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
@@ -40,6 +40,7 @@ export function Reports() {
   const [recipe, setRecipe] = useState("");
   const [open, setOpen] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [configured, setConfigured] = useState(true);
 
   const load = useCallback(async () => {
     setError(null);
@@ -48,8 +49,9 @@ export function Reports() {
       const q = new URLSearchParams();
       if (result) q.set("result", result);
       if (recipe) q.set("recipe_id", recipe);
-      // newest first (the API returns oldest-first)
-      setRows([...(await api.get(`/reports?${q.toString()}`)).items].reverse());
+      const resp = await api.get(`/reports?${q.toString()}`);   // store returns newest-first
+      setRows(resp.items || []);
+      setConfigured(resp.configured !== false);
     } catch (e: any) { setError(e.message); }
   }, [result, recipe]);
 
@@ -59,6 +61,9 @@ export function Reports() {
     <Box>
       <PageHeader title="Reports" subtitle="Run outcomes, yield, and analytics" />
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
+      {!configured && (
+        <Alert severity="info" sx={{ mb: 2 }}>Report database not configured — set it in <b>Settings → Report database</b>. New reports are queued locally until then.</Alert>
+      )}
 
       <Stack spacing={2}>
         {analytics && (
