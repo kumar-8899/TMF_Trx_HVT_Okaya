@@ -1,0 +1,16 @@
+[project]
+name = "tmf-instrumentlib"
+version = "1.0.0"                     # base_version (INSTRUMENT_LIBRARY.md §9)
+description = "Framework-core instrument library: InstrumentBase, capability interfaces, deterministic fault transport, registration + index, and the conformance suite. Instrument libraries depend on this package and are gated by its conformance suite."
+requires-python = ">=3.11"
+
+# The package dir IS this folder (flat layout): package `instrumentlib` -> ".".
+[tool.setuptools]
+packages = ["instrumentlib"]
+
+[tool.setuptools.package-dir]
+instrumentlib = "."
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

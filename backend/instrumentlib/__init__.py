@@ -6,6 +6,8 @@ per-instrument library classes live in a SEPARATE repo and are gated by this
 conformance suite as external subjects (§0, §8).
 """
 
+__version__ = "1.0.0"      # base_version; the conformance suite travels with it (§9)
+
 from instrumentlib.base import (
     InstrumentBase,
     emergency_disable_all,
