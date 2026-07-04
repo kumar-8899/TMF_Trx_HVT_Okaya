@@ -62,7 +62,9 @@ bridge (Py-served `query/{op}`) plus REST (`GET /variables`,
 ## Status
 - **IL1 — done:** base + interfaces + fault transport + registry/index + conformance.
 - **IL2 — done:** variable engine + instance registry + bridge verbs + REST + readiness.
-- **IL3 — next:** the library repo (`D:\Experiment\Instrument_Library`) + first real
-  library + CI emitting `index.json`.
-- **IL4:** `capability.request` seam + the Instruments config page consuming the
-  index + per-instance health checks.
+- **IL3 — done:** the library repo (`D:\Experiment\Instrument_Library`) — VISA transport,
+  first library (Keysight E36xx `IPowerSource`), conformance-over-every-library tests,
+  `ci.py` emitting `index.json`. Pinned to this core via `conftest`/`ci` sys.path.
+- **IL4 — next:** load the library `index.json`/package into the app so `variables`
+  instances bind; `capability.request` seam; Instruments config page consumes the
+  index; per-instance health checks.
