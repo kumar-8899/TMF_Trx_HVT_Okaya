@@ -5,6 +5,16 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "library_paths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Directories added to sys.path so the instrument-library package(s) resolve (e.g. the sibling Instrument_Library repo)."
+    },
+    "library_packages": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Package names imported at load so their @instrument_library decorators fire (e.g. 'instrument_libs')."
+    },
     "instances": {
       "type": "array",
       "description": "Python-owned instrument instances (INSTRUMENT_LIBRARY.md §5.2).",

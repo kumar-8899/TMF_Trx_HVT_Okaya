@@ -30,8 +30,8 @@ _DEFAULT_SUITES = {
     "bridge": ["bridge.online", "bridge.roundtrip", "bridge.clock_skew", "bridge.queue_depth"],
     "hardware": ["hardware.instance_connected", "hardware.identify", "hardware.range_sane",
                  "hardware.self_test", "hardware.loopback"],
-    "full": ["web.db_writable", "web.disk_space", "bridge.online", "bridge.roundtrip",
-             "bridge.clock_skew", "bridge.queue_depth"],
+    "full": ["web.db_writable", "web.disk_space", "instruments.python", "bridge.online",
+             "bridge.roundtrip", "bridge.clock_skew", "bridge.queue_depth"],
 }
 
 

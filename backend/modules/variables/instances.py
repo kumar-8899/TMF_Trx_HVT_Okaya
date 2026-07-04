@@ -64,6 +64,17 @@ class InstanceRegistry:
     def all(self) -> list:
         return list(self._by_id.values())
 
+    def status(self) -> list[dict]:
+        """Per-instance state for the UI + health (§5.2, §6)."""
+        live = [{
+            "id": i.instance_id,
+            "library": getattr(type(i), "_declaration", {}).get("library_id"),
+            "state": i.state, "simulated": i.simulated,
+        } for i in self._by_id.values()]
+        skipped = [{"id": s["id"], "library": s["library"], "state": "skipped",
+                    "reason": s["reason"]} for s in self.skipped]
+        return live + skipped
+
     async def connect_all(self) -> None:
         for inst in self._by_id.values():
             try:

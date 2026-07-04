@@ -105,9 +105,41 @@ async def test_unbound_and_list(mod):
 
 async def test_bridge_serves_variable_verbs(mod):
     m, bridge = mod
-    assert set(bridge.served) == {"variable.read", "variable.write", "variable.read_many", "variable.write_many"}
+    assert set(bridge.served) == {"variable.read", "variable.write", "variable.read_many",
+                                  "variable.write_many", "capability.request"}
     out = await bridge.served["variable.read"]({"name": "out_current"})
     assert out["value"] == 3.0
+
+
+async def test_capability_request_bypasses_the_engine(mod):
+    m, bridge = mod
+    # non-scalar seam: call a method on an instance by id (here a scalar read, for the test)
+    out = await m.call("load_1", "measure_current")
+    assert out["instance"] == "load_1" and out["result"] == 1.0
+    via_bus = await bridge.served["capability.request"]({"instance": "load_1", "method": "measure_current"})
+    assert via_bus["result"] == 1.0
+    with pytest.raises(VariableError):
+        await m.call("missing", "measure_current")
+
+
+async def test_libraries_and_instance_status(mod):
+    m, _ = mod
+    libs = {l["library_id"] for l in m.libraries()["libraries"]}
+    assert "vtest_supply" in libs
+    st = {s["id"]: s for s in m.instance_status()}
+    assert st["load_1"]["state"] == "connected" and st["load_1"]["library"] == "vtest_supply"
+
+
+async def test_library_import_is_loud_but_nonfatal():
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, bridge=None,
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    # a bad package name must not crash construction (logged + skipped)
+    m = DefaultVariables.construct(core, {"library_packages": ["nonexistent_pkg_zzz"],
+                                          "instances": [], "variables": {}})
+    assert m.instance_status() == []
+    await db.close()
 
 
 def test_double_open_guard():

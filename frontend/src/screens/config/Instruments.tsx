@@ -24,6 +24,7 @@ interface Instrument {
 }
 
 const TEST_KIND: Record<string, StatusKind> = { pass: "pass", fail: "fail", timeout: "fail", error: "fail", unavailable: "running" };
+const INSTANCE_KIND: Record<string, StatusKind> = { connected: "pass", faulted: "fail", reconnecting: "running", connecting: "running", disconnected: "idle", skipped: "idle" };
 const blank = (): Instrument => ({ id: "", label: "", model: "", transport: "", params: {}, family: "", capabilities: [], enabled: true });
 
 export function ConfigInstruments() {
@@ -37,9 +38,14 @@ export function ConfigInstruments() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [libs, setLibs] = useState<any[]>([]);
+  const [instances, setInstances] = useState<any[]>([]);
 
   const refresh = useCallback(() => {
     api.get("/config/instruments").then(setList).catch((e) => setError(e.message));
+    // IL4: the library index (available Python instrument libraries) + live instance state
+    api.get("/variables/libraries").then((r) => setLibs(r.libraries || [])).catch(() => {});
+    api.get("/variables/instances").then(setInstances).catch(() => {});
   }, []);
   useEffect(() => {
     api.get("/config/transports").then(setTransports).catch((e) => setError(e.message));
@@ -100,6 +106,39 @@ export function ConfigInstruments() {
         actions={edit && <Button variant="contained" startIcon={<Add />} onClick={() => open(null)}>Add instrument</Button>} />
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
+
+      {(libs.length > 0 || instances.length > 0) && (
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2 }} alignItems="stretch">
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Section title="Instrument libraries" subtitle={`${libs.length} available (from the library index)`}>
+              {libs.length === 0 ? <Typography variant="body2" color="text.secondary">None loaded.</Typography> : (
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {libs.map((l) => (
+                    <Tooltip key={l.library_id} title={`${l.capability} · v${l.library_version} · ${l.manual_reference ?? ""}`}>
+                      <Chip size="small" label={`${l.vendor} ${l.model}`} sx={{ fontFamily: MONO_STACK }} />
+                    </Tooltip>
+                  ))}
+                </Stack>
+              )}
+            </Section>
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Section title="Live instrument instances" subtitle="Python-owned (variable engine)">
+              {instances.length === 0 ? <Typography variant="body2" color="text.secondary">No instances configured.</Typography> : (
+                <Stack spacing={0.5}>
+                  {instances.map((s) => (
+                    <Stack key={s.id} direction="row" spacing={1} alignItems="center">
+                      <StatusChip label={s.state} kind={INSTANCE_KIND[s.state] ?? "idle"} />
+                      <Typography variant="body2" sx={{ fontFamily: MONO_STACK }}>{s.id}</Typography>
+                      <Typography variant="caption" color="text.secondary">{s.library}{s.simulated ? " · sim" : ""}</Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Section>
+          </Box>
+        </Stack>
+      )}
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="stretch">
         {/* left: instrument list */}

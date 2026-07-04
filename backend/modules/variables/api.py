@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.services.security import require_permission
-from instrumentlib.errors import InstrumentError, NotConnected
+from instrumentlib.errors import InstrumentError, NotConnected, NotSupported
 from modules.variables.engine import VariableError
 
 _VIEW = [Depends(require_permission("CONFIG.VIEW"))]
@@ -19,6 +19,8 @@ async def _guard(coro):
         return await coro
     except VariableError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NotSupported as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except NotConnected as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except InstrumentError as exc:
@@ -32,6 +34,20 @@ def build_router(module) -> APIRouter:
     @router.get("/variables", dependencies=_VIEW)
     async def list_variables() -> list[dict]:
         return eng.list()
+
+    @router.get("/variables/libraries", dependencies=_VIEW)
+    async def libraries() -> dict:
+        return module.libraries()
+
+    @router.get("/variables/instances", dependencies=_VIEW)
+    async def instances() -> list[dict]:
+        return module.instance_status()
+
+    @router.post("/variables/instances/{instance_id}/call", dependencies=_WRITE)
+    async def call(instance_id: str, body: dict) -> dict:
+        if not (body or {}).get("method"):
+            raise HTTPException(status_code=422, detail="method required")
+        return await _guard(module.call(instance_id, body["method"], body.get("args")))
 
     @router.get("/variables/{name}/value", dependencies=_VIEW)
     async def read_variable(name: str) -> dict:

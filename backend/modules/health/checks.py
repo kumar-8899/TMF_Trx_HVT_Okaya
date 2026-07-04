@@ -112,6 +112,32 @@ async def _disk_space(core, cfg, params) -> dict:
 
 
 @register(CheckDescriptor(
+    id="instruments.python", domain="web", title="Test instruments", severity="warning", group="Test Equipment",
+    description="Every Python-owned instrument instance is connected (INSTRUMENT_LIBRARY §6).",
+    tags=["instruments"],
+    purpose="Configured Python instruments are connected.",
+    impact="Tests that use a disconnected instrument will fail.",
+    user_action=["Check instrument power + cabling", "Verify the instance connection params", "Re-test"]))
+async def _python_instruments(core, cfg, params) -> dict:
+    get = getattr(core, "get_contract", None)
+    if get is None:
+        return {"status": "unavailable", "summary": "no contract registry", "data": {}, "error": None}
+    try:
+        mod = get("variables")
+    except KeyError:
+        return {"status": "skipped", "summary": "variables module not loaded", "data": {}, "error": None}
+    st = mod.instance_status()
+    if not st:
+        return {"status": "skipped", "summary": "no instruments configured", "data": {"instances": 0}, "error": None}
+    bad = [s["id"] for s in st if s["state"] != "connected"]
+    ok = not bad
+    return {"status": "pass" if ok else "fail",
+            "summary": f"{len(st) - len(bad)}/{len(st)} connected" + ("" if ok else f"; issues: {bad}"),
+            "data": {"total": len(st), "bad": bad},
+            "error": None if ok else {"category": "instrument", "code": "not_connected"}}
+
+
+@register(CheckDescriptor(
     id="bridge.online", domain="bridge", title="LabVIEW engine", severity="critical", group="Production Systems",
     description="The MQTT bridge is connected and LabVIEW reports status=online.", tags=["bridge"],
     purpose="Verify the link to the LabVIEW controller.",

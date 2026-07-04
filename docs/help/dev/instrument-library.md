@@ -65,6 +65,24 @@ bridge (Py-served `query/{op}`) plus REST (`GET /variables`,
 - **IL3 — done:** the library repo (`D:\Experiment\Instrument_Library`) — VISA transport,
   first library (Keysight E36xx `IPowerSource`), conformance-over-every-library tests,
   `ci.py` emitting `index.json`. Pinned to this core via `conftest`/`ci` sys.path.
-- **IL4 — next:** load the library `index.json`/package into the app so `variables`
-  instances bind; `capability.request` seam; Instruments config page consumes the
-  index; per-instance health checks.
+- **IL4 — done:** the `variables` module loads the library package (config
+  `library_paths` + `library_packages`) so instances **bind**; `capability.request`
+  seam (bridge + `POST /variables/instances/{id}/call`); `GET /variables/libraries`
+  (the index) + `GET /variables/instances` (live state); the Config → Instruments page
+  shows available libraries + live instances; health check `instruments.python`
+  reports any Python-owned instance not connected.
+
+## Wiring an application to the library repo
+In the `variables` module config:
+```json
+"config": {
+  "library_paths": ["D:/Experiment/Instrument_Library"],
+  "library_packages": ["instrument_libs"],
+  "instances": [ { "id": "psu_1", "library": "keysight_e36xx", "simulated": true,
+                   "params": { "resource": "TCPIP0::…::INSTR" } } ],
+  "variables": { "psu_vout": { "instance": "psu_1", "read": "measure_voltage",
+                               "write": "set_voltage", "units": "V",
+                               "clamp": { "min": 0, "max": 30 } } }
+}
+```
+`library_paths` is a path pin today (becomes a pip dependency once the core is packaged).

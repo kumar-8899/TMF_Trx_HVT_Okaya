@@ -61,7 +61,7 @@ activation gate with skip-and-continue), CoreServices DI, and the core services:
 | `health` | health | check registry + sequencer, operator/technician/engineer UX, trends, scheduled runs, known-issues | backend done |
 | `config` | config | station config centre (cascaded menu); **instruments** (transport-driven profiles + LabVIEW connection test); barcode/shift/MES sections follow | instruments done; live test needs real LabVIEW |
 | `help` | help | in-app docs (user docs all-roles, developer docs super_admin) from the repo docs/ tree; context-aware **?** panel + `/help` page; future AI-chatbot corpus | done |
-| `variables` | variables | variable engine (INSTRUMENT_LIBRARY §5.3): name → instrument scalar signal (scale/clamp); builds Python-owned instances via `instrumentlib` registry; serves `variable.*` over the bridge + REST `/variables` | IL2 done; instances need registered libraries (IL3) |
+| `variables` | variables | variable engine (INSTRUMENT_LIBRARY §5.3): name → instrument scalar signal (scale/clamp); loads the external library package + builds instances via `instrumentlib` registry; serves `variable.*` + `capability.request` over the bridge + REST `/variables` (+ `/libraries`, `/instances`) | IL2–IL4 done; libraries live in the sibling `Instrument_Library` repo |
 
 Every module follows the same lifecycle (construct → init → start → stop →
 health), declares a `manifest.json` (+ optional config schema), and is gated by
