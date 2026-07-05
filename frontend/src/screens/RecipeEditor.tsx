@@ -21,6 +21,7 @@ export function RecipeEditor() {
   const [value, setValue] = useState<RecipeValue>({
     recipe_id: r0.recipe_id || "",
     name: dup ? `${r0.name || r0.recipe_id || "recipe"} (copy)` : (r0.name || ""),
+    model: r0.model || "",
     // Owner = the creator (a duplicate is owned by whoever copies it).
     owner: dup ? (principal?.username || "") : (r0.owner || principal?.username || ""),
     description: r0.description || "",
@@ -43,6 +44,7 @@ export function RecipeEditor() {
     schema_version: 1,
     recipe_id: value.recipe_id,
     name: value.name,
+    model: value.model,
     owner: value.owner,
     description: value.description,
     steps: value.steps,

@@ -14,17 +14,44 @@ _SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
 def build_router(module) -> APIRouter:
     router = APIRouter(tags=["report"])
 
+    def _filters(recipe_id, result, model, shift, serial, date_from, date_to):
+        return {k: v for k, v in {
+            "recipe_id": recipe_id, "result": result, "model": model, "shift": shift,
+            "serial": serial, "date_from": date_from, "date_to": date_to}.items() if v}
+
     @router.get("", dependencies=_VIEW)
     async def list_reports(
-        since: float | None = None, until: float | None = None,
         recipe_id: str | None = None, result: str | None = None,
-        model: str | None = None, shift: str | None = None,
-        limit: int = 200, cursor: str | None = None,
+        model: str | None = None, shift: str | None = None, serial: str | None = None,
+        date_from: str | None = None, date_to: str | None = None,
+        limit: int = 50, cursor: str | None = None,
     ) -> dict:
         offset = int(cursor) if cursor and cursor.isdigit() else 0
-        return await module.list_reports(since=since, until=until, recipe_id=recipe_id,
-                                          result=result, model=model, shift=shift,
-                                          limit=limit, offset=offset)
+        return await module.list_reports(limit=limit, offset=offset,
+                                          **_filters(recipe_id, result, model, shift, serial, date_from, date_to))
+
+    @router.get("/models", dependencies=_VIEW)
+    async def report_models() -> list[str]:
+        return await module.report_models()
+
+    @router.get("/full", dependencies=_VIEW)
+    async def full_view(
+        recipe_id: str | None = None, result: str | None = None,
+        model: str | None = None, shift: str | None = None, serial: str | None = None,
+        date_from: str | None = None, date_to: str | None = None, limit: int = 500,
+    ) -> dict:
+        return await module.full_matrix(limit=limit,
+                                        **_filters(recipe_id, result, model, shift, serial, date_from, date_to))
+
+    @router.get("/full/export", dependencies=_EXPORT)
+    async def full_export(
+        recipe_id: str | None = None, result: str | None = None,
+        model: str | None = None, shift: str | None = None, serial: str | None = None,
+        date_from: str | None = None, date_to: str | None = None,
+    ) -> Response:
+        data = await module.full_csv(**_filters(recipe_id, result, model, shift, serial, date_from, date_to))
+        return Response(content=data, media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="reports-full.csv"'})
 
     # --- report DB config (professional store) — super_admin ---------------
     # Defined BEFORE /{run_id} so 'db-config' isn't captured as a run id.

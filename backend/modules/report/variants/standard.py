@@ -93,6 +93,9 @@ class StandardReport:
         stamp = await self._business_stamp(start_ts)
         report["business_day"] = stamp["business_day"]
         report["shift_label"] = stamp["shift_label"]
+        model = await self._recipe_model(report.get("recipe_id"))   # Model is a recipe field
+        if model:
+            report["model"] = model
 
         await self.outbox.enqueue(report)                   # write-ahead: never lost
         self._kick.set()
@@ -114,6 +117,18 @@ class StandardReport:
             except KeyError:
                 pass
         return {"business_day": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"), "shift_label": None}
+
+    async def _recipe_model(self, recipe_id) -> str | None:
+        if not recipe_id:
+            return None
+        get = getattr(self.core, "get_contract", None)
+        if get is None:
+            return None
+        try:
+            r = await get("recipe").get_recipe(recipe_id)
+            return r.get("model") or None
+        except Exception:  # noqa: BLE001 — no recipe / no model -> keep the run-record model
+            return None
 
     # --- forwarder ---------------------------------------------------------
 
@@ -190,10 +205,17 @@ class StandardReport:
     async def get_report(self, run_id: str) -> dict | None:
         return await self.store.get_report(run_id)
 
-    async def list_reports(self, since=None, until=None, recipe_id=None, result=None,
-                           model=None, shift=None, limit: int = 200, offset: int = 0) -> dict:
-        return await self.store.list_reports(since=since, until=until, recipe_id=recipe_id,
-                                             result=result, model=model, shift=shift, limit=limit, offset=offset)
+    async def list_reports(self, **f) -> dict:
+        return await self.store.list_reports(**f)
+
+    async def report_models(self) -> list[str]:
+        return await self.store.report_models()
+
+    async def full_matrix(self, **f) -> dict:
+        return await self.store.full_matrix(**f)
+
+    async def full_csv(self, **f) -> bytes:
+        return await self.store.full_csv(**f)
 
     async def dashboard(self, since=None, until=None, model=None, operator=None, shift=None) -> dict:
         return await self.store.dashboard(since=since, until=until, model=model, operator=operator, shift=shift)

@@ -1,8 +1,32 @@
 # Reports
 
-Per-run reports, keyed by run, showing the unit **serial** and results.
+Per-run reports, stored on the professional report database.
 
-- **List** — recent runs with serial + verdict.
-- **Detail** — open a run to see its result rows; **export** the report.
+## Run reports list
+Columns: **Serial No · Model · Recipe · Result · Cycle (s) · Finished**.
+- **Model** comes from the recipe (the DUT type name — set it on the recipe).
+- **Cycle (s)** is the total run time (finished − started).
 
-For trends across many runs (yield, Pareto, cycle time), use **Analytics**.
+Click a row to see that run's **test results**, and export it (JSON / CSV).
+
+## Filters
+- **Serial No** — search (partial match).
+- **Model** — dropdown of the models present in reports.
+- **Result** — PASS / FAIL / ABORTED.
+- **From / To (business day)** — date range on the **business day** (shift-aware, so an
+  overnight shift counts to the day it started; see Shifts).
+
+## Paging
+Reports are **paged** — pick the rows-per-page (25 / 50 / 100 / 200) and use **Prev /
+Next**. The list shows `x–y of total`.
+
+## Full view + export
+**Full view** opens a flattened **test-data matrix**: one row per run, with the fixed
+fields **plus a column for every test parameter** in the filtered set (each cell = that
+test's measured value). Use it to compare many units across all parameters at once.
+
+**Export CSV (all filtered)** downloads the whole filtered set as one CSV (fixed fields +
+every test parameter) for offline analysis — not just the current page.
+
+> Reports are stored on a MySQL / SQL Server database (Settings → Report database). If it
+> isn't configured, the page shows a note and new reports queue locally until it is.

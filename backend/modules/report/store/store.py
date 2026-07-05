@@ -156,26 +156,81 @@ class ReportStore:
         d["rows"] = [dict(r) for r in rows]
         return d
 
-    async def list_reports(self, *, since=None, until=None, recipe_id=None, result=None,
-                           model=None, shift=None, limit=200, offset=0) -> dict:
+    async def list_reports(self, **f) -> dict:
         if not self.configured:
             return {"items": [], "total": 0, "next_cursor": None, "configured": False}
-        return await self._run(self._list, since, until, recipe_id, result, model, shift, limit, offset)
+        return await self._run(self._list, f)
 
-    def _list(self, since, until, recipe_id, result, model, shift, limit, offset) -> dict:
-        w = self._where(since, until, model, shift, None, recipe_id, result)
+    def _list(self, f: dict) -> dict:
+        limit, offset = int(f.pop("limit", 200)), int(f.pop("offset", 0))
+        w = self._where(**f)
         with self._engine.connect() as c:
             total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
             items = c.execute(select(report).where(w).order_by(report.c.started_ts.desc())
                               .limit(limit).offset(offset)).mappings().all()
-        rows = [dict(r) for r in items]
-        return {"items": rows, "total": int(total),
+        return {"items": [_with_cycle(dict(r)) for r in items], "total": int(total),
                 "next_cursor": str(offset + limit) if offset + limit < total else None,
                 "configured": True}
 
+    async def report_models(self) -> list[str]:
+        if not self.configured:
+            return []
+        def _q():
+            with self._engine.connect() as c:
+                return [m for (m,) in c.execute(
+                    select(distinct(report.c.model)).where(report.c.model.isnot(None))
+                    .where(report.c.model != "").order_by(report.c.model)).all() if m]
+        return await self._run(_q)
+
+    # --- full view (flattened test-data matrix) + export -------------------
+
+    async def full_matrix(self, *, limit=500, **f) -> dict:
+        if not self.configured:
+            return {"fixed": [], "tests": [], "rows": [], "total": 0, "truncated": False, "configured": False}
+        return await self._run(self._full, f, limit)
+
+    def _full(self, f: dict, limit: int) -> dict:
+        w = self._where(**f)
+        with self._engine.connect() as c:
+            total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
+            runs = c.execute(select(report).where(w).order_by(report.c.started_ts.desc())
+                             .limit(limit)).mappings().all()
+            sub = select(report.c.run_id).where(w).order_by(report.c.started_ts.desc()).limit(limit).subquery()
+            rr = report_result
+            params = c.execute(select(rr.c.run_id, rr.c.seq, rr.c.test_name, rr.c.measured)
+                               .join(sub, rr.c.run_id == sub.c.run_id)
+                               .order_by(rr.c.run_id, rr.c.seq)).mappings().all()
+        names, per_run = [], {}
+        for p in params:
+            per_run.setdefault(p["run_id"], {})[p["test_name"]] = p["measured"]
+            if p["test_name"] and p["test_name"] not in names:
+                names.append(p["test_name"])
+        fixed = ["serial_no", "model", "recipe_id", "result", "business_day", "shift_label", "finished_ts", "cycle_s"]
+        rows = []
+        for r in runs:
+            base = _with_cycle(dict(r))
+            row = {k: base.get(k) for k in ("run_id", *fixed)}
+            row.update({n: per_run.get(r["run_id"], {}).get(n) for n in names})
+            rows.append(row)
+        return {"fixed": fixed, "tests": names, "rows": rows, "total": int(total),
+                "truncated": len(runs) < total, "configured": True}
+
+    async def full_csv(self, *, limit=20000, **f) -> bytes:
+        m = await self.full_matrix(limit=limit, **f)
+        import csv
+        import io
+        cols = [*m["fixed"], *m["tests"]]
+        buf = io.StringIO()
+        wr = csv.writer(buf)
+        wr.writerow(cols)
+        for r in m["rows"]:
+            wr.writerow([r.get(k, "") if r.get(k) is not None else "" for k in cols])
+        return buf.getvalue().encode("utf-8")
+
     # --- analytics (SQL headline + bounded detail) -------------------------
 
-    def _where(self, since, until, model, shift, operator, recipe_id=None, result=None):
+    def _where(self, *, since=None, until=None, model=None, shift=None, operator=None,
+               recipe_id=None, result=None, serial=None, date_from=None, date_to=None):
         c = []
         if since is not None: c.append(report.c.started_ts >= since)
         if until is not None: c.append(report.c.started_ts <= until)
@@ -184,6 +239,9 @@ class ReportStore:
         if operator: c.append(report.c.operator == operator)
         if recipe_id: c.append(report.c.recipe_id == recipe_id)
         if result: c.append(report.c.result == result)
+        if serial: c.append(report.c.serial_no.like(f"%{serial}%"))     # serial search
+        if date_from: c.append(report.c.business_day >= date_from)      # business-day range
+        if date_to: c.append(report.c.business_day <= date_to)
         return and_(*c) if c else true()
 
     async def dashboard(self, *, since=None, until=None, model=None, operator=None, shift=None) -> dict:
@@ -195,7 +253,7 @@ class ReportStore:
         return await self._run(self._dashboard, since, until, model, operator, shift)
 
     def _dashboard(self, since, until, model, operator, shift) -> dict:
-        w = self._where(since, until, model, shift, operator)
+        w = self._where(since=since, until=until, model=model, shift=shift, operator=operator)
         is_pass = report.c.result.like("PASS%")
         with self._engine.connect() as c:
             total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
@@ -248,6 +306,13 @@ class ReportStore:
             "models": sorted(models), "operators": sorted(operators), "shifts": sorted(shifts),
             "detail_truncated": len(det) >= _DETAIL_CAP,
         }
+
+
+def _with_cycle(row: dict) -> dict:
+    """Add total run cycle time in seconds (finished - started)."""
+    s, f = row.get("started_ts"), row.get("finished_ts")
+    row["cycle_s"] = round(float(f) - float(s), 1) if s and f and f >= s else None
+    return row
 
 
 def _s(v):

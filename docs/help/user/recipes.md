@@ -12,6 +12,10 @@ Search, filter (active/draft/deprecated), and sort. Count cards summarise the li
 - **Deactivate** — marks the recipe **deprecated**.
 - **Export** — downloads a `.zip` bundle. **Import** accepts that `.zip` (not hand-edited).
 
+## Recipe fields
+Besides Recipe ID and Name, set the **Model** — the DUT type name your company gives this
+product. Runs of this recipe tag their reports with the Model (a Report column + filter).
+
 ## Authoring
 Each test is a `parametric_test` with fixed fields (Test ID, Name, **Test group**, Enabled, Timeout, Retry, On-fail, Safety-critical) and a **Parameter name / value / unit** table.
 
