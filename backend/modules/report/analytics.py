@@ -35,13 +35,16 @@ def _bday(r: dict) -> str | None:
 
 
 def _cycle_s(r: dict) -> float | None:
-    """Run cycle time in seconds: finished-started, else sum of row cycle_time_ms."""
-    s, f = r.get("started_ts"), r.get("finished_ts")
-    if s and f and f >= s:
-        return float(f) - float(s)
+    """Run cycle time in seconds: the stamped cycle_s (sum of test cycle_time_ms),
+    else sum of row cycle_time_ms, else finished-started."""
+    if r.get("cycle_s") is not None:
+        return float(r["cycle_s"])
     rows = r.get("rows") or []
     ms = sum(float(x.get("cycle_time_ms") or 0) for x in rows)
-    return ms / 1000.0 if ms else None
+    if ms:
+        return ms / 1000.0
+    s, f = r.get("started_ts"), r.get("finished_ts")
+    return float(f) - float(s) if s and f and f >= s else None
 
 
 def _first_fail_test(r: dict) -> str | None:

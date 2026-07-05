@@ -262,14 +262,15 @@ class ReportStore:
         return await self._run(self._dashboard, since, until, model, operator, shift)
 
     def _dashboard(self, since, until, model, operator, shift) -> dict:
-        w = self._where(since=since, until=until, model=model, shift=shift, operator=operator)
+        # Filter by BUSINESS DAY (always stamped, shift-aware) rather than started_ts,
+        # so a report with a missing/odd started_ts never vanishes from analytics.
+        w = self._where(date_from=_ts_date(since), date_to=_ts_date(until),
+                        model=model, shift=shift, operator=operator)
         is_pass = report.c.result.like("PASS%")
         with self._engine.connect() as c:
             total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
             passed = c.execute(select(func.count()).select_from(report).where(and_(w, is_pass))).scalar() or 0
             aborted = c.execute(select(func.count()).select_from(report).where(and_(w, report.c.result == "ABORTED"))).scalar() or 0
-            avg_cycle = c.execute(select(func.avg(report.c.finished_ts - report.c.started_ts)).where(
-                and_(w, report.c.finished_ts.isnot(None), report.c.started_ts.isnot(None)))).scalar()
 
             pf = case((is_pass, 1), else_=0)
             passfail = [{"date": d or "", "pass": int(p), "fail": int(n - p)} for d, n, p in c.execute(
@@ -288,20 +289,21 @@ class ReportStore:
                 select(rr.c.test_name, func.count()).select_from(rr.join(report, rr.c.run_id == report.c.run_id))
                 .where(and_(w, fail)).group_by(rr.c.test_name).order_by(func.count().desc()).limit(50)).all()]
 
-            # bounded header detail for FPY + cycle (header-only fields)
+            # bounded header detail for FPY + cycle (header-only fields + total cycle)
             det = c.execute(select(report.c.run_id, report.c.serial_no, report.c.result,
-                                   report.c.started_ts, report.c.finished_ts, report.c.business_day)
-                            .where(w).order_by(report.c.started_ts.desc()).limit(_DETAIL_CAP)).mappings().all()
+                                   report.c.started_ts, report.c.finished_ts, report.c.business_day,
+                                   self._cycle_ms().label("cycle_ms"))
+                            .where(w).order_by(report.c.business_day.desc(), report.c.started_ts.desc())
+                            .limit(_DETAIL_CAP)).mappings().all()
             models = [m for (m,) in c.execute(select(distinct(report.c.model)).where(report.c.model.isnot(None))).all() if m]
             operators = [o for (o,) in c.execute(select(distinct(report.c.operator)).where(report.c.operator.isnot(None))).all() if o]
             shifts = [s for (s,) in c.execute(select(distinct(report.c.shift_label)).where(report.c.shift_label.isnot(None))).all() if s]
 
         failed = int(total) - int(passed) - int(aborted)
-        det_reports = [dict(r) for r in det]
-        kpis = A._kpis(det_reports)                       # units/fpy/retest/median from bounded detail
+        det_reports = [_with_cycle(dict(r)) for r in det]   # cycle_s = summed test cycle_time_ms
+        kpis = A._kpis(det_reports)                         # units/fpy/retest/avg/median cycle from detail
         kpis.update({"runs": int(total), "passed": int(passed), "failed": failed, "aborted": int(aborted),
-                     "yield": round(100 * passed / total, 1) if total else 0.0,
-                     "avg_cycle_s": round(float(avg_cycle), 1) if avg_cycle else 0.0})
+                     "yield": round(100 * passed / total, 1) if total else 0.0})
         return {
             "configured": True,
             "kpis": kpis,
@@ -315,6 +317,14 @@ class ReportStore:
             "models": sorted(models), "operators": sorted(operators), "shifts": sorted(shifts),
             "detail_truncated": len(det) >= _DETAIL_CAP,
         }
+
+
+def _ts_date(ts) -> str | None:
+    """Epoch seconds -> local YYYY-MM-DD, to filter on the business_day column."""
+    if ts is None:
+        return None
+    import datetime
+    return datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d")
 
 
 def _cell_str(v) -> str:
