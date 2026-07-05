@@ -57,9 +57,11 @@ async def test_dashboard_and_list_from_sql(store):
 
 async def test_filters_models_cycle_and_full_matrix(store):
     await store.write(_report("A", "INV", "PASS", 100, 110, serial="INV-100",
-                              rows=[{"test_name": "OVP", "measured": "319"}]))
+                              rows=[{"test_name": "OVP", "expected": "320", "measured": "319",
+                                     "result": "PASS", "cycle_time_ms": 2000}]))
     await store.write(_report("B", "INV", "FAIL", 120, 130, serial="INV-200",
-                              rows=[{"test_name": "OVP", "measured": "280"}, {"test_name": "UVP", "measured": "9"}]))
+                              rows=[{"test_name": "OVP", "measured": "280", "result": "PASS", "cycle_time_ms": 1500},
+                                    {"test_name": "UVP", "measured": "9", "result": "FAIL", "cycle_time_ms": 500}]))
     await store.write(_report("C", "DCX", "PASS", 140, 150, serial="DCX-1"))
 
     assert (await store.list_reports(serial="INV-1"))["total"] == 1        # serial search
@@ -69,14 +71,17 @@ async def test_filters_models_cycle_and_full_matrix(store):
     assert set(await store.report_models()) == {"INV", "DCX"}
 
     row = (await store.list_reports(serial="INV-100"))["items"][0]
-    assert row["cycle_s"] == 10.0 and row["model"] == "INV"               # total cycle seconds
+    assert row["cycle_s"] == 2.0 and row["model"] == "INV"                # sum of test cycle_time_ms / 1000
+    assert (await store.list_reports(serial="INV-200"))["items"][0]["cycle_s"] == 2.0   # 1500+500 ms
 
-    m = await store.full_matrix(model="INV")                              # pivot matrix
+    m = await store.full_matrix(model="INV")                              # pivot matrix, merged cells
     assert m["tests"] == ["OVP", "UVP"] and m["total"] == 2
     a = next(r for r in m["rows"] if r["run_id"] == "A")
-    assert a["OVP"] == "319" and a["cycle_s"] == 10.0
+    assert a["OVP"]["measured"] == "319" and a["OVP"]["expected"] == "320" and a["OVP"]["result"] == "PASS"
+    assert a["OVP"]["cycle_s"] == 2.0 and a["cycle_s"] == 2.0
     csv = await store.full_csv(model="INV")
     assert csv.startswith(b"serial_no,model,recipe_id,result,business_day,shift_label,finished_ts,cycle_s,OVP,UVP")
+    assert b"exp 320 | meas 319 | PASS" in csv
 
 
 async def test_unconfigured_is_safe():

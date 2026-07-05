@@ -5,7 +5,7 @@ Per-run reports, stored on the professional report database.
 ## Run reports list
 Columns: **Serial No · Model · Recipe · Result · Cycle (s) · Finished**.
 - **Model** comes from the recipe (the DUT type name — set it on the recipe).
-- **Cycle (s)** is the total run time (finished − started).
+- **Cycle (s)** is the total test cycle time in seconds (sum of each test row's cycle time).
 
 Click a row to see that run's **test results**, and export it (JSON / CSV).
 
@@ -22,8 +22,9 @@ Next**. The list shows `x–y of total`.
 
 ## Full view + export
 **Full view** opens a flattened **test-data matrix**: one row per run, with the fixed
-fields **plus a column for every test parameter** in the filtered set (each cell = that
-test's measured value). Use it to compare many units across all parameters at once.
+fields **plus a column for every test parameter** in the filtered set. Each cell merges
+that parameter's **measured** value with its **expected**, **result**, and **cycle time
+(s)**. Use it to compare many units across all parameters at once.
 
 **Export CSV (all filtered)** downloads the whole filtered set as one CSV (fixed fields +
 every test parameter) for offline analysis — not just the current page.

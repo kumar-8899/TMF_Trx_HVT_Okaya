@@ -235,7 +235,14 @@ export function Reports() {
                         <TableCell key={c} sx={{ whiteSpace: "nowrap", fontFamily: c === "result" ? undefined : MONO_STACK }}>
                           {c === "finished_ts" ? (r[c] ? new Date(r[c] * 1000).toLocaleString() : "—")
                             : c === "result" ? <StatusChip label={r[c]} kind={statusKind(r[c])} />
-                            : (r[c] ?? "—")}
+                            : (r[c] && typeof r[c] === "object") ? (
+                              <Box>
+                                <span style={{ fontWeight: 600 }}>{r[c].measured ?? "—"}{r[c].unit ? ` ${r[c].unit}` : ""}</span>
+                                <Typography variant="caption" sx={{ display: "block", color: statusKind(r[c].result) === "fail" ? "error.main" : "text.secondary" }}>
+                                  exp {r[c].expected ?? "—"} · {r[c].result ?? "—"}{r[c].cycle_s != null ? ` · ${r[c].cycle_s}s` : ""}
+                                </Typography>
+                              </Box>
+                            ) : (r[c] ?? "—")}
                         </TableCell>
                       ))}
                     </TableRow>

@@ -161,12 +161,18 @@ class ReportStore:
             return {"items": [], "total": 0, "next_cursor": None, "configured": False}
         return await self._run(self._list, f)
 
+    def _cycle_ms(self):
+        # total cycle time of a run = sum of its test rows' cycle_time_ms
+        return (select(func.sum(report_result.c.cycle_time_ms))
+                .where(report_result.c.run_id == report.c.run_id).scalar_subquery())
+
     def _list(self, f: dict) -> dict:
         limit, offset = int(f.pop("limit", 200)), int(f.pop("offset", 0))
         w = self._where(**f)
         with self._engine.connect() as c:
             total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
-            items = c.execute(select(report).where(w).order_by(report.c.started_ts.desc())
+            items = c.execute(select(report, self._cycle_ms().label("cycle_ms")).where(w)
+                              .order_by(report.c.started_ts.desc())
                               .limit(limit).offset(offset)).mappings().all()
         return {"items": [_with_cycle(dict(r)) for r in items], "total": int(total),
                 "next_cursor": str(offset + limit) if offset + limit < total else None,
@@ -193,16 +199,19 @@ class ReportStore:
         w = self._where(**f)
         with self._engine.connect() as c:
             total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
-            runs = c.execute(select(report).where(w).order_by(report.c.started_ts.desc())
-                             .limit(limit)).mappings().all()
+            runs = c.execute(select(report, self._cycle_ms().label("cycle_ms")).where(w)
+                             .order_by(report.c.started_ts.desc()).limit(limit)).mappings().all()
             sub = select(report.c.run_id).where(w).order_by(report.c.started_ts.desc()).limit(limit).subquery()
             rr = report_result
-            params = c.execute(select(rr.c.run_id, rr.c.seq, rr.c.test_name, rr.c.measured)
+            params = c.execute(select(rr.c.run_id, rr.c.seq, rr.c.test_name, rr.c.expected,
+                                      rr.c.measured, rr.c.result, rr.c.unit, rr.c.cycle_time_ms)
                                .join(sub, rr.c.run_id == sub.c.run_id)
                                .order_by(rr.c.run_id, rr.c.seq)).mappings().all()
         names, per_run = [], {}
         for p in params:
-            per_run.setdefault(p["run_id"], {})[p["test_name"]] = p["measured"]
+            cell = {"expected": p["expected"], "measured": p["measured"], "result": p["result"],
+                    "unit": p["unit"], "cycle_s": round(p["cycle_time_ms"] / 1000.0, 3) if p["cycle_time_ms"] else None}
+            per_run.setdefault(p["run_id"], {})[p["test_name"]] = cell
             if p["test_name"] and p["test_name"] not in names:
                 names.append(p["test_name"])
         fixed = ["serial_no", "model", "recipe_id", "result", "business_day", "shift_label", "finished_ts", "cycle_s"]
@@ -224,7 +233,7 @@ class ReportStore:
         wr = csv.writer(buf)
         wr.writerow(cols)
         for r in m["rows"]:
-            wr.writerow([r.get(k, "") if r.get(k) is not None else "" for k in cols])
+            wr.writerow([_cell_str(r.get(k)) for k in cols])
         return buf.getvalue().encode("utf-8")
 
     # --- analytics (SQL headline + bounded detail) -------------------------
@@ -308,10 +317,21 @@ class ReportStore:
         }
 
 
+def _cell_str(v) -> str:
+    """Flatten a merged test cell {expected, measured, result, cycle_s} for CSV."""
+    if isinstance(v, dict):
+        exp, meas, res = v.get("expected"), v.get("measured"), v.get("result")
+        s = f"exp {exp} | meas {meas} | {res}"
+        if v.get("cycle_s") is not None:
+            s += f" | {v['cycle_s']}s"
+        return s
+    return "" if v is None else str(v)
+
+
 def _with_cycle(row: dict) -> dict:
-    """Add total run cycle time in seconds (finished - started)."""
-    s, f = row.get("started_ts"), row.get("finished_ts")
-    row["cycle_s"] = round(float(f) - float(s), 1) if s and f and f >= s else None
+    """Total run cycle time (seconds) = sum of the test rows' cycle_time_ms."""
+    ms = row.pop("cycle_ms", None)
+    row["cycle_s"] = round(float(ms) / 1000.0, 3) if ms else None
     return row
 
 
