@@ -104,7 +104,10 @@ class DefaultConfig:
                    if isinstance(spec, dict) and "default" not in spec and k not in params]
         if missing:
             raise ConfigError(f"missing required param(s): {', '.join(missing)}")
+        # capabilities come from the library declaration, not free-typed input (the library
+        # is the source of truth; a composite instrument declares several).
         return {"library": library, "params": params,
+                "capabilities": list(entry.get("capabilities", [])),
                 "simulated": bool(body.get("simulated", False)),
                 "address": str(params.get("resource", ""))}
 

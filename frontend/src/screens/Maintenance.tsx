@@ -5,7 +5,9 @@ import {
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { EmptyState, PageHeader, Section, StatusChip } from "../components/ui";
+import { InstrumentControlPanel } from "../components/testing/InstrumentControlPanel";
 import { LiveVariablesPanel } from "../components/testing/LiveVariablesPanel";
 import { useValues } from "../hooks/useValues";
 import { MONO_STACK } from "../theme/theme";
@@ -24,6 +26,7 @@ export function Maintenance() {
   const [result, setResult] = useState("");
   const [error, setError] = useState<string | null>(null);
   const values = useValues("/instruments/values/ws");
+  const { principal } = useAuth();
 
   const refresh = () => api.get("/health/maintenance").then(setMaint).catch(() => setMaint(null));
   useEffect(() => {
@@ -96,6 +99,13 @@ export function Maintenance() {
         <Grid item xs={12}>
           {Object.keys(values).length ? <LiveVariablesPanel variables={[]} values={values} /> : <Section title="Live values"><EmptyState message="No live values streaming." /></Section>}
         </Grid>
+        {principal?.role === "super_admin" && (
+          <Grid item xs={12}>
+            <Section title="Instrument test bench" subtitle="capability-driven manual control · Python-owned instruments">
+              <InstrumentControlPanel embedded />
+            </Section>
+          </Grid>
+        )}
       </Grid>
     </Box>
   );

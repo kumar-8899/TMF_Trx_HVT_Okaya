@@ -1,17 +1,19 @@
-"""variables router (/variables). Reads gated CONFIG.VIEW; writes are a hands-on
-hardware action gated HEALTH.MAINTENANCE (the maintenance/manual path). LabVIEW uses
-the bridge verbs, not these routes."""
+"""variables router (/variables). Reads gated CONFIG.VIEW; variable writes are a
+hands-on hardware action gated HEALTH.MAINTENANCE (the maintenance/manual path). The
+Instrument Test Bench command path (`/instances/{id}/call`) is super_admin-only. LabVIEW
+uses the bridge verbs, not these routes."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.services.security import require_permission
+from core.services.security import require_permission, require_role
 from instrumentlib.errors import InstrumentError, NotConnected, NotSupported
 from modules.variables.engine import VariableError
 
 _VIEW = [Depends(require_permission("CONFIG.VIEW"))]
 _WRITE = [Depends(require_permission("HEALTH.MAINTENANCE"))]
+_TESTBENCH = [Depends(require_role("super_admin"))]   # Test Bench manual command path
 
 
 async def _guard(coro):
@@ -39,11 +41,15 @@ def build_router(module) -> APIRouter:
     async def libraries() -> dict:
         return module.libraries()
 
+    @router.get("/variables/capabilities", dependencies=_VIEW)
+    async def capabilities() -> dict:
+        return module.capabilities()
+
     @router.get("/variables/instances", dependencies=_VIEW)
     async def instances() -> list[dict]:
         return module.instance_status()
 
-    @router.post("/variables/instances/{instance_id}/call", dependencies=_WRITE)
+    @router.post("/variables/instances/{instance_id}/call", dependencies=_TESTBENCH)
     async def call(instance_id: str, body: dict) -> dict:
         if not (body or {}).get("method"):
             raise HTTPException(status_code=422, detail="method required")

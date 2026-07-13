@@ -91,6 +91,11 @@ class DefaultVariables:
     def libraries(self) -> dict:
         return build_index()
 
+    def capabilities(self) -> dict:
+        """Capability UI catalog for the Instrument Test Bench (method → control)."""
+        from modules.variables import capabilities as cap
+        return cap.catalog()
+
     def instance_status(self) -> list[dict]:
         return self.instances.status()
 

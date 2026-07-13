@@ -10,7 +10,7 @@ from modules.config.variants.default import ConfigError, DefaultConfig
 
 
 @instrument_library(
-    library_id="ctest_supply", vendor="C", model="PS", capability="power_source",
+    library_id="ctest_supply", vendor="C", model="PS", capabilities=["power_source"],
     interface_version=1, transports=["visa_lan"],
     connection_params={"resource": {"type": "string"}, "timeout_ms": {"type": "int", "default": 5000}},
     library_version="1.0.0", generated_by="test", manual_reference="none",

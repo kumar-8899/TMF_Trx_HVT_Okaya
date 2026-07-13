@@ -1,8 +1,10 @@
 # Capability interfaces (method sets to implement)
 
-Mirror of `Super_Test_App/backend/instrumentlib/interfaces.py`. A library implements
-**every** method of exactly ONE capability. Verify against that file if unsure (it is
-the source of truth; `interface_version` bumps on a breaking change).
+Mirror of `Super_Test_App/backend/instrumentlib/interfaces.py`. A library declares
+`capabilities=[...]` and implements **every** method of **each** declared capability
+(a composite/multi-function instrument mixes in several over one connection). Verify
+against that file if unsure (it is the source of truth; `interface_version` bumps on a
+breaking change).
 
 Scalar = reachable via the variable engine. Non-scalar = `capability.request` only,
 never bound in the variable map.
@@ -30,6 +32,12 @@ never bound in the variable map.
 
 **temperature** (`ITemperature`, v1)
 - `measure_temperature(channel) -> degrees`
+
+**resistance** (`IResistance`, v1)
+- `measure_resistance(channel) -> ohms`
+
+**frequency** (`IFrequency`, v1)
+- `measure_frequency(channel) -> hz`
 
 ## Non-scalar (capability.request only)
 

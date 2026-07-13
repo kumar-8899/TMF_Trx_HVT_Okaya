@@ -18,7 +18,7 @@ import { MONO_STACK } from "../../theme/theme";
 
 interface Field { key: string; label: string; type: string; required: boolean; default?: any; placeholder?: string; help?: string; options?: string[] }
 interface Transport { id: string; label: string; address_template: string; fields: Field[] }
-interface Library { library_id: string; vendor: string; model: string; capability: string; connection_params?: Record<string, any>; library_version?: string; manual_reference?: string }
+interface Library { library_id: string; vendor: string; model: string; capabilities: string[]; connection_params?: Record<string, any>; library_version?: string; manual_reference?: string }
 interface Instrument {
   id: string; label: string; model?: string; owner?: "python" | "labview";
   transport?: string; library?: string; simulated?: boolean; params: Record<string, any>;
@@ -141,7 +141,7 @@ export function ConfigInstruments() {
               {libs.length === 0 ? <Typography variant="body2" color="text.secondary">None loaded.</Typography> : (
                 <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                   {libs.map((l) => (
-                    <Tooltip key={l.library_id} title={`${l.capability} · v${l.library_version} · ${l.manual_reference ?? ""}`}>
+                    <Tooltip key={l.library_id} title={`${(l.capabilities || []).join(", ")} · v${l.library_version} · ${l.manual_reference ?? ""}`}>
                       <Chip size="small" label={`${l.vendor} ${l.model}`} sx={{ fontFamily: MONO_STACK }} />
                     </Tooltip>
                   ))}
@@ -221,7 +221,7 @@ export function ConfigInstruments() {
                         onChange={(e) => pickLibrary(e.target.value)} inputProps={{ "aria-label": "library" }}
                         helperText={libs.length ? undefined : "no libraries loaded — wire variables.library_paths"}>
                         <MenuItem value=""><em>select…</em></MenuItem>
-                        {libs.map((l) => <MenuItem key={l.library_id} value={l.library_id}>{l.vendor} {l.model} — {l.capability}</MenuItem>)}
+                        {libs.map((l) => <MenuItem key={l.library_id} value={l.library_id}>{l.vendor} {l.model} — {(l.capabilities || []).join(", ")}</MenuItem>)}
                       </TextField>
                     ) : (
                       <TextField select label="Transport" value={draft.transport ?? ""} sx={{ width: 220 }} disabled={!edit}

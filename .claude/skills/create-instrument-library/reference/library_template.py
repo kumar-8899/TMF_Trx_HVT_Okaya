@@ -89,7 +89,7 @@ class VENDOR_MODEL(InstrumentBase, IElectronicLoad):   # rename; (InstrumentBase
 #
 #   instrument_library(
 #       library_id="<library_id>", vendor="<Vendor>", model="<Model>",
-#       capability="electronic_load", interface_version=1,
+#       capabilities=["electronic_load"], interface_version=1,   # a list; composite names several
 #       transports=["visa_lan"], connection_params={"resource": {"type": "string"},
 #                                                    "timeout_ms": {"type": "int", "default": 5000}},
 #       library_version="1.0.0", generated_by="claude-code/<yyyy-mm>",

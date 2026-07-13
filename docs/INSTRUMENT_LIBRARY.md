@@ -55,8 +55,12 @@ bridge being available for the reflex to fire.**
 ## 2. Capability interfaces — the generation contract
 
 Interfaces are the spec AI codes against, the checklist humans review against, and the
-surface everything else calls against. A library implements exactly one primary capability
-interface (plus the mandatory `InstrumentBase` surface).
+surface everything else calls against. A library declares **one or more** capabilities
+(`capabilities=[...]`) and fully implements **every** one, plus the mandatory
+`InstrumentBase` surface. A single-function instrument declares one; a **composite /
+multi-function** instrument (a DMM/DAQ mainframe, a bidirectional supply that is both
+`power_source` and `electronic_load`) declares several and mixes in each interface — all
+sharing **one** connection (§5.2 double-open guard still applies per physical resource).
 
 ### 2.1 Scalar capability interfaces (reachable via the variable engine)
 
@@ -84,9 +88,18 @@ IDigitalOutput:                       # non-DAQ sources only
 
 ITemperature:
     measure_temperature(channel) → degrees
+
+IResistance:                          # DMM readback
+    measure_resistance(channel) → ohms
+
+IFrequency:                           # DMM readback
+    measure_frequency(channel) → hz
 ```
 
 NI-DAQmx analog/digital I/O is LabVIEW-owned and does not appear here.
+
+A channel-parameterised read (e.g. `measure_resistance(channel)`) is bound as a named
+variable by giving the variable an `args` list (§5.3), e.g. `args: [104]`.
 
 ### 2.2 Non-scalar capabilities (reachable via `capability.request` only)
 
@@ -137,8 +150,10 @@ touches (one file, O(1)).
 
 A generated library MUST:
 
-1. Implement exactly one capability interface from §2, plus the `InstrumentBase`
-   mandatory surface (`on_reconnect`, `safe_state`, `emergency_disable`, sim behavior).
+1. Declare one or more capabilities (`capabilities=[...]`) from §2 and fully implement
+   **every** one, plus the `InstrumentBase` mandatory surface (`on_reconnect`,
+   `safe_state`, `emergency_disable`, sim behavior). A composite/multi-function instrument
+   mixes in several interfaces over one connection; conformance checks each declared one.
 2. Hold **zero module-level or class-level mutable state**. All state in `__init__`.
 3. Concentrate all command strings / register maps in a **command table near the top of
    the class** — not scattered through method bodies. This is what makes the human
@@ -164,7 +179,7 @@ is the `<vendor manual reference>`. Here are rules 1–6. Implement."*
     library_id       = "chroma_63600",
     vendor           = "Chroma",
     model            = "63600",
-    capability       = "electronic_load",
+    capabilities     = ["electronic_load"],      # a list — composite instruments name several
     interface_version= 1,
     transports       = ["visa_lan"],
     connection_params= {"ip": "string", "port": {"type": "int", "default": 5025}},
@@ -172,7 +187,11 @@ is the `<vendor manual reference>`. Here are rules 1–6. Implement."*
     generated_by     = "claude-code/2026-07",
     manual_reference = "Chroma 63600 Programming Manual v2.3",
 )
-class Chroma63600(InstrumentBase): ...
+class Chroma63600(InstrumentBase, IElectronicLoad): ...
+
+# Composite example — one class, several interface mix-ins, one connection:
+#   capabilities = ["analog_input", "resistance", "frequency", "temperature"]
+#   class KeithleyDAQ6510(InstrumentBase, IAnalogInput, IResistance, IFrequency, ITemperature): ...
 ```
 
 CI imports the package tree (decorators fire; duplicate `library_id` fails loudly) and
@@ -209,10 +228,17 @@ the public name carried by `capability.request`, diagnostics, and health.
                         "scale": { "gain": 1.0, "offset": 0.0 }, "units": "A" },
     "dc_bus_setpoint": { "instance": "dc_main_st1", "write": "set_voltage",
                          "read": "get_voltage_setpoint",
-                         "clamp": { "min": 0.0, "max": 400.0 }, "units": "V" }
+                         "clamp": { "min": 0.0, "max": 400.0 }, "units": "V" },
+    "dut_resistance":  { "instance": "dmm_st1", "read": "measure_resistance",
+                         "args": [104], "units": "Ω" }
   }
 }
 ```
+
+A variable MAY carry an `args` list — leading fixed arguments passed before the value on a
+write (e.g. a `channel`), so a channel-parameterised capability method
+(`measure_resistance(channel)`, on a composite DMM) binds as a named variable and is usable
+in recipes.
 
 Read: lookup → capability call → `raw*gain+offset`. Write: clamp (silent, logged as
 warning; the returned written-value lets a step detect clamping) → inverse scale →
@@ -350,7 +376,8 @@ cannot be merged).
 ## 12. MUST summary
 
 1. One owner per physical instrument; ownership declared as data; no dual access.
-2. One primary capability interface per library; non-scalar capabilities never in the
+2. A library declares one or more capabilities and fully implements every one (a composite
+   instrument mixes in several over one connection); non-scalar capabilities never in the
    variable map.
 3. Zero mutable module/class state in libraries; all cross-cutting behavior in the base.
 4. Fail-fast on dead link; never queue commands; identity re-verified on reconnect.
