@@ -100,7 +100,8 @@ class FilesystemRecipe:
             if tag and tag not in meta.get("tags", []):
                 continue
             out.append({
-                "recipe_id": rid, "name": meta.get("name"), "status": meta.get("status"),
+                "recipe_id": rid, "name": meta.get("name"), "model": meta.get("model", ""),
+                "status": meta.get("status"),
                 "latest_version": meta.get("latest_version", 0), "tags": meta.get("tags", []),
                 "required_role": meta.get("required_role"),
             })
@@ -143,7 +144,8 @@ class FilesystemRecipe:
         if self.store.exists(rid):
             raise RecipeExistsError(f"recipe '{rid}' already exists")
         meta = {
-            "recipe_id": rid, "name": payload.get("name", rid), "owner": payload.get("owner"),
+            "recipe_id": rid, "name": payload.get("name", rid), "model": payload.get("model", ""),
+            "owner": payload.get("owner"),
             "status": "draft", "latest_version": 0, "created_at": _now_iso(),
             "tags": payload.get("tags", []), "barcode_prefixes": payload.get("barcode_prefixes", []),
             "archived_versions": [],
@@ -187,6 +189,7 @@ class FilesystemRecipe:
         self.store.write_version(recipe_id, n, recipe, recipe["content_hash"])
         meta.update({
             "latest_version": n, "status": "active", "name": recipe.get("name", meta["name"]),
+            "model": recipe.get("model", meta.get("model", "")),
             "tags": recipe.get("tags", meta.get("tags", [])),
             "barcode_prefixes": recipe.get("barcode_prefixes", meta.get("barcode_prefixes", [])),
             "required_role": recipe.get("required_role"),

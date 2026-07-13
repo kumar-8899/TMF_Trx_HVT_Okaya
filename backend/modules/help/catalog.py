@@ -38,6 +38,7 @@ PAGES: list[Page] = [
     Page("user-health", "Production Readiness", "user", "Health & maintenance", "help/user/health.md", "/health"),
     Page("user-maintenance", "Maintenance Console", "user", "Health & maintenance", "help/user/maintenance.md", "/maintenance"),
     Page("user-instruments", "Instruments", "user", "Configuration", "help/user/instruments.md", "/config/instruments"),
+    Page("user-shift", "Shifts", "user", "Configuration", "help/user/shift.md", "/config/shift"),
     Page("user-mes", "MES interlock", "user", "Configuration", "help/user/mes.md", "/config/mes"),
     Page("user-users", "Users", "user", "Administration", "help/user/users.md", "/users"),
     Page("user-permissions", "Permissions", "user", "Administration", "help/user/permissions.md", "/permissions"),
@@ -67,8 +68,10 @@ PAGES: list[Page] = [
     Page("dev-instrument-library-contract", "Instrument library contract", "dev", "Contracts", "INSTRUMENT_LIBRARY.md"),
     Page("dev-frontend", "Frontend", "dev", "Frontend", "FRONTEND.md"),
     Page("dev-labview-bridge", "LabVIEW bridge", "dev", "Bus & LabVIEW", "LABVIEW_BRIDGE.md"),
+    Page("dev-mqtt-messages", "MQTT message reference", "dev", "Bus & LabVIEW", "MQTT_MESSAGES.md"),
     Page("dev-diag-emit", "LabVIEW diag-emit", "dev", "Bus & LabVIEW", "LABVIEW_DIAG_EMIT.md"),
     Page("dev-debug-server", "Debug Server", "dev", "Bus & LabVIEW", "DEBUG_SERVER.md"),
+    Page("dev-report-store", "Report DB store", "dev", "Contracts", "REPORT_STORE.md"),
 ]
 
 _BY_ID = {p.id: p for p in PAGES}

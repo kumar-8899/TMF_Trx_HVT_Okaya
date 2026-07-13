@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { api } from "../api/client";
 import { ConfirmDialog, PageHeader, Section } from "../components/ui";
+import { ReportDbConfig } from "./config/ReportDbConfig";
 
 const RESET_ITEMS = [
   { key: "runs", label: "Runs & history", desc: "Run records + run events (run history, today's counts)." },
@@ -64,6 +65,8 @@ export function Settings() {
             </Button>
           </Box>
         </Section>
+
+        <ReportDbConfig />
 
         {/* MES interlock moved to Config → MES. Future settings sections go here. */}
       </Stack>

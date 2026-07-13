@@ -57,6 +57,43 @@ async def test_transports_catalog(ctx):
     assert visa["fields"][0]["key"] == "resource" and visa["fields"][0]["required"]
 
 
+def _ts(y, mo, d, h, mi):
+    from datetime import datetime
+    return datetime(y, mo, d, h, mi).timestamp()
+
+
+async def test_shift_config_validation_and_sort(ctx):
+    module, _, _ = ctx
+    with pytest.raises(ConfigError):
+        await module.set_shift_config({"enabled": True, "shifts": []})            # enabled needs shifts
+    with pytest.raises(ConfigError):
+        await module.set_shift_config({"enabled": True, "shifts": [{"label": "A", "start": "25:00"}]})
+    cfg = await module.set_shift_config({"enabled": True, "shifts": [
+        {"label": "Night", "start": "22:00"}, {"label": "Morning", "start": "06:00"},
+        {"label": "Evening", "start": "14:00"}]})
+    assert [s["start"] for s in cfg["shifts"]] == ["06:00", "14:00", "22:00"]      # sorted; first = boundary
+
+
+async def test_shift_for_business_day_overnight(ctx):
+    module, _, _ = ctx
+    await module.set_shift_config({"enabled": True, "shifts": [
+        {"label": "Morning", "start": "06:00"}, {"label": "Evening", "start": "14:00"},
+        {"label": "Night", "start": "22:00"}]})
+    # 02:00 Jul-5 is the Night shift that STARTED 22:00 Jul-4 -> business day Jul-4
+    r = await module.shift_for(_ts(2026, 7, 5, 2, 0))
+    assert r["shift_label"] == "Night" and r["business_day"] == "2026-07-04"
+    r = await module.shift_for(_ts(2026, 7, 5, 8, 0))
+    assert r["shift_label"] == "Morning" and r["business_day"] == "2026-07-05"
+    r = await module.shift_for(_ts(2026, 7, 5, 22, 30))
+    assert r["shift_label"] == "Night" and r["business_day"] == "2026-07-05"
+
+
+async def test_shift_disabled_falls_back_to_calendar(ctx):
+    module, _, _ = ctx
+    r = await module.shift_for(_ts(2026, 7, 5, 2, 0))
+    assert r["enabled"] is False and r["business_day"] == "2026-07-05" and r["shift_label"] is None
+
+
 async def test_python_owned_instrument_crud(ctx):
     module, _, _ = ctx
     inst = await module.create_instrument({

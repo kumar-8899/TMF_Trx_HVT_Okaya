@@ -64,8 +64,8 @@ export function RecipeDetail() {
   };
 
   const value: RecipeValue | null = recipe && {
-    recipe_id: id, name: recipe.name, owner: recipe.owner, description: recipe.description,
-    steps: recipe.steps ?? [],
+    recipe_id: id, name: recipe.name, model: recipe.model, owner: recipe.owner,
+    description: recipe.description, steps: recipe.steps ?? [],
   };
 
   return (

@@ -7,6 +7,10 @@ never sees this layer; it talks only to Python.
 Payloads here deliberately mirror `DATA_TRANSFER.md` so Python relays them to
 the browser with almost no transformation.
 
+> **For the exhaustive message catalogue** — every op/event both directions with
+> request + reply JSON examples — see **[`MQTT_MESSAGES.md`](MQTT_MESSAGES.md)**. This
+> doc is the contract/rationale; that one is the copy-paste wire reference.
+
 ---
 
 ## 1. Topology & locked decisions

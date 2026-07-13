@@ -10,9 +10,16 @@ dependencies = [
     "aiosqlite>=0.20",     # per-station embedded DB
     "jsonschema>=4.21",    # JSON Schema validation (PRINCIPLES §4)
     "argon2-cffi>=23.1",   # password hashing for the Auth module (CORE §6.4)
+    "SQLAlchemy>=2.0",     # relational report store (MySQL / SQL Server), Report module
 ]
 
 [project.optional-dependencies]
+# Report DB drivers — installed per deployment for the client's chosen server.
+# SQL Server also needs the OS "ODBC Driver 18 for SQL Server".
+report-db = [
+    "PyMySQL>=1.1",        # MySQL  (mysql+pymysql)
+    "pyodbc>=5.0",         # SQL Server (mssql+pyodbc)
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

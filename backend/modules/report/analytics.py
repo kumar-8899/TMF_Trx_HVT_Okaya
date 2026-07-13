@@ -28,14 +28,23 @@ def _day(ts: float | None) -> str | None:
     return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime("%Y-%m-%d")
 
 
+def _bday(r: dict) -> str | None:
+    """Day-count key: the stamped business_day (shift-aware, spans midnight) when
+    present, else the calendar date. Forward-only — old reports fall back cleanly."""
+    return r.get("business_day") or _day(r.get("started_ts") or r.get("finished_ts"))
+
+
 def _cycle_s(r: dict) -> float | None:
-    """Run cycle time in seconds: finished-started, else sum of row cycle_time_ms."""
-    s, f = r.get("started_ts"), r.get("finished_ts")
-    if s and f and f >= s:
-        return float(f) - float(s)
+    """Run cycle time in seconds: the stamped cycle_s (sum of test cycle_time_ms),
+    else sum of row cycle_time_ms, else finished-started."""
+    if r.get("cycle_s") is not None:
+        return float(r["cycle_s"])
     rows = r.get("rows") or []
     ms = sum(float(x.get("cycle_time_ms") or 0) for x in rows)
-    return ms / 1000.0 if ms else None
+    if ms:
+        return ms / 1000.0
+    s, f = r.get("started_ts"), r.get("finished_ts")
+    return float(f) - float(s) if s and f and f >= s else None
 
 
 def _first_fail_test(r: dict) -> str | None:
@@ -45,7 +54,7 @@ def _first_fail_test(r: dict) -> str | None:
     return None if result_is_pass(r.get("result")) else "(unknown)"
 
 
-def apply_filters(reports, *, since=None, until=None, model=None, operator=None) -> list[dict]:
+def apply_filters(reports, *, since=None, until=None, model=None, operator=None, shift=None) -> list[dict]:
     out = []
     for r in reports:
         ts = r.get("finished_ts") or r.get("started_ts") or 0
@@ -56,6 +65,8 @@ def apply_filters(reports, *, since=None, until=None, model=None, operator=None)
         if model and r.get("model") != model:
             continue
         if operator and r.get("operator") != operator:
+            continue
+        if shift and r.get("shift_label") != shift:
             continue
         out.append(r)
     return out
@@ -110,7 +121,7 @@ def _fpy_pchart(reports) -> dict:
     daily: dict[str, dict] = {}
     for key, runs in _units(reports).items():
         first = runs[0]
-        d = _day(first.get("started_ts") or first.get("finished_ts"))
+        d = _bday(first)
         if d is None:
             continue
         cell = daily.setdefault(d, {"n": 0, "x": 0})
@@ -137,12 +148,26 @@ def _fpy_pchart(reports) -> dict:
 def _passfail_daily(reports) -> list[dict]:
     daily: dict[str, dict] = {}
     for r in reports:
-        d = _day(r.get("finished_ts") or r.get("started_ts"))
+        d = _bday(r)
         if d is None:
             continue
         cell = daily.setdefault(d, {"pass": 0, "fail": 0})
         cell["pass" if result_is_pass(r.get("result")) else "fail"] += 1
     return [{"date": d, **daily[d]} for d in sorted(daily)]
+
+
+def _by_shift(reports) -> list[dict]:
+    by: dict[str, dict] = {}
+    for r in reports:
+        s = r.get("shift_label")
+        if not s:
+            continue
+        cell = by.setdefault(s, {"shift": s, "total": 0, "passed": 0, "failed": 0})
+        cell["total"] += 1
+        cell["passed" if result_is_pass(r.get("result")) else "failed"] += 1
+    for c in by.values():
+        c["yield"] = round(100 * c["passed"] / c["total"], 1) if c["total"] else 0.0
+    return sorted(by.values(), key=lambda c: c["shift"])
 
 
 def _by_model(reports) -> list[dict]:
@@ -190,8 +215,8 @@ def _cycle(reports, bins: int = 12) -> dict:
     return {"histogram": hist, "imr": imr}
 
 
-def build_dashboard(reports, *, since=None, until=None, model=None, operator=None) -> dict:
-    rs = apply_filters(reports, since=since, until=until, model=model, operator=operator)
+def build_dashboard(reports, *, since=None, until=None, model=None, operator=None, shift=None) -> dict:
+    rs = apply_filters(reports, since=since, until=until, model=model, operator=operator, shift=shift)
 
     fail_counter: dict[str, int] = {}
     param_counter: dict[str, int] = {}
@@ -206,14 +231,16 @@ def build_dashboard(reports, *, since=None, until=None, model=None, operator=Non
 
     return {
         "generated_ts": time.time(),
-        "filters": {"since": since, "until": until, "model": model, "operator": operator},
+        "filters": {"since": since, "until": until, "model": model, "operator": operator, "shift": shift},
         "kpis": _kpis(rs),
         "fpy": _fpy_pchart(rs),
         "passfail_daily": _passfail_daily(rs),
         "failure_pareto": _pareto(fail_counter),
         "param_pareto": _pareto(param_counter),
         "by_model": _by_model(rs),
+        "by_shift": _by_shift(rs),
         "cycle": _cycle(rs),
         "models": sorted({r.get("model") for r in reports if r.get("model")}),
         "operators": sorted({r.get("operator") for r in reports if r.get("operator")}),
+        "shifts": sorted({r.get("shift_label") for r in reports if r.get("shift_label")}),
     }

@@ -56,3 +56,21 @@ def test_cycle_imr_present():
     d = build_dashboard(REPORTS)
     assert d["cycle"]["histogram"]
     assert d["cycle"]["imr"]["points"] and d["cycle"]["imr"]["ucl"] >= d["cycle"]["imr"]["xbar"]
+
+
+def test_business_day_grouping_and_by_shift():
+    # forward-only: reports stamped with business_day + shift_label
+    a = _report("s1", "U1", "INV", "PASS", DAY, DAY + 10)
+    b = _report("s2", "U2", "INV", "FAIL", DAY + 20, DAY + 30,
+                rows=[{"test_name": "OVP", "result": "FAIL"}])
+    a["business_day"], a["shift_label"] = "2026-07-04", "Night"      # overnight -> prev business day
+    b["business_day"], b["shift_label"] = "2026-07-04", "Morning"
+    d = build_dashboard([a, b])
+    days = {p["date"] for p in d["passfail_daily"]}
+    assert days == {"2026-07-04"}                                    # grouped by business_day, not calendar
+    by = {s["shift"]: s for s in d["by_shift"]}
+    assert by["Night"]["passed"] == 1 and by["Morning"]["failed"] == 1
+    assert d["shifts"] == ["Morning", "Night"]
+    # shift filter narrows the corpus
+    only = build_dashboard([a, b], shift="Night")
+    assert only["kpis"]["runs"] == 1

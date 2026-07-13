@@ -27,6 +27,20 @@ def build_router(module) -> APIRouter:
     async def transports() -> list[dict]:
         return module.transports()
 
+    # --- shifts (business day + shift labels) ------------------------------
+
+    @router.get("/config/shift", dependencies=_VIEW)
+    async def get_shift() -> dict:
+        return await module.get_shift_config()
+
+    @router.put("/config/shift", dependencies=_EDIT)
+    async def set_shift(body: dict) -> dict:
+        return await _guard(module.set_shift_config(body))
+
+    @router.get("/config/shift/current", dependencies=_VIEW)
+    async def current_shift() -> dict:
+        return await module.current_shift()
+
     @router.get("/config/instruments", dependencies=_VIEW)
     async def list_instruments() -> list[dict]:
         return await module.list_instruments()

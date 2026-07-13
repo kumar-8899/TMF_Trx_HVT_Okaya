@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from datetime import datetime, timedelta
 
 from core.framework.contract import CoreServices
 from instrumentlib.registry import REGISTRY
@@ -18,7 +19,14 @@ from modules.config import transports as tcat
 from modules.config.api import build_router
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _TEST_TIMEOUT_S = 8.0
+_SHIFT_ID = "shift"
+
+
+def _to_min(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
 
 
 class ConfigError(Exception):
@@ -134,6 +142,65 @@ class DefaultConfig:
         await self.core.db.repo.delete_id("instrument", iid)
         self.core.diag.info("config", "instrument deleted", instrument_id=iid)
         return True
+
+    # --- shifts (business day + shift labels) ------------------------------
+    # Locked model: shifts TILE 24h contiguously (each runs to the next shift's
+    # start; the last wraps past midnight). The business day rolls at the FIRST
+    # shift's start; an overnight shift belongs to the calendar date it started on.
+    # A run is assigned by its START time (INSTRUMENT/analytics contract).
+
+    async def get_shift_config(self) -> dict:
+        rec = await self.core.db.repo.get("shift_config", _SHIFT_ID)
+        data = rec["data"] if rec else {}
+        return {"enabled": bool(data.get("enabled", False)), "shifts": data.get("shifts", []) or []}
+
+    async def set_shift_config(self, body: dict) -> dict:
+        enabled = bool(body.get("enabled", False))
+        shifts = body.get("shifts") or []
+        cleaned = []
+        seen = set()
+        for i, s in enumerate(shifts):
+            label = (s.get("label") or "").strip()
+            start = (s.get("start") or "").strip()
+            if not label:
+                raise ConfigError(f"shift #{i + 1}: label required")
+            if not _HHMM_RE.match(start):
+                raise ConfigError(f"shift '{label}': start must be HH:MM (24h)")
+            if start in seen:
+                raise ConfigError(f"duplicate shift start time {start}")
+            seen.add(start)
+            cleaned.append({"label": label, "start": start})
+        if enabled and not cleaned:
+            raise ConfigError("enable shifts requires at least one shift")
+        cleaned.sort(key=lambda s: _to_min(s["start"]))   # order by start; first = day boundary
+        rec = {"enabled": enabled, "shifts": cleaned, "updated_ts": time.time()}
+        await self.core.db.repo.put("shift_config", rec, id=_SHIFT_ID, summary=f"{len(cleaned)} shift(s)")
+        self.core.diag.info("config", "shift config updated", enabled=enabled, shifts=len(cleaned))
+        return rec
+
+    async def shift_for(self, ts: float) -> dict:
+        """Resolve a timestamp to {enabled, business_day (YYYY-MM-DD), shift_label,
+        index}. business_day rolls at the first shift's start; disabled/none ->
+        business_day is the calendar date and shift_label is None."""
+        dt = datetime.fromtimestamp(ts)
+        cal = dt.strftime("%Y-%m-%d")
+        cfg = await self.get_shift_config()
+        shifts = cfg["shifts"]
+        if not cfg["enabled"] or not shifts:
+            return {"enabled": False, "business_day": cal, "shift_label": None, "index": None}
+        starts = [_to_min(s["start"]) for s in shifts]     # already sorted on save
+        boundary = starts[0]
+        tod = dt.hour * 60 + dt.minute
+        business_day = (dt - timedelta(days=1)).strftime("%Y-%m-%d") if tod < boundary else cal
+        if tod < boundary:
+            idx = len(shifts) - 1                          # overnight shift that wrapped past midnight
+        else:
+            idx = max(i for i, sm in enumerate(starts) if sm <= tod)
+        return {"enabled": True, "business_day": business_day,
+                "shift_label": shifts[idx]["label"], "index": idx, "start": shifts[idx]["start"]}
+
+    async def current_shift(self) -> dict:
+        return await self.shift_for(time.time())
 
     # --- test connection (LabVIEW owns the I/O) ----------------------------
 

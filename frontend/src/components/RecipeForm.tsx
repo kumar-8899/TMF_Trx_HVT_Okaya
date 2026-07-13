@@ -31,6 +31,7 @@ export interface Test {
 export interface RecipeValue {
   recipe_id: string;
   name: string;
+  model?: string;
   owner?: string;
   description?: string;
   steps: Test[];
@@ -139,6 +140,9 @@ export function RecipeForm({
               onChange={(e) => patch({ recipe_id: e.target.value })} inputProps={{ "aria-label": "recipe_id" }} />
             <TextField label="Name" value={value.name} sx={{ flex: 1, minWidth: 200 }} disabled={readOnly}
               onChange={(e) => patch({ name: e.target.value })} />
+            <TextField label="Model" value={value.model ?? ""} sx={{ width: 180 }} disabled={readOnly}
+              onChange={(e) => patch({ model: e.target.value })} helperText="DUT type name"
+              inputProps={{ "aria-label": "model" }} />
             <TextField label="Owner" value={value.owner ?? ""} sx={{ width: 180 }} disabled
               helperText="Set to the creator" />
           </Stack>

@@ -1,19 +1,27 @@
-"""Report `standard` variant — assemble on run-finished, fan out to sinks, query.
+"""Report `standard` variant — assemble on run-finished, spool to a local outbox,
+forward to the professional DB (ReportStore), and query the DB for reports/analytics.
 
-RP1: sqlite sink + assembly + queries. Folder sink + routing (RP2), analytics
-(RP3), export (RP4) extend this.
+Reports are business-critical: the pro DB (MySQL / SQL Server) is the system of record;
+a local SQLite outbox guarantees run-finish never blocks on or loses a report. Optional
+folder sinks still mirror to CSV/JSON.
 """
 
 from __future__ import annotations
 
-from core.framework.contract import CoreServices, Health, HealthStatus
+import asyncio
 import json
+from pathlib import Path
 
-from modules.report.analytics import build_dashboard
+from core.framework.contract import CoreServices, Health, HealthStatus
 from modules.report.api import build_router
 from modules.report.assembly import build_report, result_is_pass
+from modules.report.outbox import Outbox
 from modules.report.sinks import build_sinks, when_matches
 from modules.report.sinks.folder import report_to_csv
+from modules.report.store import ReportStore, StoreError
+
+_DB_CFG_ID = "report_db"
+_RETRY_S = 30.0
 
 
 class StandardReport:
@@ -21,8 +29,12 @@ class StandardReport:
         self.core = core
         self.config = config
         self.station = core.station
-        # Config-driven sinks; sqlite system-of-record is always forced present.
-        self._sinks = build_sinks(config, core.db)
+        self._sinks = build_sinks(config, core.db)          # optional folder mirrors only
+        self.store = ReportStore(core.diag)
+        outbox_path = config.get("outbox_path") or str(Path("data") / "report_outbox.sqlite")
+        self.outbox = Outbox(outbox_path)
+        self._kick = asyncio.Event()
+        self._forwarder: asyncio.Task | None = None
         self.router = build_router(self)
         self.mqtt_handlers = [("event/#", self._on_event)]
 
@@ -31,18 +43,37 @@ class StandardReport:
         return cls(core, config)
 
     async def init(self) -> None:
-        pass
+        cfg = await self.get_db_config(redacted=False)
+        if cfg.get("provider"):
+            self.store.configure(cfg)
 
     async def start(self) -> None:
-        pass
+        await self.outbox.connect()
+        if self.store.configured:
+            try:
+                await self.store.ensure_schema()
+            except Exception as exc:  # noqa: BLE001 — DB down at boot must not block start
+                self.core.diag.warning("report", "report DB schema check failed at boot", error=str(exc))
+        self._forwarder = asyncio.create_task(self._forward_loop())
 
     async def stop(self) -> None:
-        pass
+        if self._forwarder:
+            self._forwarder.cancel()
+            try:
+                await self._forwarder
+            except asyncio.CancelledError:
+                pass
+        await self.outbox.close()
+        self.store.dispose()
 
     async def health(self) -> Health:
-        return Health(status=HealthStatus.OK, detail=f"{len(self._sinks)} sink(s)")
+        pending = await self.outbox.count()
+        if not self.store.configured:
+            return Health(status=HealthStatus.DEGRADED, detail="report DB not configured")
+        detail = f"store configured · outbox pending {pending}"
+        return Health(status=HealthStatus.DEGRADED if pending else HealthStatus.OK, detail=detail)
 
-    # --- assembly + routing ------------------------------------------------
+    # --- assembly + spool --------------------------------------------------
 
     async def _on_event(self, topic: str, payload: dict | None) -> None:
         if not payload:
@@ -58,37 +89,142 @@ class StandardReport:
         rec = await self.core.db.repo.get("run", run_id)
         run_record = rec["data"] if rec else None
         report = build_report(run_id, events, {**body, "ts": payload.get("ts")}, self.station, run_record)
+        start_ts = (run_record or {}).get("started_ts") or report.get("ts") or payload.get("ts")
+        stamp = await self._business_stamp(start_ts)
+        report["business_day"] = stamp["business_day"]
+        report["shift_label"] = stamp["shift_label"]
+        model = await self._recipe_model(report.get("recipe_id"))   # Model is a recipe field
+        if model:
+            report["model"] = model
+
+        await self.outbox.enqueue(report)                   # write-ahead: never lost
+        self._kick.set()
         is_pass = result_is_pass(report["result"])
-        for sink in self._sinks:
+        for sink in self._sinks:                            # optional CSV/JSON mirrors
             if when_matches(sink.when, is_pass):
                 await sink.write(report)
-        self.core.diag.info("report", "report stored", run_id=run_id, result=report["result"])
+        self.core.diag.info("report", "report spooled", run_id=run_id, result=report["result"])
 
-    # --- queries -----------------------------------------------------------
+    async def _business_stamp(self, ts) -> dict:
+        from datetime import datetime
+        if not ts:
+            return {"business_day": None, "shift_label": None}
+        get = getattr(self.core, "get_contract", None)
+        if get is not None:
+            try:
+                info = await get("config").shift_for(ts)
+                return {"business_day": info["business_day"], "shift_label": info.get("shift_label")}
+            except KeyError:
+                pass
+        return {"business_day": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"), "shift_label": None}
+
+    async def _recipe_model(self, recipe_id) -> str | None:
+        if not recipe_id:
+            return None
+        get = getattr(self.core, "get_contract", None)
+        if get is None:
+            return None
+        try:
+            r = await get("recipe").get_recipe(recipe_id)
+            return r.get("model") or None
+        except Exception:  # noqa: BLE001 — no recipe / no model -> keep the run-record model
+            return None
+
+    # --- forwarder ---------------------------------------------------------
+
+    async def _forward_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.wait_for(self._kick.wait(), timeout=_RETRY_S)
+            except asyncio.TimeoutError:
+                pass
+            except asyncio.CancelledError:
+                raise
+            self._kick.clear()
+            await self._drain()
+
+    async def _drain(self) -> int:
+        """Forward queued reports to the pro DB; keep + retry on failure. Returns the
+        number forwarded (also called directly by tests)."""
+        if not self.store.configured:
+            return 0
+        sent = 0
+        for item in await self.outbox.pending():
+            try:
+                await self.store.write(item["report"])
+                await self.outbox.mark_done(item["run_id"])
+                sent += 1
+            except Exception as exc:  # noqa: BLE001 — keep the report; retry later
+                await self.outbox.mark_failed(item["run_id"], str(exc))
+                self.core.diag.warning("report", "forward to report DB failed (queued)",
+                                       run_id=item["run_id"], error=str(exc).splitlines()[0][:200])
+                break                                       # DB likely down; stop, retry next tick
+        return sent
+
+    # --- DB config ---------------------------------------------------------
+
+    async def get_db_config(self, *, redacted: bool = True) -> dict:
+        rec = await self.core.db.repo.get("config", _DB_CFG_ID)
+        cfg = (rec["data"] if rec else {}) or {}
+        if not redacted:
+            return cfg
+        return {"provider": cfg.get("provider"), "host": cfg.get("host"), "port": cfg.get("port"),
+                "database": cfg.get("database"), "user": cfg.get("user"),
+                "odbc_driver": cfg.get("odbc_driver"), "has_password": bool(cfg.get("password")),
+                "configured": bool(cfg.get("provider"))}
+
+    _NON_CFG = {"has_password", "configured"}     # redacted GET fields; never stored
+
+    def _merge(self, body: dict, current: dict) -> dict:
+        cfg = {**current, **{k: v for k, v in (body or {}).items()
+                             if k != "password" and k not in self._NON_CFG}}
+        pw = (body or {}).get("password")
+        cfg["password"] = pw if pw else current.get("password")   # blank keeps the stored password
+        return cfg
+
+    async def set_db_config(self, body: dict) -> dict:
+        current = await self.get_db_config(redacted=False)
+        cfg = self._merge(body, current)
+        await self.core.db.repo.put("config", cfg, id=_DB_CFG_ID, summary=f"report DB: {cfg.get('provider')}")
+        self.store.configure(cfg if cfg.get("provider") else None)
+        if self.store.configured:
+            try:
+                await self.store.ensure_schema()
+            except Exception as exc:  # noqa: BLE001
+                self.core.diag.warning("report", "schema check failed after config", error=str(exc))
+        self._kick.set()
+        self.core.diag.info("report", "report DB configured", provider=cfg.get("provider"))
+        return await self.get_db_config()
+
+    async def test_db_config(self, body: dict) -> dict:
+        current = await self.get_db_config(redacted=False)
+        return await self.store.test_connection(self._merge(body or {}, current))
+
+    # --- queries (delegated to the professional DB) ------------------------
 
     async def get_report(self, run_id: str) -> dict | None:
-        rec = await self.core.db.repo.get("report", run_id)
-        return rec["data"] if rec else None
+        return await self.store.get_report(run_id)
 
-    async def list_reports(
-        self, since: float | None = None, until: float | None = None,
-        recipe_id: str | None = None, result: str | None = None,
-        limit: int = 200, cursor: str | None = None,
-    ) -> dict:
-        rows = await self.core.db.repo.query("report", since=since, until=until)
-        items = []
-        for r in rows:
-            d = r["data"]
-            if recipe_id is not None and d.get("recipe_id") != recipe_id:
-                continue
-            if result is not None and d.get("result") != result:
-                continue
-            items.append(d)
-        return {"items": items[:limit], "next_cursor": None, "total": len(items)}
+    async def list_reports(self, **f) -> dict:
+        return await self.store.list_reports(**f)
 
-    async def dashboard(self, since=None, until=None, model=None, operator=None) -> dict:
-        reports = [r["data"] for r in await self.core.db.repo.query("report")]
-        return build_dashboard(reports, since=since, until=until, model=model, operator=operator)
+    async def report_models(self) -> list[str]:
+        return await self.store.report_models()
+
+    async def full_matrix(self, **f) -> dict:
+        return await self.store.full_matrix(**f)
+
+    async def full_csv(self, **f) -> bytes:
+        return await self.store.full_csv(**f)
+
+    async def dashboard(self, since=None, until=None, model=None, operator=None, shift=None) -> dict:
+        return await self.store.dashboard(since=since, until=until, model=model, operator=operator, shift=shift)
+
+    async def analytics(self, since=None, until=None, recipe_id=None) -> dict:
+        d = await self.store.dashboard(since=since, until=until)
+        k = d.get("kpis", {})
+        return {"total": k.get("runs", 0), "passed": k.get("passed", 0), "failed": k.get("failed", 0),
+                "yield": k.get("yield", 0.0), "configured": d.get("configured", False)}
 
     async def export(self, run_id: str, fmt: str = "json") -> bytes:
         report = await self.get_report(run_id)
@@ -96,29 +232,4 @@ class StandardReport:
             raise KeyError(run_id)
         if fmt == "csv":
             return report_to_csv(report).encode("utf-8")
-        return json.dumps(report, indent=2).encode("utf-8")
-
-    async def analytics(self, since: float | None = None, until: float | None = None,
-                        recipe_id: str | None = None) -> dict:
-        rows = await self.core.db.repo.query("report", since=since, until=until)
-        total = passed = failed = 0
-        by_recipe: dict[str, dict] = {}
-        by_result: dict[str, int] = {}
-        for r in rows:
-            d = r["data"]
-            if recipe_id is not None and d.get("recipe_id") != recipe_id:
-                continue
-            total += 1
-            res = str(d.get("result", "UNKNOWN"))
-            by_result[res] = by_result.get(res, 0) + 1
-            is_pass = result_is_pass(res)
-            passed, failed = (passed + 1, failed) if is_pass else (passed, failed + 1)
-            rc = by_recipe.setdefault(d.get("recipe_id") or "(none)",
-                                      {"total": 0, "passed": 0, "failed": 0})
-            rc["total"] += 1
-            rc["passed" if is_pass else "failed"] += 1
-        return {
-            "total": total, "passed": passed, "failed": failed,
-            "yield": round(100 * passed / total, 2) if total else 0.0,
-            "by_recipe": by_recipe, "by_result": by_result,
-        }
+        return json.dumps(report, indent=2, default=str).encode("utf-8")

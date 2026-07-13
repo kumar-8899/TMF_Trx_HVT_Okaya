@@ -28,9 +28,7 @@ def make_sink(spec: dict, db):
 
 
 def build_sinks(config: dict, db) -> list:
-    """Build the configured sinks, forcing the sqlite system-of-record present."""
-    specs = config.get("sinks") or [{"type": "sqlite", "when": "all"}]
-    sinks = [make_sink(s, db) for s in specs]
-    if not any(getattr(s, "method_id", None) == "sqlite" for s in sinks):
-        sinks.insert(0, SqliteSink(db, "all"))
-    return sinks
+    """Optional mirror sinks only. The report system-of-record is the professional DB
+    (ReportStore) via the local outbox — the old SQLite SoR sink is retired. Only
+    'folder' mirror specs are built; legacy 'sqlite'/'mysql' specs are ignored."""
+    return [make_sink(s, db) for s in (config.get("sinks") or []) if s.get("type") == "folder"]

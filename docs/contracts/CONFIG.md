@@ -9,6 +9,25 @@ It is a **pure config surface** — it captures connection profiles and asks Lab
 to probe them. It performs **no instrument I/O itself** (PRINCIPLES §0: hardware is
 LabVIEW's).
 
+## Shifts (business day + labels)
+
+The **Shift** section configures the production schedule and, with it, the
+**business day** analytics group by.
+
+- Config: `{enabled, shifts:[{label, start "HH:MM"}]}` (DB record `shift_config`).
+- **Locked model:** shifts **tile 24h contiguously** — each runs to the next shift's
+  start; the last wraps past midnight. The **business day rolls at the first (earliest)
+  shift's start**, so an overnight shift belongs to the calendar date it **started**
+  on. A run/report is assigned by its **start** time.
+- `shift_for(ts) -> {enabled, business_day, shift_label, index}` and `current_shift()`
+  live on the config module (contract + `GET /config/shift`, `PUT /config/shift`,
+  `GET /config/shift/current`). Disabled/none → `business_day` is the calendar date,
+  `shift_label` null.
+- **Report stamping (forward-only):** on run-finish the report module stamps
+  `business_day` + `shift_label` (via `config.shift_for(run_start_ts)`). Analytics
+  group day-counts by `business_day` (fallback calendar date for old reports) and add
+  a **shift** filter + `by_shift` breakdown. The Test Bench shows the current shift.
+
 ## Instrument ownership (one registry, two owners)
 
 Every instrument declares one **execution owner** (INSTRUMENT_LIBRARY §0 — disjoint):
