@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { api } from "../api/client";
 import { ConfirmDialog, PageHeader, Section } from "../components/ui";
+import { LicenseConfig } from "./config/LicenseConfig";
 import { ReportDbConfig } from "./config/ReportDbConfig";
 
 const RESET_ITEMS = [
@@ -65,6 +66,8 @@ export function Settings() {
             </Button>
           </Box>
         </Section>
+
+        <LicenseConfig />
 
         <ReportDbConfig />
 

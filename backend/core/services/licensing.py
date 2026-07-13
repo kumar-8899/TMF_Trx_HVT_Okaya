@@ -48,6 +48,17 @@ class Licensing:
         self._config = config
         self._diag = diag
 
+    def session(self):
+        """Symmetry with the Keystation provider (the run runner wraps a run in the
+        provider's session). The stub has no snapshot to pin ⇒ a no-op context."""
+        from contextlib import nullcontext
+        return nullcontext()
+
+    def status_payload(self) -> dict:
+        """UI-facing status (symmetry with the Keystation provider)."""
+        return {"provider": "stub", "available": True,
+                "detail": "path-based license.json (signature verification stubbed)"}
+
     def load_and_verify(self, license_path: str | None) -> License:
         try:
             raw = self._config.load_license(license_path)

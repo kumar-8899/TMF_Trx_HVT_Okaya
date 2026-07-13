@@ -9,7 +9,7 @@
   },
   "entitlement_key": "runs",
   "variants": ["default"],
-  "core_dependencies": ["bridge", "db", "diagnostics", "web", "interlock"],
+  "core_dependencies": ["bridge", "db", "diagnostics", "web", "interlock", "licensing"],
   "contract_dependencies": [],
   "contributes": {
     "api_prefix": "",

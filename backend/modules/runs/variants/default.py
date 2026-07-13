@@ -106,7 +106,17 @@ class DefaultRuns:
 
     async def run_start(self, body: dict | None = None) -> dict:
         """Resolve the recipe (direct id or from a barcode), mint a run_id, and
-        tell LabVIEW to start. LabVIEW pulls the recipe JSON via recipe.fetch."""
+        tell LabVIEW to start. LabVIEW pulls the recipe JSON via recipe.fetch.
+
+        The start decision runs inside the licensing session (Keystation touch-point
+        2, runner-wraps-session): entitlement snapshot pinned, issuer notice once.
+        LabVIEW owns execution, so Python's run boundary IS this start path."""
+        from contextlib import nullcontext
+        lic = getattr(self.core, "licensing", None)
+        with (lic.session() if lic is not None else nullcontext()):
+            return await self._run_start(body)
+
+    async def _run_start(self, body: dict | None = None) -> dict:
         body = body or {}
         recipe_id = body.get("recipe_id")
         barcode = body.get("barcode")

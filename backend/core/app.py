@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from core import __version__
 from core.framework.contract import Core
@@ -23,7 +23,7 @@ from core.services.interlock import InterlockPort
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
 from core.services.diagnostics import BusDiagSink, Diagnostics
-from core.services.licensing import Licensing
+from core.services.licensing_keystation import build_licensing
 from core.services.web import install_web
 
 DEFAULT_DB_PATH = Path(DEFAULT_CONFIG_DIR).parent / "data" / "tmf.sqlite"
@@ -85,9 +85,11 @@ def create_app(
         web.add_ready_check("db", lambda: _check(db.connected))
 
         # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
+        licensing = build_licensing(app_cfg, config, diag)   # stub | keystation (config-selected)
         core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web,
-                    interlock=interlock, station=station)
-        license = Licensing(config, diag).load_and_verify(app_cfg.get("license"))
+                    interlock=interlock, licensing=licensing, station=station)
+        license = licensing.load_and_verify(app_cfg.get("license"))
+        app.state.licensing = licensing   # activation endpoints + status surface
         discover()
         result: ActivationResult = await activate_modules(
             core=core,
@@ -154,6 +156,56 @@ def create_app(
         """Loaded vs skipped + reason — debug surface + entitlement mirror (CORE.md §4)."""
         result: ActivationResult = app.state.modules
         return result.status_payload()
+
+    # ---- licensing surface (secure distribution P1; Settings → License) ----
+    from fastapi import Depends, HTTPException
+
+    from core.services.security import require_permission
+
+    async def _license_guard(request: Request):
+        """SYSTEM.SETTINGS when the station is operational; open in ACTIVATION MODE
+        (auth module not active because the station is unlicensed — the classic
+        chicken-and-egg: you must be able to activate before anything can log in).
+        A hostile lease is rejected by the core's signature verification, and the
+        web edge is loopback-only."""
+        modules = getattr(request.app.state, "modules", None)
+        auth_active = bool(modules and "auth" in getattr(modules, "active", {}))
+        if auth_active:
+            await require_permission("SYSTEM.SETTINGS")(request)
+
+    _LIC = [Depends(_license_guard)]
+
+    @app.get("/license/status", dependencies=_LIC)
+    async def license_status() -> dict:
+        return app.state.licensing.status_payload()
+
+    @app.post("/license/request", dependencies=_LIC)
+    async def license_request(body: dict) -> dict:
+        """Airgap step 1: emit a device-signed .ksreq (Keystation provider only)."""
+        lic = app.state.licensing
+        if not hasattr(lic, "make_request"):
+            raise HTTPException(status_code=400, detail="provider does not support activation requests")
+        try:
+            return lic.make_request(body.get("product", "super_test_app"),
+                                    body.get("runtime", "python_framework"))
+        except Exception as exc:  # noqa: BLE001 — surface the SDK error honestly
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/license/activate", dependencies=_LIC)
+    async def license_activate(body: dict) -> dict:
+        """Ingest a .kslease bundle (path on the station). Restart applies the gate."""
+        lic = app.state.licensing
+        path = (body or {}).get("bundle_path", "")
+        if not path:
+            raise HTTPException(status_code=422, detail="bundle_path required")
+        if not hasattr(lic, "activate"):
+            raise HTTPException(status_code=400, detail="provider does not support activation")
+        try:
+            lic.activate(path)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"ok": True, "status": lic.status_payload(),
+                "note": "restart the station to re-run the module gate with the new lease"}
 
     return app
 

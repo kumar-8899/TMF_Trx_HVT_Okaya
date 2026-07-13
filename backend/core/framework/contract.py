@@ -54,6 +54,7 @@ SERVICE_ALIASES = {
     "diagnostics": "diag",
     "web": "web",
     "interlock": "interlock",
+    "licensing": "licensing",
 }
 
 
@@ -68,6 +69,7 @@ class CoreServices:
     diag: Any = None
     web: Any = None
     interlock: Any = None
+    licensing: Any = None    # licensing provider (stub | keystation): session() + load_and_verify()
     station: str = ""
     get_contract: Callable[[str], Any] | None = None
 
@@ -85,6 +87,7 @@ class Core:
         diag: Any = None,
         web: Any = None,
         interlock: Any = None,
+        licensing: Any = None,
         station: str = "",
     ) -> None:
         self.db = db
@@ -94,6 +97,7 @@ class Core:
         self.diag = diag
         self.web = web
         self.interlock = interlock
+        self.licensing = licensing
         self.station = station
         self.contracts: dict[str, Any] = {}  # active module_id -> instance (CORE.md §6.3)
 

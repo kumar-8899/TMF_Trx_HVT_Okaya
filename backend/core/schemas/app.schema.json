@@ -21,6 +21,17 @@
       }
     },
     "license": { "type": "string", "minLength": 1 },
+    "licensing": {
+      "type": "object",
+      "description": "Licensing provider selection (SECURE_DISTRIBUTION.md). Default: stub.",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "enum": ["stub", "keystation"] },
+        "core_lib": { "type": "string", "description": "Path to keystation_core.dll (else KEYSTATION_CORE_LIB env)." },
+        "key_map": { "type": "object", "additionalProperties": { "type": "string" },
+                     "description": "module[:variant] -> entitlement key overrides; default plugin.<module_id>." }
+      }
+    },
     "modules": {
       "type": "array",
       "items": {
