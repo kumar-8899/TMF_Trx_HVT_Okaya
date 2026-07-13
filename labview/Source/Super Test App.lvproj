@@ -21,6 +21,7 @@
 			<Item Name="Test Sequence Engine API.vi" Type="VI" URL="../Modules/Sequence Engine/Modules/Sequence Engine/Test Sequence Engine API.vi"/>
 		</Item>
 		<Item Name="Get Epoch Time.vi" Type="VI" URL="../Modules/MQTT Bridge/Get Epoch Time.vi"/>
+		<Item Name="Parse Recipe.vi" Type="VI" URL="../Modules/Sequence Engine/Modules/Sequence Engine/Parse Recipe.vi"/>
 		<Item Name="Test Result Payload.ctl" Type="VI" URL="../Modules/MQTT Bridge/Test Result Payload.ctl"/>
 		<Item Name="Dependencies" Type="Dependencies">
 			<Item Name="vi.lib" Type="Folder">
