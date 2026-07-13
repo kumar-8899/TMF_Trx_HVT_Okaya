@@ -33,7 +33,9 @@ from instrumentlib.interfaces import (
     IDigitalInput,
     IDigitalOutput,
     IElectronicLoad,
+    IFrequency,
     IPowerSource,
+    IResistance,
     ITemperature,
     Multiplexer,
 )
@@ -46,7 +48,7 @@ __all__ = [
     "Transport", "SimTransport", "FaultTransport", "FaultPlan",
     "Capability", "CAPABILITIES", "SCALAR_CAPABILITIES", "NON_SCALAR_CAPABILITIES",
     "IPowerSource", "IElectronicLoad", "IAnalogInput", "IDigitalInput",
-    "IDigitalOutput", "ITemperature", "Multiplexer", "DSO",
+    "IDigitalOutput", "ITemperature", "IResistance", "IFrequency", "Multiplexer", "DSO",
     "InstrumentError", "NotConnected", "NotSupported", "DeviceError",
     "CommandTimeout", "GarbageResponse", "IdentityMismatch", "TransportDisconnected",
 ]

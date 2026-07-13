@@ -2,8 +2,9 @@
 
 Each interface lists its method surface + `INTERFACE_VERSION`. Default methods
 raise `NotSupported`, so a library overrides only what it implements and interface
-growth (§2.3) never breaks existing libraries. A library implements exactly one
-PRIMARY interface (declared in `@instrument_library(capability=…)`).
+growth (§2.3) never breaks existing libraries. A library declares one or more
+capabilities in `@instrument_library(capabilities=[…])` and fully implements every
+one — a composite/multi-function instrument (e.g. a DMM/DAQ) mixes in several.
 
 Scalar interfaces are reachable via the variable engine; non-scalar ones only via
 `capability.request` and MUST NOT be bound in the variable map (§2.2).
@@ -81,6 +82,20 @@ class ITemperature(Capability):
     async def measure_temperature(self, channel: int) -> float: self._ns("measure_temperature")
 
 
+class IResistance(Capability):
+    INTERFACE, INTERFACE_VERSION = "resistance", 1
+    METHODS = ("measure_resistance",)
+
+    async def measure_resistance(self, channel: int) -> float: self._ns("measure_resistance")
+
+
+class IFrequency(Capability):
+    INTERFACE, INTERFACE_VERSION = "frequency", 1
+    METHODS = ("measure_frequency",)
+
+    async def measure_frequency(self, channel: int) -> float: self._ns("measure_frequency")
+
+
 # ---- non-scalar capabilities (capability.request only, §2.2) --------------
 
 class Multiplexer(Capability):
@@ -102,7 +117,7 @@ class DSO(Capability):
 
 
 _ALL = (IPowerSource, IElectronicLoad, IAnalogInput, IDigitalInput,
-        IDigitalOutput, ITemperature, Multiplexer, DSO)
+        IDigitalOutput, ITemperature, IResistance, IFrequency, Multiplexer, DSO)
 
 CAPABILITIES: dict[str, type[Capability]] = {c.INTERFACE: c for c in _ALL}
 SCALAR_CAPABILITIES = {c.INTERFACE for c in _ALL if c.SCALAR}

@@ -32,7 +32,7 @@ IDN = "ACME,PS1,SN1,1.0"
 
 @instrument_library(
     library_id="ref_supply", vendor="ACME", model="PS1",
-    capability="power_source", interface_version=1, transports=["sim"],
+    capabilities=["power_source"], interface_version=1, transports=["sim"],
     connection_params={}, library_version="1.0.0",
     generated_by="test", manual_reference="none",
 )
@@ -210,7 +210,7 @@ async def test_emergency_disable_fans_out():
 
 def test_duplicate_library_id_fails_loud():
     with pytest.raises(ValueError):
-        @_decorate(library_id="ref_supply", vendor="X", model="Y", capability="power_source",
+        @_decorate(library_id="ref_supply", vendor="X", model="Y", capabilities=["power_source"],
                    interface_version=1, transports=["sim"], library_version="1.0.0")
         class _Dup(InstrumentBase, IPowerSource):
             pass
@@ -219,7 +219,7 @@ def test_duplicate_library_id_fails_loud():
 def test_index_lists_the_library():
     idx = build_index()
     ref = next(l for l in idx["libraries"] if l["library_id"] == "ref_supply")
-    assert ref["capability"] == "power_source" and ref["scalar"] is True and "class" not in ref
+    assert ref["capabilities"] == ["power_source"] and ref["scalar"] is True and "class" not in ref
 
 
 # ---- the conformance gate itself ------------------------------------------

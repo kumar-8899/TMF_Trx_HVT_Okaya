@@ -5,6 +5,7 @@
       "name": "TMF Backend (FastAPI/uvicorn)",
       "runtimeExecutable": "python",
       "runtimeArgs": ["run.py"],
+      "cwd": "backend",
       "port": 8000
     },
     {

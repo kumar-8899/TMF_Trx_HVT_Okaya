@@ -71,6 +71,7 @@ class InstanceRegistry:
         live = [{
             "id": i.instance_id,
             "library": getattr(type(i), "_declaration", {}).get("library_id"),
+            "capabilities": getattr(type(i), "_declaration", {}).get("capabilities", []),
             "state": i.state, "simulated": i.simulated,
         } for i in self._by_id.values()]
         skipped = [{"id": s["id"], "library": s["library"], "state": "skipped",

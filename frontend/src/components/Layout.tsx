@@ -2,7 +2,7 @@ import {
   Article, Assessment, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
   GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
-  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TuneOutlined,
+  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TroubleshootOutlined, TuneOutlined,
 } from "@mui/icons-material";
 import {
   AppBar, Box, Collapse, Drawer, IconButton, List, ListItemButton, ListItemIcon,
@@ -27,6 +27,7 @@ interface NavItem {
   to?: string;          // leaf has `to`; a group has `children` instead
   icon: React.ReactNode;
   perm?: string;        // undefined = always shown
+  role?: string;        // restrict to a role (e.g. super_admin)
   children?: NavItem[]; // cascaded menu group
 }
 
@@ -39,6 +40,7 @@ const NAV: NavItem[] = [
   { label: "Analytics", to: "/analytics", icon: <QueryStatsOutlined />, perm: "REPORT.VIEW" },
   { label: "Health", to: "/health", icon: <FavoriteBorder />, perm: "HEALTH.VIEW" },
   { label: "Maintenance", to: "/maintenance", icon: <BuildOutlined />, perm: "HEALTH.MAINTENANCE" },
+  { label: "Test Bench", to: "/instruments/test", icon: <TroubleshootOutlined />, role: "super_admin" },
   {
     label: "Config", icon: <TuneOutlined />, perm: "CONFIG.VIEW", children: [
       { label: "Instruments", to: "/config/instruments", icon: <MemoryOutlined /> },
@@ -119,10 +121,10 @@ function NavGroup({ n, can }: { n: NavItem; can: (p: string) => boolean }) {
 }
 
 export function Layout({ hideNav = false }: { hideNav?: boolean }) {
-  const { can } = useAuth();
+  const { can, principal } = useAuth();
   const { mode, toggle } = useColorMode();
   const branding = useBranding();
-  const items = NAV.filter((n) => !n.perm || can(n.perm));
+  const items = NAV.filter((n) => (!n.perm || can(n.perm)) && (!n.role || principal?.role === n.role));
   const showHelp = can("HELP.VIEW");
   const [helpOpen, setHelpOpen] = useState(false);
 

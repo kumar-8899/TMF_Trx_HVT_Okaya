@@ -2,7 +2,7 @@ import { Box, CircularProgress } from "@mui/material";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import { useAuth } from "./auth/AuthContext";
-import { RequirePermission } from "./auth/RequirePermission";
+import { RequirePermission, RequireRole } from "./auth/RequirePermission";
 import { Layout } from "./components/Layout";
 import { ChangePassword } from "./screens/ChangePassword";
 import { Daq } from "./screens/Daq";
@@ -19,6 +19,7 @@ import { ConfigShift } from "./screens/config/Shift";
 import { Diagnostics } from "./screens/Diagnostics";
 import { Health } from "./screens/Health";
 import { Help } from "./screens/Help";
+import { InstrumentTestBench } from "./screens/InstrumentTestBench";
 import { Maintenance } from "./screens/Maintenance";
 import { Permissions } from "./screens/Permissions";
 import { Recipes } from "./screens/Recipes";
@@ -65,6 +66,7 @@ export function App() {
           <Route path="/config/shift" element={<RequirePermission perm="CONFIG.VIEW"><ConfigShift /></RequirePermission>} />
           <Route path="/config/mes" element={<RequirePermission perm="CONFIG.VIEW"><ConfigMes /></RequirePermission>} />
           <Route path="/maintenance" element={<RequirePermission perm="HEALTH.MAINTENANCE"><Maintenance /></RequirePermission>} />
+          <Route path="/instruments/test" element={<RequireRole role="super_admin"><InstrumentTestBench /></RequireRole>} />
           <Route path="/diagnostics" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Diagnostics /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />

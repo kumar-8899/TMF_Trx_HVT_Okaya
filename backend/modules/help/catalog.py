@@ -37,6 +37,7 @@ PAGES: list[Page] = [
     Page("user-daq", "DAQ", "user", "Operations", "help/user/daq.md", "/daq"),
     Page("user-health", "Production Readiness", "user", "Health & maintenance", "help/user/health.md", "/health"),
     Page("user-maintenance", "Maintenance Console", "user", "Health & maintenance", "help/user/maintenance.md", "/maintenance"),
+    Page("user-instrument-test", "Instrument Test Bench", "user", "Health & maintenance", "help/user/instrument-test.md", "/instruments/test"),
     Page("user-instruments", "Instruments", "user", "Configuration", "help/user/instruments.md", "/config/instruments"),
     Page("user-shift", "Shifts", "user", "Configuration", "help/user/shift.md", "/config/shift"),
     Page("user-mes", "MES interlock", "user", "Configuration", "help/user/mes.md", "/config/mes"),

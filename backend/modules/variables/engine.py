@@ -50,7 +50,7 @@ class VariableEngine:
         if not v.get("read"):
             raise VariableError(f"variable '{name}' is not readable", method="read")
         inst = self.instances.require(v["instance"])
-        raw = await inst.invoke(v["read"])
+        raw = await inst.invoke(v["read"], *(v.get("args") or []))   # leading fixed args e.g. channel
         gain, offset = _scale(v)
         return {"name": name, "value": raw * gain + offset, "raw": raw, "units": v.get("units")}
 
@@ -65,7 +65,7 @@ class VariableEngine:
         gain, offset = _scale(v)
         scaled = (clamped - offset) / gain if gain else clamped   # inverse scale
         inst = self.instances.require(v["instance"])
-        await inst.invoke(v["write"], scaled)
+        await inst.invoke(v["write"], *(v.get("args") or []), scaled)   # args (e.g. channel), value last
         return {"name": name, "written": clamped, "requested": value, "clamped": was_clamped}
 
     async def read_many(self, names: list[str]) -> dict:

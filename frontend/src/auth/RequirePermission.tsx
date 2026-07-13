@@ -10,3 +10,13 @@ export function RequirePermission({ perm, children }: { perm: string; children: 
   }
   return <>{children}</>;
 }
+
+// Role guard — restricts a page to a specific role (e.g. super_admin). Cosmetic; the
+// API still enforces via require_role.
+export function RequireRole({ role, children }: { role: string; children: React.ReactNode }) {
+  const { principal } = useAuth();
+  if (principal?.role !== role) {
+    return <Alert severity="warning">This page requires the <code>{role}</code> role.</Alert>;
+  }
+  return <>{children}</>;
+}

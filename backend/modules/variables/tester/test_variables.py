@@ -16,7 +16,7 @@ from modules.variables.variants.default import DefaultVariables
 
 
 @instrument_library(
-    library_id="vtest_supply", vendor="T", model="PS", capability="power_source",
+    library_id="vtest_supply", vendor="T", model="PS", capabilities=["power_source"],
     interface_version=1, transports=["sim"], library_version="1.0.0",
     generated_by="test", manual_reference="none",
 )
@@ -128,6 +128,21 @@ async def test_libraries_and_instance_status(mod):
     assert "vtest_supply" in libs
     st = {s["id"]: s for s in m.instance_status()}
     assert st["load_1"]["state"] == "connected" and st["load_1"]["library"] == "vtest_supply"
+    assert st["load_1"]["capabilities"] == ["power_source"]   # panel maps instance -> capability
+
+
+async def test_capabilities_catalog(mod):
+    m, _ = mod
+    cat = m.capabilities()
+    assert "power_source" in cat["capabilities"]
+    ps = {x["method"]: x for x in cat["capabilities"]["power_source"]["methods"]}
+    # every scalar interface method is described (drift assert also enforces this on import)
+    from instrumentlib.interfaces import IPowerSource
+    assert set(ps) == set(IPowerSource.METHODS)
+    assert ps["set_voltage"]["kind"] == "set" and ps["set_voltage"]["args"][0]["name"] == "volts"
+    assert ps["output_enable"]["kind"] == "toggle"
+    assert ps["measure_voltage"]["kind"] == "read"
+    assert {b["method"] for b in cat["base_actions"]} == {"safe_state", "emergency_disable"}
 
 
 async def test_instances_sourced_from_config_module():
