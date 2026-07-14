@@ -176,6 +176,18 @@ Scaffolded from framework **__FWTAG__** by `tools/new_app.py`. This is a fork; e
 app-owned paths (TEMPLATE.md §1). Framework code stays read-only so `git merge upstream
 vX.Y.Z` upgrades cleanly.
 
+## 0. Install + run locally (first)
+A clone is **source only** — `node_modules/` and the Python venv are gitignored, so the
+app can't run until deps are installed (otherwise `'vite' is not recognized`). The
+scaffolder offers to do this; to do it by hand:
+```bash
+cd backend
+pip install -e instrumentlib        # if the folder exists
+pip install -e ".[dev]"
+cd ../frontend && npm install
+cd .. && .\dev.ps1                   # broker + backend + frontend (or: cd frontend && npm run dev)
+```
+
 ## 1. Git remotes (once)
 ```bash
 git remote rename origin upstream                 # framework stays 'upstream'
