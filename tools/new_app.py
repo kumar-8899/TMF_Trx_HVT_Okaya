@@ -284,8 +284,14 @@ def main() -> int:
             have.add(mid)
     if mod not in have:                                                # the app module itself
         mods.append({"id": mod, "variant": "default"})
-    (out / "backend" / "config").mkdir(parents=True, exist_ok=True)
-    (out / "backend" / "config" / "app.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    cfgdir = out / "backend" / "config"
+    cfgdir.mkdir(parents=True, exist_ok=True)
+    blob = json.dumps(cfg, indent=2)
+    # app.example.json is TRACKED + Nuitka-bundled → it carries the app identity into the
+    # built artifact (config/app.json is gitignored + per-station; config.load falls back
+    # to the example, so the shipped app IS the customer app). Write both.
+    (cfgdir / "app.example.json").write_text(blob, encoding="utf-8")
+    (cfgdir / "app.json").write_text(blob, encoding="utf-8")
 
     # app module (prefixed)
     md = out / "backend" / "modules" / mod

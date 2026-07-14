@@ -31,11 +31,12 @@ def _scaffold(tmp_path):
 
 def test_app_json_identity(tmp_path):
     out = _scaffold(tmp_path)
-    cfg = json.loads((out / "backend" / "config" / "app.json").read_text())
-    assert cfg["licensing"]["product"] == "exeliq.acme_eol"
-    assert cfg["updates"]["github_repo"] == "exeliq/app-acme-eol"
-    assert cfg["branding"]["name"] == "Acme EOL"
-    assert any(m["id"] == "acme_eol" for m in cfg["modules"])
+    for name in ("app.json", "app.example.json"):   # both carry the identity; example ships
+        cfg = json.loads((out / "backend" / "config" / name).read_text())
+        assert cfg["licensing"]["product"] == "exeliq.acme_eol", name
+        assert cfg["updates"]["github_repo"] == "exeliq/app-acme-eol", name
+        assert cfg["branding"]["name"] == "Acme EOL", name
+        assert any(m["id"] == "acme_eol" for m in cfg["modules"]), name
 
 
 def test_module_stub_valid(tmp_path):
