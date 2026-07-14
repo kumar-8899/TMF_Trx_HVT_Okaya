@@ -89,16 +89,21 @@ mints a dev lease — verified green on this workstation.
 
 ## 5. Release protection (P2)
 
+> **Who builds:** the **app repo** builds + signs its licensed artifact — **not** the
+> framework. The framework ships *source + git tags* (RELEASE_HOWTO.md); it *provides*
+> the build/sign tools below, which a forked app repo runs in its own CI. The framework
+> repo has only `ci.yml` (tests).
+
 - **Nuitka** compiles the backend Python → C → native machine code (real IP
-  protection; decompilation ≈ reverse-engineering a C binary). This is the Keystation
-  `python_framework` **framework-track** artifact. PyInstaller (`tmf-sidecar.spec`)
-  remains for dev-only bundles (it only zips `.pyc`s — no protection).
-- Build: `cd backend && pip install -e ".[release]" && python build_release.py`
-  → `release-build/` = `run.dist/` (compiled backend + bundled manifests/schemas)
-  + `docs/` (in-app help) + `frontend/` (built SPA) + `keystation_core.dll`
-  + `RELEASE.json` (version + SHA-256 of every file).
-- CI: `.github/workflows/ci.yml` (tests on every push/PR — no DLL needed) and
-  `release.yml` (on `release/*` or a `v*` tag: tests → Nuitka build → artifact upload).
+  protection; decompilation ≈ reverse-engineering a C binary). PyInstaller
+  (`tmf-sidecar.spec`) remains for dev-only bundles (it only zips `.pyc`s — no protection).
+- Build (run in the app repo): `python build_release.py --track app --product <slug>
+  --pinned-fw-version X.Y.Z` → `release-build/` = `run.dist/` (compiled backend + bundled
+  manifests/schemas) + `docs/` + `frontend/` (built SPA) + `keystation_core.dll`
+  + `RELEASE.json` (version + SHA-256 of every file). `--track framework` exists for
+  framework self-test only.
+- The app repo's `release.yml` (a template ships in P-b2) runs: tests → Nuitka →
+  zip+hash → sign the app `.ksupdate` → publish the app's GitHub Release.
 - Registration as a **signed** Keystation framework release (manifest + signed
   `build_timestamp` + SBOM) is issuer-side; private signing keys live in the issuer /
   HSM / CI secrets — never in this repo.
@@ -139,32 +144,34 @@ v1.1.0 ingest → applicable → apply → **chip "Relaunch to update v1.1.0"** 
 exit 42 → launcher restart → `/healthz` 200, 11/11 modules; v0.9.0 → rejected; tampered
 manifest → 502.
 
-## 6a. Release cycle on GitHub (the complete loop)
+## 6a. Release cycle (two tiers)
+
+The **framework** ships source; the **app repo** ships the licensed build. Two loops:
 
 ```
-git tag vX.Y.Z && git push origin vX.Y.Z          # you cut a release
-      │
-   .github/workflows/release.yml (GitHub Actions, on tag v*)
-      │  test → Nuitka build → zip + sha256 → sign .ksupdate → gh release create
-      ▼
-   GitHub Release vX.Y.Z  { super_test_app-vX.Y.Z.zip, .ksupdate, RELEASE.json }
-      │
-   station: Settings → Updates → "Check for updates"  (POST /update/check)
-      │  pulls the latest Release's .ksupdate → verify (core) → offer
-      ▼
-   "Relaunch to update vX" chip → click → launcher swaps the zip → restart
+FRAMEWORK (this repo)                       APP repo (per customer, forks a tag)
+  bump + CHANGELOG                            git checkout vX.Y.Z   (fork the tag)
+  git tag vX.Y.Z && push       ──fork──►      + app.json / modules/<app>_* / branding
+  ci.yml = tests only                         its release.yml (on tag): test → Nuitka →
+  NO build, NO Release                         sign app .ksupdate → app GitHub Release
+                                                      │
+                                        station: Settings → Updates → "Check for updates"
+                                          → verify (core) → offer → "Relaunch to update"
+                                          → launcher swaps the zip → restart
 ```
 
-**One-time GitHub setup** (needs a PAT with **Contents + Actions/Secrets + Workflows =
-Read/Write** on the repo):
+**Framework release** = `git tag vX.Y.Z` (RELEASE_HOWTO.md). No secrets, no build here.
+
+**App repo one-time setup** (its own repo; PAT with Contents + Actions/Secrets +
+Workflows = R/W):
 ```
-gh secret set KS_INTERMEDIATE_SEED  < .secrets/KS_INTERMEDIATE_SEED.txt  --repo <owner>/<repo>
-gh secret set KS_INTERMEDIATE_CERT  < .secrets/KS_INTERMEDIATE_CERT.json --repo <owner>/<repo>
+gh secret set KS_INTERMEDIATE_SEED  < .secrets/KS_INTERMEDIATE_SEED.txt  --repo <owner>/<app-repo>
+gh secret set KS_INTERMEDIATE_CERT  < .secrets/KS_INTERMEDIATE_CERT.json --repo <owner>/<app-repo>
 ```
 `.secrets/` holds the **dev** signing material (root-signed intermediate seed + cert,
-gitignored). For production, run the Keystation **root ceremony** (runbooks) → embed the
-prod root in the core DLL → mint a prod intermediate cert offline → store the prod seed as
-the Actions secret. The root private key never touches CI.
+gitignored). Production: Keystation **root ceremony** (runbooks) → embed the prod root in
+the core DLL → mint a prod intermediate cert offline → store the prod seed as the app
+repo's Actions secret. The root private key never touches CI.
 
 **Station config** (`app.json`, gitignored):
 ```json
@@ -179,7 +186,7 @@ feat/<topic>    branch per change:        git checkout -b feat/<topic>
                 commit small + often:     git add <files> && git commit
                 push + open a PR:         git push -u origin feat/<topic>
                 merge via the PR once CI is green
-release/x.y     cut from main for a release; CI builds + signs here
+vX.Y.Z          annotated tag on main = a framework release (the fork point; no build)
 vX.Y.Z          annotated tag = the immutable release:  git tag -a vX.Y.Z -m "..."
 ```
 
