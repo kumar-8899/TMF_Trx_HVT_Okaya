@@ -95,6 +95,7 @@ def create_app(
         from core.services.updates import UpdateService
         app.state.updates = UpdateService(db, licensing, diag, current_version=__version__,
                                           data_dir=DEFAULT_DB_PATH.parent)
+        app.state.update_source = app_cfg.get("updates", {})   # {github_repo, github_token?}
         discover()
         result: ActivationResult = await activate_modules(
             core=core,
@@ -227,7 +228,21 @@ def create_app(
     @app.get("/update/offers", dependencies=_LIC)
     async def update_offers() -> dict:
         return {"current": app.state.updates.current(),
-                "offers": await app.state.updates.list_offers()}
+                "offers": await app.state.updates.list_offers(),
+                "source": app.state.update_source.get("github_repo")}
+
+    @app.post("/update/check", dependencies=_LIC)
+    async def update_check() -> dict:
+        """Pull + ingest the latest signed .ksupdate from the configured GitHub repo."""
+        src = app.state.update_source
+        repo = src.get("github_repo")
+        if not repo:
+            raise HTTPException(status_code=400, detail="no updates.github_repo configured")
+        token = src.get("github_token") or os.environ.get("TMF_UPDATE_TOKEN")
+        try:
+            return await app.state.updates.check_github(repo, token)
+        except Exception as exc:  # noqa: BLE001 — network / no-release / verify failure
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.post("/update/apply/{release_id}", dependencies=_LIC)
     async def update_apply(release_id: str) -> dict:

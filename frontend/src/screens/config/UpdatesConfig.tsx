@@ -1,4 +1,4 @@
-import { Alert, Button, Chip, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
@@ -12,14 +12,25 @@ import { MONO_STACK } from "../../theme/theme";
 export function UpdatesConfig() {
   const [current, setCurrent] = useState<any>(null);
   const [offers, setOffers] = useState<any[]>([]);
+  const [source, setSource] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const refresh = () => api.get("/update/offers")
-    .then((r) => { setCurrent(r.current); setOffers(r.offers || []); })
+    .then((r) => { setCurrent(r.current); setOffers(r.offers || []); setSource(r.source || null); })
     .catch((e) => setError(e.message));
   useEffect(() => { refresh(); }, []);
+
+  const checkGithub = async () => {
+    setChecking(true); setError(null); setMsg(null);
+    try {
+      const r = await api.post("/update/check", {});
+      setMsg(`Pulled ${r.release} from ${r.source} — ${r.version} ${r.verdict?.applicable ? "applicable" : "not applicable"}`);
+      refresh();
+    } catch (e: any) { setError(e.message); } finally { setChecking(false); }
+  };
 
   const ingest = async () => {
     setError(null); setMsg(null);
@@ -50,9 +61,14 @@ export function UpdatesConfig() {
       </Typography>
 
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-        <TextField size="small" label=".ksupdate path on station" value={path}
-          onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 340 }} />
-        <Button variant="contained" disabled={!path} onClick={ingest}>Ingest update</Button>
+        <Button variant="contained" disabled={!source || checking} onClick={checkGithub}>
+          {checking ? "Checking…" : "Check for updates"}
+        </Button>
+        {source && <Typography variant="caption" color="text.secondary">source: {source}</Typography>}
+        <Box sx={{ width: 16 }} />
+        <TextField size="small" label="or .ksupdate path on station" value={path}
+          onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 300 }} />
+        <Button variant="outlined" disabled={!path} onClick={ingest}>Ingest file</Button>
       </Stack>
 
       {offers.length === 0 ? (

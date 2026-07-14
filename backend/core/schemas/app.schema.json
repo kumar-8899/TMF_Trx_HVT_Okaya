@@ -32,6 +32,15 @@
                      "description": "module[:variant] -> entitlement key overrides; default plugin.<module_id>." }
       }
     },
+    "updates": {
+      "type": "object",
+      "description": "Signed code-update source (SECURE_DISTRIBUTION.md §6).",
+      "additionalProperties": false,
+      "properties": {
+        "github_repo": { "type": "string", "description": "owner/repo whose latest Release carries the .ksupdate asset." },
+        "github_token": { "type": "string", "description": "Read token for a private repo (or set TMF_UPDATE_TOKEN env). Omit for public." }
+      }
+    },
     "modules": {
       "type": "array",
       "items": {

@@ -96,6 +96,43 @@ class UpdateService:
                         applicable=verdict["applicable"])
         return rec
 
+    async def check_github(self, repo: str, token: str | None = None) -> dict:
+        """Pull the latest GitHub Release's `.ksupdate` asset and ingest it (verify +
+        offer). Closes the CI→station loop. Blocking HTTP runs off the event loop."""
+        import asyncio
+        from pathlib import Path
+
+        def _fetch() -> tuple[str, bytes, str]:
+            import json as _json
+            import urllib.request
+            base = {"User-Agent": "tmf-station", "Accept": "application/vnd.github+json"}
+            if token:
+                base["Authorization"] = f"Bearer {token}"
+            api = f"https://api.github.com/repos/{repo}/releases/latest"
+            rel = _json.loads(urllib.request.urlopen(
+                urllib.request.Request(api, headers=base), timeout=20).read())
+            asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".ksupdate")), None)
+            if asset is None:
+                raise RuntimeError(f"no .ksupdate asset in {repo} latest release {rel.get('tag_name')}")
+            # private-repo asset download needs the API url + octet-stream
+            dl = {"User-Agent": "tmf-station", "Accept": "application/octet-stream"}
+            url = asset["browser_download_url"]
+            if token:
+                dl["Authorization"] = f"Bearer {token}"
+                url = asset["url"]
+            data = urllib.request.urlopen(
+                urllib.request.Request(url, headers=dl), timeout=120).read()
+            return asset["name"], data, rel.get("tag_name", "?")
+
+        name, data, tag = await asyncio.get_running_loop().run_in_executor(None, _fetch)
+        dest = Path(self._data_dir or ".") / "updates"
+        dest.mkdir(parents=True, exist_ok=True)
+        path = dest / name
+        path.write_bytes(data)
+        self._diag.info("updates", "pulled update from github", repo=repo, release=tag, file=name)
+        rec = await self.ingest(str(path))
+        return {"source": repo, "release": tag, **rec}
+
     async def list_offers(self) -> list[dict]:
         rows = await self._db.repo.query(_OFFER)
         offers = [r["data"] for r in rows]
