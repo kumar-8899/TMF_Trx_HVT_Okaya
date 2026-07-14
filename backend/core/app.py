@@ -91,6 +91,12 @@ def create_app(
                     interlock=interlock, licensing=licensing, station=station)
         license = licensing.load_and_verify(app_cfg.get("license"))
         app.state.licensing = licensing   # activation endpoints + status surface
+        # The LICENSED unit's identity. For the framework repo this is the framework
+        # itself (dev); a derived customer app sets licensing.product to its own
+        # app-track slug (SECURE_DISTRIBUTION.md; TEMPLATE.md two-tier model).
+        _lic_cfg = app_cfg.get("licensing") or {}
+        app.state.license_product = _lic_cfg.get("product") or "super_test_app"
+        app.state.license_runtime = _lic_cfg.get("runtime") or "python_framework"
 
         from core.services.updates import UpdateService
         app.state.updates = UpdateService(db, licensing, diag, current_version=__version__,
@@ -183,17 +189,21 @@ def create_app(
 
     @app.get("/license/status", dependencies=_LIC)
     async def license_status() -> dict:
-        return app.state.licensing.status_payload()
+        return {**app.state.licensing.status_payload(),
+                "product": app.state.license_product, "runtime": app.state.license_runtime}
 
     @app.post("/license/request", dependencies=_LIC)
     async def license_request(body: dict) -> dict:
-        """Airgap step 1: emit a device-signed .ksreq (Keystation provider only)."""
+        """Airgap step 1: emit a device-signed .ksreq for THIS deployment's product
+        (config-driven; a customer app requests its own app-track slug, not the
+        framework's)."""
         lic = app.state.licensing
         if not hasattr(lic, "make_request"):
             raise HTTPException(status_code=400, detail="provider does not support activation requests")
+        product = (body or {}).get("product") or app.state.license_product
+        runtime = (body or {}).get("runtime") or app.state.license_runtime
         try:
-            return lic.make_request(body.get("product", "super_test_app"),
-                                    body.get("runtime", "python_framework"))
+            return lic.make_request(product, runtime)
         except Exception as exc:  # noqa: BLE001 — surface the SDK error honestly
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 

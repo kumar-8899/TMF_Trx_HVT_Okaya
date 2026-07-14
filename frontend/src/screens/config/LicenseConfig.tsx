@@ -53,6 +53,10 @@ export function LicenseConfig() {
           <Typography variant="caption" color="text.secondary" display="block">PROVIDER</Typography>
           <Typography sx={{ fontFamily: MONO_STACK }}>{st?.provider ?? "—"}</Typography>
         </Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary" display="block">PRODUCT</Typography>
+          <Typography sx={{ fontFamily: MONO_STACK }}>{st?.product ?? "—"}</Typography>
+        </Box>
         {keystation && (
           <>
             <Box>

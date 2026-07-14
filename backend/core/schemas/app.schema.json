@@ -28,6 +28,8 @@
       "properties": {
         "provider": { "enum": ["stub", "keystation"] },
         "core_lib": { "type": "string", "description": "Path to keystation_core.dll (else KEYSTATION_CORE_LIB env)." },
+        "product": { "type": "string", "description": "The LICENSED unit's Keystation product slug. Framework repo: super_test_app (dev). A derived customer app sets its own app-track slug (e.g. exeliq.acme_eol)." },
+        "runtime": { "enum": ["python_framework", "labview_standalone"], "description": "Keystation runtime discriminator (default python_framework)." },
         "key_map": { "type": "object", "additionalProperties": { "type": "string" },
                      "description": "module[:variant] -> entitlement key overrides; default plugin.<module_id>." }
       }
