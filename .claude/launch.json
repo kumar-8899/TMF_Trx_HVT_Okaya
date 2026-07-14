@@ -9,6 +9,13 @@
       "port": 8000
     },
     {
+      "name": "TMF Launcher (supervises backend + applies updates)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["launcher.py"],
+      "cwd": "backend",
+      "port": 8000
+    },
+    {
       "name": "TMF Frontend (Vite)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],

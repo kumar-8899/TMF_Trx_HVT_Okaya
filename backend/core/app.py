@@ -7,6 +7,7 @@ client and its readiness gate land in P4.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -92,7 +93,8 @@ def create_app(
         app.state.licensing = licensing   # activation endpoints + status surface
 
         from core.services.updates import UpdateService
-        app.state.updates = UpdateService(db, licensing, diag, current_version=__version__)
+        app.state.updates = UpdateService(db, licensing, diag, current_version=__version__,
+                                          data_dir=DEFAULT_DB_PATH.parent)
         discover()
         result: ActivationResult = await activate_modules(
             core=core,
@@ -235,6 +237,23 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/update/relaunch/{release_id}", dependencies=_LIC)
+    async def update_relaunch(release_id: str) -> dict:
+        """Write the launcher marker + exit with the RELAUNCH code (42) so the
+        supervisor swaps the staged artifact and restarts. Requires the launcher —
+        a bare backend just exits."""
+        import threading
+        try:
+            marker = await app.state.updates.request_relaunch(release_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # exit AFTER the HTTP response is flushed, so the UI gets the ack.
+        threading.Timer(0.6, lambda: os._exit(42)).start()
+        return {"ok": True, "relaunching": marker.get("version"),
+                "note": "station is relaunching to apply the update"}
 
     return app
 

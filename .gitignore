@@ -36,3 +36,9 @@ Thumbs.db
 release-build/
 backend/run.build/
 backend/run.dist/
+
+# Keystation runtime state + local core DLL (never commit; machine-bound / binary)
+backend/.keystation/
+**/keystation_core.dll
+backend/data/relaunch.json
+backend/data/launcher.log

@@ -19,6 +19,7 @@ import { BrandMark } from "./BrandMark";
 import { HelpPanel } from "./help/HelpPanel";
 import { StatusDot } from "./ui";
 import { SessionPanel } from "./SessionPanel";
+import { UpdateChip } from "./UpdateChip";
 
 const DRAWER_WIDTH = 232;
 
@@ -152,6 +153,7 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
             {branding.name}
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
+          <UpdateChip />
           <LinkStatus />
           {showHelp && (
             <Tooltip title="Help (F1)">

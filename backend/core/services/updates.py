@@ -36,12 +36,14 @@ class UpdateService:
     `core.diag`. `current_version` is the running framework version (core.__version__);
     `current_abi` is the core ABI the framework was built against (-1 = unknown)."""
 
-    def __init__(self, db, licensing, diag, *, current_version: str, current_abi: int = -1):
+    def __init__(self, db, licensing, diag, *, current_version: str, current_abi: int = -1,
+                 data_dir=None):
         self._db = db
         self._lic = licensing
         self._diag = diag
         self._version = current_version
         self._abi = current_abi
+        self._data_dir = data_dir   # where the launcher reads relaunch.json
 
     # ---- resolve (publish != deploy) --------------------------------------
 
@@ -117,6 +119,36 @@ class UpdateService:
                            version=offer.get("version"))
         return {"ok": True, "release_id": release_id, "status": "apply_pending",
                 "note": "staged — restart the station via the launcher to apply the new artifact"}
+
+    async def request_relaunch(self, release_id: str) -> dict:
+        """Operator clicked 'Relaunch to update'. Write the launcher marker
+        (data/relaunch.json) so the supervisor swaps the staged artifact on the next
+        start; the caller then exits the process with the RELAUNCH code (42)."""
+        import json
+        from pathlib import Path
+        rec = await self._db.repo.get(_OFFER, release_id)
+        if rec is None:
+            raise KeyError(f"no offered update '{release_id}'")
+        offer = rec["data"]
+        if not offer.get("verdict", {}).get("applicable"):
+            raise ValueError("update not applicable")
+        marker = {
+            "release_id": release_id,
+            "version": offer.get("version"),
+            "staged_dir": offer.get("staged_dir"),         # None in dev → launcher restarts only
+            "expected_hash": offer.get("full_artifact_hash"),
+            "requested_ts": time.time(),
+        }
+        if self._data_dir is not None:
+            d = Path(self._data_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "relaunch.json").write_text(json.dumps(marker, indent=2), encoding="utf-8")
+        offer["status"] = "relaunch_requested"
+        await self._db.repo.put(_OFFER, offer, id=release_id,
+                                summary=f"{offer['track']} {offer['version']} (relaunch requested)")
+        self._diag.warning("updates", "relaunch requested", release_id=release_id,
+                           version=offer.get("version"))
+        return marker
 
     def current(self) -> dict:
         return {"version": self._version, "abi": self._abi}

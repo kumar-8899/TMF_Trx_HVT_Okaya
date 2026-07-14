@@ -118,13 +118,26 @@ records intent, and stages. `core/services/updates.py` (`UpdateService`):
   `min_abi_required ≤` the station's core ABI. Verdict stored with the offer.
 - **offers** `GET /update/offers` → `{current: {version, abi}, offers: [...]}`.
 - **apply** `POST /update/apply/{release_id}` (operator-gated) → records `apply_pending`
-  + stages; inapplicable → 409. The **launcher** swaps the artifact / core DLL on next
-  start, honoring `abi_version` / `min_abi_required` and the app's pin mode
-  (`floor` | `hard`) — same model as the LabVIEW A7 launcher shell.
+  + stages; inapplicable → 409.
+- **relaunch** `POST /update/relaunch/{release_id}` → writes `data/relaunch.json`
+  (release_id, version, staged_dir, expected_hash) and **exits the process with code 42**
+  after flushing the HTTP response. The UI **"Relaunch to update vX"** chip (AppBar,
+  `UpdateChip.tsx`, shown while an offer is `apply_pending`/`relaunch_requested`) triggers it.
+
+**Launcher** (`backend/launcher.py`) — the supervisor that closes the self-update gap (a
+running binary can't replace its own file). Loop: start backend → wait → on exit **42** +
+marker, **swap the staged artifact into place** (move live `run.dist` → `.bak-<ts>` backup,
+move staged in; hash-verify; keep the backup for rollback) → restart; any other exit stops.
+Honors `abi_version` / pin mode at swap. Dev (source, no `run.dist`, no `staged_dir`) → the
+swap is a no-op and it just restarts — same relaunch loop. Run it via the
+"TMF Launcher" launch config instead of the bare backend. (LabVIEW analog: the A7 launcher
+shell.)
 
 Endpoints share the `_LIC` guard (SYSTEM.SETTINGS when operational; open in activation
-mode). Verified live: signed framework `.ksupdate` v1.1.0 ingested → applicable → apply →
-`apply_pending`; v0.9.0 → rejected (not newer); tampered manifest → 502.
+mode). Verified live under the launcher (keystation provider, activated): `.ksupdate`
+v1.1.0 ingest → applicable → apply → **chip "Relaunch to update v1.1.0"** → click → backend
+exit 42 → launcher restart → `/healthz` 200, 11/11 modules; v0.9.0 → rejected; tampered
+manifest → 502.
 
 ## 7. Git & CI cheat-sheet (newcomer-friendly)
 

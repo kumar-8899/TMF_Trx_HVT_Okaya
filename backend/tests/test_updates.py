@@ -84,6 +84,20 @@ async def test_ingest_records_offer_then_apply():
     await db.close()
 
 
+async def test_request_relaunch_writes_marker(tmp_path):
+    svc, db = await _svc(_manifest(version="1.3.0"))
+    svc._data_dir = tmp_path
+    rec = await svc.ingest("dummy.ksupdate")
+    await svc.apply(rec["release_id"])
+    marker = await svc.request_relaunch(rec["release_id"])
+    assert marker["version"] == "1.3.0"
+    import json
+    written = json.loads((tmp_path / "relaunch.json").read_text())
+    assert written["release_id"] == rec["release_id"]
+    assert (await svc.list_offers())[0]["status"] == "relaunch_requested"
+    await db.close()
+
+
 async def test_apply_rejects_inapplicable():
     svc, db = await _svc(_manifest(version="0.9.0"))
     rec = await svc.ingest("dummy.ksupdate")
