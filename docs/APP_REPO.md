@@ -9,21 +9,26 @@ framework (source + git tags)  ──fork a tag──►  App_<Customer> (editab
                                                     └── its own CI: Nuitka → sign → Release (LICENSED build)
 ```
 
-## Scaffold a new app (from the framework repo)
+## Scaffold a new app
 
-1. Clone the framework and check out the release tag the app targets:
-   ```bash
-   git clone <framework-remote> App_Acme_EOL
-   cd App_Acme_EOL && git checkout v1.1.0        # a TAG, never main
-   ```
-2. From the framework tools, generate the app-owned files into the fork:
-   ```bash
-   python tools/new_app.py \
-     --slug exeliq.acme_eol --customer "Acme EOL" \
-     --framework-tag v1.1.0 --app-repo exeliq/app-acme-eol --out .
-   ```
+**Interactive (recommended)** — from the framework repo, run and answer the prompts
+(framework tag, customer, product slug, app repo, output dir). It clones the framework
+at the tag, wires remotes (framework = `upstream`, app = `origin`), and generates the
+app-owned files:
+```
+tools\new_app.bat            (or: powershell -ExecutionPolicy Bypass -File tools\new_app.ps1)
+```
 
-It writes **only app-owned paths** (TEMPLATE.md §1) and never pushes:
+**Manual** — clone the tag yourself, then run the generator:
+```bash
+git clone <framework-remote> App_Acme_EOL && cd App_Acme_EOL && git checkout v1.1.0
+python tools/new_app.py --slug exeliq.acme_eol --customer "Acme EOL" \
+    --framework-tag v1.1.0 --app-repo exeliq/app-acme-eol --out .
+```
+
+It writes **only app-owned paths** (TEMPLATE.md §1), **enables every framework module**
+present in the fork (discovered on disk — future modules included automatically) plus the
+app module, and never pushes:
 
 | generated | what |
 |---|---|

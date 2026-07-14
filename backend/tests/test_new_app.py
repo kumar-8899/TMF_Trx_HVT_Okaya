@@ -62,6 +62,31 @@ def test_app_release_yml_is_app_track(tmp_path):
     assert (out / "APP_SETUP.md").is_file()
 
 
+def test_all_framework_modules_enabled(tmp_path):
+    # a fork with the real framework modules + a fake "future" module not in the example
+    cfgdir = tmp_path / "backend" / "config"
+    cfgdir.mkdir(parents=True)
+    (cfgdir / "app.example.json").write_text(
+        (REPO / "backend" / "config" / "app.example.json").read_text(encoding="utf-8"), encoding="utf-8")
+    fut = tmp_path / "backend" / "modules" / "future_mod"
+    fut.mkdir(parents=True)
+    (fut / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "module": {"id": "future_mod", "version": "1.0.0",
+        "contract_version": 1, "display_name": "Future", "description": "x"},
+        "entitlement_key": "future_mod", "variants": ["default"], "core_dependencies": [],
+        "contract_dependencies": [], "contributes": {}}), encoding="utf-8")
+    r = subprocess.run([sys.executable, str(NEW_APP), "--slug", "exeliq.acme_eol",
+                        "--customer", "Acme", "--framework-tag", "v1.1.0",
+                        "--app-repo", "exeliq/app-acme-eol", "--out", str(tmp_path)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr + r.stdout
+    cfg = json.loads((cfgdir / "app.json").read_text())
+    ids = {m["id"] for m in cfg["modules"]}
+    # all 11 framework modules + the discovered future module + the app module
+    assert {"daq", "runs", "auth", "report", "variables"} <= ids
+    assert "future_mod" in ids and "acme_eol" in ids
+
+
 def test_bad_slug_rejected(tmp_path):
     (tmp_path / "backend").mkdir()
     r = subprocess.run([sys.executable, str(NEW_APP),

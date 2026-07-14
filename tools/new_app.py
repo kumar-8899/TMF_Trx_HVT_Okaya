@@ -259,7 +259,18 @@ def main() -> int:
     cfg["licensing"] = {"provider": "stub", "product": args.slug}      # deployer flips to keystation
     cfg["updates"] = {"github_repo": args.app_repo}
     mods = cfg.setdefault("modules", [])
-    if not any(m.get("id") == mod for m in mods):
+    have = {m.get("id") for m in mods}
+    # Enable EVERY framework module present in this fork (future-proof: a module added
+    # to the framework after the example was written is still activated). Modules already
+    # in the example keep their tuned config; newly-discovered ones get a bare entry.
+    mroot = out / "backend" / "modules"
+    for man in sorted(mroot.glob("*/manifest.json")):
+        m = json.loads(man.read_text(encoding="utf-8"))
+        mid = (m.get("module") or {}).get("id") or man.parent.name
+        if mid not in have:
+            mods.append({"id": mid, "variant": (m.get("variants") or ["default"])[0]})
+            have.add(mid)
+    if mod not in have:                                                # the app module itself
         mods.append({"id": mod, "variant": "default"})
     (out / "backend" / "config").mkdir(parents=True, exist_ok=True)
     (out / "backend" / "config" / "app.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
