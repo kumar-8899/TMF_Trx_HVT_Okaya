@@ -66,6 +66,12 @@ async def test_resolve_abi_floor_blocks():
     await db.close()
 
 
+async def test_resolve_app_track_applicable():
+    svc, db = await _svc(_manifest(track="app", version="1.1.0"))
+    assert svc.resolve(_manifest(track="app", version="1.1.0"))["applicable"] is True
+    await db.close()
+
+
 async def test_resolve_core_track_not_station_applicable():
     svc, db = await _svc(_manifest(track="core"))
     assert svc.resolve(_manifest(track="core"))["applicable"] is False

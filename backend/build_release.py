@@ -106,7 +106,8 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
         print("WARNING: keystation_core.dll not found - ship it separately")
 
 
-def manifest() -> None:
+def manifest(track: str = "framework", product: str = "super_test_app",
+             pinned_fw_version: str | None = None) -> None:
     import re
     init = (BACKEND / "core" / "__init__.py").read_text(encoding="utf-8")
     m = re.search(r'^__version__\s*=\s*"([^"]+)"', init, re.M)
@@ -116,24 +117,38 @@ def manifest() -> None:
         if f.is_file() and f.name != "RELEASE.json":
             entries[str(f.relative_to(OUT)).replace("\\", "/")] = hashlib.sha256(
                 f.read_bytes()).hexdigest()
-    (OUT / "RELEASE.json").write_text(json.dumps({
-        "product": "super_test_app", "track": "framework", "runtime": "python_framework",
+    rel = {
+        "product": product, "track": track, "runtime": "python_framework",
         "version": version, "built_at": int(time.time()),
         "files": len(entries), "sha256": entries,
-    }, indent=2), encoding="utf-8")
-    print(f"RELEASE.json: v{version}, {len(entries)} files hashed")
+    }
+    if track == "app":
+        # an app build pins the framework version it forked (TEMPLATE.md two-tier).
+        rel["pinned_fw_version"] = pinned_fw_version
+    (OUT / "RELEASE.json").write_text(json.dumps(rel, indent=2), encoding="utf-8")
+    pin = f", pins fw {pinned_fw_version}" if track == "app" else ""
+    print(f"RELEASE.json: {track} {product} v{version}{pin}, {len(entries)} files hashed")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-frontend", action="store_true")
     ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--track", choices=["framework", "app"], default="framework",
+                    help="release tier (app repos pass --track app)")
+    ap.add_argument("--product", default="super_test_app",
+                    help="Keystation product slug (app repos pass their app-track slug)")
+    ap.add_argument("--pinned-fw-version", default=None,
+                    help="framework version an app build pins (required with --track app)")
     ap.add_argument("--manifest-only", action="store_true",
                     help="re-hash an existing release-build (no recompile)")
     args = ap.parse_args()
 
+    if args.track == "app" and not args.pinned_fw_version:
+        ap.error("--track app requires --pinned-fw-version")
+
     if args.manifest_only:
-        manifest()
+        manifest(args.track, args.product, args.pinned_fw_version)
         return 0
 
     if OUT.exists():
@@ -141,7 +156,7 @@ def main() -> int:
     build_backend(args.jobs)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
-    manifest()
+    manifest(args.track, args.product, args.pinned_fw_version)
     print("\nrelease at:", OUT)
     return 0
 
