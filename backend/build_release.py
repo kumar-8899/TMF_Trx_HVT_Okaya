@@ -55,7 +55,8 @@ def _run(cmd: list[str], cwd: Path) -> None:
 
 
 def build_backend(jobs: int) -> None:
-    _run([
+    import importlib.util
+    cmd = [
         sys.executable, "-m", "nuitka",
         "--standalone",
         "--assume-yes-for-downloads",
@@ -67,12 +68,19 @@ def build_backend(jobs: int) -> None:
         "--include-package=modules",
         # C-extension / runtime deps that static analysis can miss:
         "--include-package=argon2",
-        "--include-package=keystation",
         "--include-package=uvicorn",
         "--include-package=aiosqlite",
         "--include-package=sqlalchemy",
-        "run.py",
-    ], cwd=BACKEND)
+    ]
+    # keystation SDK is optional + deployment-specific (external repo, ships with the
+    # SDK+DLL). Bundle it only when installed; the provider lazy-imports it otherwise.
+    for opt in ("keystation",):
+        if importlib.util.find_spec(opt) is not None:
+            cmd.append(f"--include-package={opt}")
+        else:
+            print(f"note: '{opt}' not installed - not bundled (added at deployment)")
+    cmd.append("run.py")
+    _run(cmd, cwd=BACKEND)
 
 
 def copy_data() -> None:
