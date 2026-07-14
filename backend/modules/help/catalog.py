@@ -74,6 +74,7 @@ PAGES: list[Page] = [
     Page("dev-debug-server", "Debug Server", "dev", "Bus & LabVIEW", "DEBUG_SERVER.md"),
     Page("dev-report-store", "Report DB store", "dev", "Contracts", "REPORT_STORE.md"),
     Page("dev-secure-distribution", "Secure distribution", "dev", "Overview", "SECURE_DISTRIBUTION.md"),
+    Page("dev-release-howto", "Cutting a release", "dev", "Overview", "RELEASE_HOWTO.md"),
 ]
 
 _BY_ID = {p.id: p for p in PAGES}

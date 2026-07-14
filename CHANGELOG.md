@@ -5,6 +5,30 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.1.0 — 2026-07-14
+
+Secure distribution + instrument features. MINOR — additive; no contract breaks.
+
+### Secure distribution (Keystation)
+- Licensing provider (`stub | keystation`) behind the existing License contract; the
+  activation gate is unchanged. Fail-closed on missing SDK/DLL, unactivated, expired,
+  tripwire. Three touch-points (startup, run-session, module gate).
+- Activation surface: `/license/status|request|activate` + Settings → License
+  (air-gapped `.ksreq → .kslease`). Product identity is config-driven
+  (`licensing.product`) — framework vs per-customer app tier.
+- Obfuscated release build (`build_release.py`, Nuitka) + `ci.yml` / `release.yml`.
+- Signed code updates: ingest/resolve/apply `.ksupdate` (`/update/*`), **launcher**
+  (`launcher.py`) that swaps the artifact on relaunch, "Relaunch to update" chip,
+  GitHub-Release pull (`/update/check`). App-track signing (`tools/ks_release_signer`).
+- Docs: `SECURE_DISTRIBUTION.md`, `RELEASE_HOWTO.md`.
+
+### Instruments
+- Instrument Test Bench — capability-driven manual control (super_admin), sourced
+  from Config → Instruments; renders one group per capability.
+- Composite multi-capability instruments (one library, several interface mix-ins,
+  one connection); `resistance` + `frequency` capabilities; channel-arg variable
+  binding. Libraries: Tenma 72-13360, Keithley DAQ6510 (both hardware-verified).
+
 ## v1.0.0 — 2026-07-04
 
 First versioned release — the framework template baseline applications start from.
