@@ -59,6 +59,15 @@ class Licensing:
         return {"provider": "stub", "available": True,
                 "detail": "path-based license.json (signature verification stubbed)"}
 
+    def ingest_manifest(self, bundle_path: str) -> dict:
+        """Parse an update manifest WITHOUT signature verification (the stub has no
+        trust root). Returns the manifest flagged unverified — the resolver still
+        records the offer, but the UI shows it as untrusted."""
+        import json
+        from pathlib import Path
+        bundle = json.loads(Path(bundle_path).read_text(encoding="utf-8"))
+        return {**bundle.get("manifest", {}), "verified": False}
+
     def load_and_verify(self, license_path: str | None) -> License:
         try:
             raw = self._config.load_license(license_path)

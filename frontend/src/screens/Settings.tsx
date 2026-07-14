@@ -8,6 +8,7 @@ import { api } from "../api/client";
 import { ConfirmDialog, PageHeader, Section } from "../components/ui";
 import { LicenseConfig } from "./config/LicenseConfig";
 import { ReportDbConfig } from "./config/ReportDbConfig";
+import { UpdatesConfig } from "./config/UpdatesConfig";
 
 const RESET_ITEMS = [
   { key: "runs", label: "Runs & history", desc: "Run records + run events (run history, today's counts)." },
@@ -68,6 +69,8 @@ export function Settings() {
         </Section>
 
         <LicenseConfig />
+
+        <UpdatesConfig />
 
         <ReportDbConfig />
 

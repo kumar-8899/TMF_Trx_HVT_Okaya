@@ -103,13 +103,28 @@ mints a dev lease — verified green on this workstation.
   `build_timestamp` + SBOM) is issuer-side; private signing keys live in the issuer /
   HSM / CI secrets — never in this repo.
 
-## 6. Signed updates (P3 — planned)
+## 6. Signed updates (P3)
 
-- Station pulls a signed release manifest → `ks.ingest_manifest(.ksupdate)` verifies
-  (cert chain → embedded root; `valid_from ≤ build_timestamp ≤ valid_until`) and
-  advances the anti-rollback tripwire (even if the update is declined).
-- Apply is **operator-gated** (publish ≠ deploy); core-DLL hot-swap honors
-  `abi_version` / `min_abi_required` and the app's pin mode (`floor` | `hard`).
+Station side = **intake · trust · resolve · operator-gate**. A running Nuitka binary
+can't replace its own file, so *applying* is a launcher/restart step; the app verifies,
+records intent, and stages. `core/services/updates.py` (`UpdateService`):
+
+- **ingest** `POST /update/ingest {bundle_path}` → `licensing.ingest_manifest()` verifies
+  through the core (cert chain → embedded root; `valid_from ≤ build_timestamp ≤
+  valid_until`) and advances the anti-rollback tripwire (fires even if declined) → the
+  parsed manifest is recorded as an offer (DB `update_offer`). A tampered bundle → 502.
+- **resolve** (`publish ≠ deploy`): applicable only if track ∈ {framework, app},
+  signature verified, offered version > installed (`core.__version__`), and
+  `min_abi_required ≤` the station's core ABI. Verdict stored with the offer.
+- **offers** `GET /update/offers` → `{current: {version, abi}, offers: [...]}`.
+- **apply** `POST /update/apply/{release_id}` (operator-gated) → records `apply_pending`
+  + stages; inapplicable → 409. The **launcher** swaps the artifact / core DLL on next
+  start, honoring `abi_version` / `min_abi_required` and the app's pin mode
+  (`floor` | `hard`) — same model as the LabVIEW A7 launcher shell.
+
+Endpoints share the `_LIC` guard (SYSTEM.SETTINGS when operational; open in activation
+mode). Verified live: signed framework `.ksupdate` v1.1.0 ingested → applicable → apply →
+`apply_pending`; v0.9.0 → rejected (not newer); tampered manifest → 502.
 
 ## 7. Git & CI cheat-sheet (newcomer-friendly)
 

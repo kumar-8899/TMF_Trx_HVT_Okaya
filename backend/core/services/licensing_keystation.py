@@ -17,6 +17,7 @@ Keystation key — default `plugin.<module_id>`, overridable via `key_map`; feat
 
 from __future__ import annotations
 
+import pathlib
 from contextlib import nullcontext
 
 # Keystation lease states that count as "licensed" (grace/warning still run; the SDK
@@ -166,6 +167,18 @@ class KeystationLicensing:
         if ks is None:
             raise RuntimeError("keystation SDK unavailable")
         ks.activate(lease_bundle_path)
+
+    def ingest_manifest(self, bundle_path: str) -> dict:
+        """Verify a signed `.ksupdate` manifest through the core (cert chain →
+        embedded root; build_timestamp window) and advance the anti-rollback
+        tripwire, then return the parsed manifest. Raises on a bad signature."""
+        import json
+        ks = self._sdk()
+        if ks is None:
+            raise RuntimeError("keystation SDK unavailable")
+        ks.ingest_manifest(bundle_path)                 # verify + advance tripwire
+        bundle = json.loads(pathlib.Path(bundle_path).read_text(encoding="utf-8"))
+        return {**bundle.get("manifest", {}), "verified": True}
 
 
 def build_licensing(app_cfg: dict, config, diag=None):

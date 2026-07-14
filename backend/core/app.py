@@ -90,6 +90,9 @@ def create_app(
                     interlock=interlock, licensing=licensing, station=station)
         license = licensing.load_and_verify(app_cfg.get("license"))
         app.state.licensing = licensing   # activation endpoints + status surface
+
+        from core.services.updates import UpdateService
+        app.state.updates = UpdateService(db, licensing, diag, current_version=__version__)
         discover()
         result: ActivationResult = await activate_modules(
             core=core,
@@ -206,6 +209,32 @@ def create_app(
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"ok": True, "status": lic.status_payload(),
                 "note": "restart the station to re-run the module gate with the new lease"}
+
+    # ---- signed code updates (secure distribution P3; Settings → Updates) ---
+    @app.post("/update/ingest", dependencies=_LIC)
+    async def update_ingest(body: dict) -> dict:
+        """Ingest a signed .ksupdate bundle (path on the station): verify + record."""
+        path = (body or {}).get("bundle_path", "")
+        if not path:
+            raise HTTPException(status_code=422, detail="bundle_path required")
+        try:
+            return await app.state.updates.ingest(path)
+        except Exception as exc:  # noqa: BLE001 — bad signature / unreadable bundle
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.get("/update/offers", dependencies=_LIC)
+    async def update_offers() -> dict:
+        return {"current": app.state.updates.current(),
+                "offers": await app.state.updates.list_offers()}
+
+    @app.post("/update/apply/{release_id}", dependencies=_LIC)
+    async def update_apply(release_id: str) -> dict:
+        try:
+            return await app.state.updates.apply(release_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return app
 
