@@ -139,6 +139,38 @@ v1.1.0 ingest → applicable → apply → **chip "Relaunch to update v1.1.0"** 
 exit 42 → launcher restart → `/healthz` 200, 11/11 modules; v0.9.0 → rejected; tampered
 manifest → 502.
 
+## 6a. Release cycle on GitHub (the complete loop)
+
+```
+git tag vX.Y.Z && git push origin vX.Y.Z          # you cut a release
+      │
+   .github/workflows/release.yml (GitHub Actions, on tag v*)
+      │  test → Nuitka build → zip + sha256 → sign .ksupdate → gh release create
+      ▼
+   GitHub Release vX.Y.Z  { super_test_app-vX.Y.Z.zip, .ksupdate, RELEASE.json }
+      │
+   station: Settings → Updates → "Check for updates"  (POST /update/check)
+      │  pulls the latest Release's .ksupdate → verify (core) → offer
+      ▼
+   "Relaunch to update vX" chip → click → launcher swaps the zip → restart
+```
+
+**One-time GitHub setup** (needs a PAT with **Contents + Actions/Secrets + Workflows =
+Read/Write** on the repo):
+```
+gh secret set KS_INTERMEDIATE_SEED  < .secrets/KS_INTERMEDIATE_SEED.txt  --repo <owner>/<repo>
+gh secret set KS_INTERMEDIATE_CERT  < .secrets/KS_INTERMEDIATE_CERT.json --repo <owner>/<repo>
+```
+`.secrets/` holds the **dev** signing material (root-signed intermediate seed + cert,
+gitignored). For production, run the Keystation **root ceremony** (runbooks) → embed the
+prod root in the core DLL → mint a prod intermediate cert offline → store the prod seed as
+the Actions secret. The root private key never touches CI.
+
+**Station config** (`app.json`, gitignored):
+```json
+"updates": { "github_repo": "<owner>/<repo>", "github_token": "<read token for a private repo>" }
+```
+
 ## 7. Git & CI cheat-sheet (newcomer-friendly)
 
 ```

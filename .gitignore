@@ -42,3 +42,6 @@ backend/.keystation/
 **/keystation_core.dll
 backend/data/relaunch.json
 backend/data/launcher.log
+
+# local dev signing keys (never commit)
+.secrets/
