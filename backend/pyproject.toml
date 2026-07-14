@@ -20,6 +20,10 @@ report-db = [
     "PyMySQL>=1.1",        # MySQL  (mysql+pymysql)
     "pyodbc>=5.0",         # SQL Server (mssql+pyodbc)
 ]
+# Obfuscated release build (SECURE_DISTRIBUTION.md §5): python build_release.py
+release = [
+    "nuitka>=4.1",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

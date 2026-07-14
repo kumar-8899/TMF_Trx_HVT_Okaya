@@ -31,3 +31,8 @@ deploy/vendor/
 Thumbs.db
 .idea/
 .vscode/
+
+# release artifacts (Nuitka, SECURE_DISTRIBUTION.md §5)
+release-build/
+backend/run.build/
+backend/run.dist/

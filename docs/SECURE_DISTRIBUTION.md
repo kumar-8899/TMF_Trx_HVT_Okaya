@@ -87,13 +87,21 @@ Dev without the production PKI: the SDK e2e harness
 (`Build License Track/sdk-python/tests/test_sdk_e2e.py`) builds a test-roots core and
 mints a dev lease — verified green on this workstation.
 
-## 5. Release protection (P2 — planned)
+## 5. Release protection (P2)
 
-- **Nuitka** compiles the backend Python → C → native (the Keystation framework-track
-  artifact). PyInstaller (`tmf-sidecar.spec`) remains for dev-only bundles.
-- Build runs in CI on `release/*` branches; the artifact is hashed, signed
-  (manifest + signed `build_timestamp`), and registered as a framework release.
-- Private signing keys live in the issuer's HSM / CI secrets — never in this repo.
+- **Nuitka** compiles the backend Python → C → native machine code (real IP
+  protection; decompilation ≈ reverse-engineering a C binary). This is the Keystation
+  `python_framework` **framework-track** artifact. PyInstaller (`tmf-sidecar.spec`)
+  remains for dev-only bundles (it only zips `.pyc`s — no protection).
+- Build: `cd backend && pip install -e ".[release]" && python build_release.py`
+  → `release-build/` = `run.dist/` (compiled backend + bundled manifests/schemas)
+  + `docs/` (in-app help) + `frontend/` (built SPA) + `keystation_core.dll`
+  + `RELEASE.json` (version + SHA-256 of every file).
+- CI: `.github/workflows/ci.yml` (tests on every push/PR — no DLL needed) and
+  `release.yml` (on `release/*` or a `v*` tag: tests → Nuitka build → artifact upload).
+- Registration as a **signed** Keystation framework release (manifest + signed
+  `build_timestamp` + SBOM) is issuer-side; private signing keys live in the issuer /
+  HSM / CI secrets — never in this repo.
 
 ## 6. Signed updates (P3 — planned)
 
@@ -120,9 +128,14 @@ gitignored; CI secrets hold tokens; the signing key lives in the issuer, not her
 
 ## 8. Status / verification
 
-- Adapter + factory + gate wiring + `/license/*` endpoints + Settings UI: **done**;
-  backend suite green (295); adapter tests run with a fake SDK (CI needs no DLL).
-- Real core smoke on this machine: unactivated DLL → `bootstrap=UNACTIVATED`,
-  `ks.has(...)=False` (fail-closed proven); Keystation e2e airgap test passed.
+- **P1 done + proven live** on the real `keystation_core.dll`: unactivated →
+  all modules gated off + activation mode open; `.ksreq` exported from the app; dev
+  issuer minted a `.kslease` (Ed25519 intermediate → dev ceremony root); installed via
+  `POST /license/activate` → `VALID/ACTIVE`; restart → 11/11 modules licensed via
+  `ks.has()`; operational mode re-gates `/license/*` behind SYSTEM.SETTINGS.
+  Backend suite green; adapter tests use a fake SDK (CI needs no DLL).
+- **P2**: `build_release.py` (Nuitka) + `ci.yml`/`release.yml` in place. Remaining
+  issuer-side: SBOM (cyclonedx) + `POST /releases` registration + Authenticode
+  code-signing cert (ops; see Keystation runbook `windows-packaging.md`).
 - Deferred (explicit): secrets-at-rest (DPAPI), MQTT/web hardening, telemetry consent,
-  LabVIEW-side licensing (`sdk-labview` launcher shell — parallel effort).
+  LabVIEW-side licensing (`sdk-labview` A7 launcher shell — parallel effort).
