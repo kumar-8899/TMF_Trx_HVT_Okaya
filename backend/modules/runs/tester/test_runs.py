@@ -21,7 +21,7 @@ class FakeBridge:
     def __init__(self):
         self.requests = []
 
-    async def request(self, op, args, timeout=None):
+    async def request(self, op, args, *, station=None, timeout=None):
         self.requests.append((op, args))
         return {"id": "x", "ok": True, "result": {}}
 
@@ -225,8 +225,9 @@ async def test_rest_surface(ctx):
 
 
 class FakeWS:
-    def __init__(self):
+    def __init__(self, station=None):
         self.sent = []
+        self.query_params = {} if station is None else {"station": station}
 
     async def accept(self):
         pass
@@ -257,4 +258,17 @@ async def test_diag_ws_fans_out_diag(ctx):
     module._on_diag("tmf/st1/diag", {"level": "warning", "message": "hi"})
     await asyncio.sleep(0.02)
     task.cancel()
-    assert ws.sent[-1] == {"level": "warning", "message": "hi"}
+    assert ws.sent[-1] == {"level": "warning", "message": "hi", "station": "st1"}
+
+
+async def test_station_ws_filter_by_station(ctx):
+    module, _, _ = ctx
+    ws = FakeWS(station="st2")
+    task = asyncio.create_task(module.station_ws(ws))
+    await asyncio.sleep(0.02)
+    await module._on_event("tmf/st1/event/run-started", _event("run-started", 1.0, run_id="A"))
+    await module._on_event("tmf/st2/event/run-started", _event("run-started", 1.0, run_id="B"))
+    await asyncio.sleep(0.02)
+    task.cancel()
+    seen = [e.get("station") for e in ws.sent]
+    assert seen and all(s == "st2" for s in seen)   # st1 event filtered out

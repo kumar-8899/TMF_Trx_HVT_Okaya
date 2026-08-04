@@ -13,6 +13,7 @@ import { MessageLine } from "../components/testing/MessageLine";
 import { ResultsTable, type ResultRow } from "../components/testing/ResultsTable";
 import { TodayStrip } from "../components/testing/TodayStrip";
 import { VerdictBanner } from "../components/testing/VerdictBanner";
+import { StationPicker } from "../components/StationPicker";
 import { useStream } from "../hooks/useStream";
 import { useValues } from "../hooks/useValues";
 import { MONO_STACK } from "../theme/theme";
@@ -48,7 +49,8 @@ export function Runs() {
   const [pickRecipe, setPickRecipe] = useState("");
   const [recipes, setRecipes] = useState<{ recipe_id: string; name: string }[]>([]);
 
-  const { last } = useStream<EventEnvelope>("/ws/station");
+  const [station, setStation] = useState<string | null>(null);   // multi-socket: which DUT position
+  const { last } = useStream<EventEnvelope>(`/ws/station${station ? `?station=${encodeURIComponent(station)}` : ""}`);
   const values = useValues("/instruments/values/ws");
 
   const refresh = () => api.get("/runs").then(setRuns).catch((e) => setError(e.message));
@@ -97,7 +99,8 @@ export function Runs() {
   const startRun = async () => {
     setError(null);
     try {
-      const reqBody = mode === "barcode" ? { barcode } : { recipe_id: pickRecipe };
+      const reqBody: any = mode === "barcode" ? { barcode } : { recipe_id: pickRecipe };
+      if (station) reqBody.station = station;
       const res = await api.post("/runs/start", reqBody);
       setRunId(res.run_id); setModel(res.model || res.recipe_id || ""); setSerial(res.serial_no || "");
       setRunStatus("running"); setResults([]); setErrLine(""); setMessage("Run started");
@@ -107,7 +110,7 @@ export function Runs() {
   };
   const abort = async () => {
     setError(null);
-    try { await api.post("/runs/abort", {}); } catch (e: any) { setError(e.message); }
+    try { await api.post("/runs/abort", station ? { station } : {}); } catch (e: any) { setError(e.message); }
   };
   const openRun = async (id: string) => {
     setError(null);
@@ -129,6 +132,7 @@ export function Runs() {
         subtitle="Operator testing window"
         actions={can("TEST.RUN") && (
           <>
+            <StationPicker value={station} onChange={setStation} />
             <Button variant="contained" startIcon={<PlayArrow />} disabled={running} onClick={() => setOpen(true)}>Start test</Button>
             <Button variant="outlined" color="error" startIcon={<Stop />} disabled={!running} onClick={abort}>Abort</Button>
           </>

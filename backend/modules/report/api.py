@@ -77,8 +77,10 @@ def build_router(module) -> APIRouter:
     async def analytics_dashboard(
         since: float | None = None, until: float | None = None,
         model: str | None = None, operator: str | None = None, shift: str | None = None,
+        station: str | None = None,
     ) -> dict:
-        return await module.dashboard(since=since, until=until, model=model, operator=operator, shift=shift)
+        return await module.dashboard(since=since, until=until, model=model, operator=operator,
+                                      shift=shift, station=station)
 
     @router.get("/{run_id}", dependencies=_VIEW)
     async def get_report(run_id: str) -> dict:

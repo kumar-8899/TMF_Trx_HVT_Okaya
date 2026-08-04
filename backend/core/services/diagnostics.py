@@ -58,7 +58,11 @@ class BusDiagSink:
 
     async def _publish(self, event: dict) -> None:
         try:
-            await self._bridge.publish(f"diag/{event.get('subsystem', 'core')}", event, qos=1)
+            # PC-wide diag mirror — published on the first station's topic; the Debug
+            # Server subscribes tmf/+/diag (MULTI_STATION.md §5).
+            station = self._bridge.stations[0]
+            await self._bridge.publish(f"diag/{event.get('subsystem', 'core')}", event,
+                                       station=station, qos=1)
         except Exception:  # noqa: BLE001 — a debug mirror must never affect the app
             pass
 

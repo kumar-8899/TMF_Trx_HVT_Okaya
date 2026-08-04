@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tmf-controller"
+version = "0.1.0"
+description = "Python Test Controller — a peer implementation of the MQTT controller contract (PYTHON_CONTROLLER.md)."
+requires-python = ">=3.11"
+dependencies = ["paho-mqtt>=2.0", "tmf-instrumentlib>=1.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+tmf-controller = "controller.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["controller"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tester"]

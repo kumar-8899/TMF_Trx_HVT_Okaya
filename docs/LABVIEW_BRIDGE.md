@@ -181,7 +181,7 @@ LabVIEW reads `reply_to` + `id` from each command payload (§5).
 | `daq.ai.read` / `daq.di.read` | `{ channels? }` | `{ values: { ai0: … } }` |
 | `variable.read` | `{ name }` | `{ value, ts }` |
 | `variable.write` | `{ name, value }` | `{ written: true }` |
-| `run.start` | `{ run_id, recipe_id, version?, run_parameters? }` | `{ started: true }` |
+| `run.start` | `{ run_id, recipe_id, version?, run_parameters? }` | `{ run_id, accepted: true }` |
 | `run.abort` | `{}` | `{ aborted: true }` |
 | `health.check.<id>` | `{ instance_id?, … }` | `CheckVerdict` `{ status, summary, data, error? }` |
 | `maintenance.enter` | `{ operator, reason }` | `{ accepted, state }` \| `{ refused, reason }` |
@@ -267,7 +267,7 @@ JSON envelope. Never split the transport.
 
 ## 9. The Python side
 
-- The core's `bridge` service (`CORE.md` §1 / CoreServices) is an MQTT client exposing `publish(topic, payload, qos, retain)`, `request(op, args, timeout) → reply`, `subscribe(topic, handler)`, plus `station` and the link status.
+- The core's `bridge` service (`CORE.md` §1 / CoreServices) exposes **one MQTT client per station** (`MULTI_STATION.md` §2): `publish(topic, payload, *, station, qos, retain)`, `request(op, args, *, station, timeout) → reply`, `subscribe(topic, handler)` (the handler receives `station`), plus `stations`, `link_status(station)`, and `any_link_online`. **`station` is a required keyword** on `request`/`publish` — never defaulted; a default would silently address the wrong socket, a wrong-DUT-verdict class of bug. Each station connection carries its own LWT + retained `status`.
 - **Relay is near pass-through.** Python subscribes to the broker, applies its existing latest-frame cache (streams) and event fan-out / diagnostics bus (events, diag), and forwards to the existing frontend WS endpoints unchanged:
 
 | Bridge topic | Frontend WS endpoint (`DATA_TRANSFER.md` §4) |

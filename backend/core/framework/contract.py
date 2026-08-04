@@ -7,7 +7,7 @@ services its manifest declared (CORE.md §4) — explicit DI, no framework.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
@@ -70,7 +70,8 @@ class CoreServices:
     web: Any = None
     interlock: Any = None
     licensing: Any = None    # licensing provider (stub | keystation): session() + load_and_verify()
-    station: str = ""
+    stations: list[str] = field(default_factory=list)   # this PC's sockets (MULTI_STATION.md §2.3)
+    station: str = ""        # DEPRECATED alias = stations[0]; per-station code takes it from the request
     get_contract: Callable[[str], Any] | None = None
 
 
@@ -88,6 +89,7 @@ class Core:
         web: Any = None,
         interlock: Any = None,
         licensing: Any = None,
+        stations: list[str] | None = None,
         station: str = "",
     ) -> None:
         self.db = db
@@ -98,7 +100,8 @@ class Core:
         self.web = web
         self.interlock = interlock
         self.licensing = licensing
-        self.station = station
+        self.stations = stations if stations is not None else ([station] if station else [])
+        self.station = station or (self.stations[0] if self.stations else "")
         self.contracts: dict[str, Any] = {}  # active module_id -> instance (CORE.md §6.3)
 
     def get_contract(self, name: str) -> Any:
@@ -107,7 +110,8 @@ class Core:
         return self.contracts[name]
 
     def select(self, deps: list[str]) -> CoreServices:
-        services = CoreServices(station=self.station, get_contract=self.get_contract)
+        services = CoreServices(stations=list(self.stations), station=self.station,
+                                get_contract=self.get_contract)
         for dep in deps:
             field_name = SERVICE_ALIASES.get(dep)
             if field_name is None:

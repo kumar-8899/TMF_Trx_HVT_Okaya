@@ -14,7 +14,7 @@ These are settled. Re-open only by editing this file.
 | Decision | Choice | Reference |
 |---|---|---|
 | **Transport** | MQTT (broker-based). Python is the only web edge; the React frontend is unchanged; LabVIEW ↔ Python over MQTT. Per-station **local broker**; bridge only low-rate topics (`event/#`, `status`, `value/#`) up to a central broker. Keep `stream/#` local. | `LABVIEW_BRIDGE.md` |
-| **Control** | **LabVIEW is the controller (Option A).** LabVIEW owns test execution — the sequence, step timing, abort/timeout, and safety. Python hosts the business modules and the web edge. Run-state authority lives on the deterministic side. | `LABVIEW_BRIDGE.md`, `CORE.md` |
+| **Control** | **The controller is a contract; LabVIEW and Python are variants. Exactly one is active per PC.** The controller owns test execution — the sequence, step timing, abort/timeout, and safety. Python hosts the business modules and the web edge. Run-state authority lives on the controller side. | `LABVIEW_BRIDGE.md`, `PYTHON_CONTROLLER.md`, `CORE.md` |
 | **Config / data format** | **JSON**, validated by **JSON Schema** with a `schema_version` header on every file. (JSONtext on the LabVIEW side; recipes and the MQTT wire are already JSON.) | this doc, §4 |
 | **Deployment unit** | **The station.** Each station runs its own LabVIEW + Python + local broker + frontend. A central broker feeds a read-only fleet dashboard. Singleton = one station with no bridge. | `LABVIEW_BRIDGE.md` |
 

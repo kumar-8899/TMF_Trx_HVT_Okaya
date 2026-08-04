@@ -25,6 +25,14 @@ from modules.health.api import build_router
 
 _CRITICAL_BAD = {"fail", "timeout", "error"}
 
+# Severity order for aggregating a per-station bridge check (higher = worse).
+_STATUS_RANK = {"pass": 0, "skipped": 0, "unavailable": 1, "timeout": 2,
+                "error": 3, "degraded": 3, "fail": 4}
+
+
+def _rank(status: str) -> int:
+    return _STATUS_RANK.get(status, 3)
+
 _DEFAULT_SUITES = {
     "smoke": ["web.db_writable", "bridge.online"],
     "bridge": ["bridge.online", "bridge.roundtrip", "bridge.clock_skew", "bridge.queue_depth"],
@@ -40,8 +48,10 @@ class DefaultHealth:
         self.core = core
         self.config = config
         self.suites = config.get("suites") or _DEFAULT_SUITES
-        self.instances = config.get("instances", []) or []  # [{id, family, capabilities?}]
+        self.instances = config.get("instances", []) or []  # [{id, family, capabilities?, stations?}]
         self._family = {i["id"]: i.get("family") for i in self.instances}
+        # instance -> sockets it serves; a shared instance's verdict reports against each (§4.4).
+        self._instance_stations = {i["id"]: list(i["stations"]) for i in self.instances if i.get("stations")}
         self._issue_dirs = [Path(__file__).resolve().parent.parent / "known_issues"]
         if config.get("known_issues_dir"):
             self._issue_dirs.append(Path(config["known_issues_dir"]))
@@ -147,10 +157,15 @@ class DefaultHealth:
         return self._maint_state
 
     async def maintenance_enter(self, operator: str | None, reason: str | None) -> dict:
-        return await self.core.bridge.request("maintenance.enter", {"operator": operator, "reason": reason})
+        # Maintenance is PC-wide (PYTHON_CONTROLLER.md §0); addressed via the first
+        # station here — per-station fan-out lands with the health slice (M6).
+        return await self.core.bridge.request("maintenance.enter",
+                                              {"operator": operator, "reason": reason},
+                                              station=self.core.station)
 
     async def maintenance_exit(self, operator: str | None) -> dict:
-        return await self.core.bridge.request("maintenance.exit", {"operator": operator})
+        return await self.core.bridge.request("maintenance.exit", {"operator": operator},
+                                              station=self.core.station)
 
     # --- introspection -----------------------------------------------------
 
@@ -278,37 +293,83 @@ class DefaultHealth:
         self._emit(hid, "health-run-finished", {"overall": record["overall"], "counts": record["counts"]})
         return hid
 
-    async def _dispatch(self, d) -> dict:
-        t0 = time.time()
+    def _app_stations(self) -> list[str]:
+        return list(getattr(self.core, "stations", None) or [self.core.station])
+
+    def _link_ok(self, station: str) -> bool:
+        b = self.core.bridge
+        if b is None:
+            return False
+        ls = getattr(b, "link_status", None)
+        return ls(station) == "online" if ls else bool(getattr(b, "online", False))
+
+    def _verdict_stations(self, d) -> list[str]:
+        """Which sockets a verdict covers: a hardware instance is checked once and its
+        verdict reported against every socket in its stations[]; else all (MULTI_STATION §4.4)."""
+        if d.instance_id:
+            return list(self._instance_stations.get(d.instance_id) or self._app_stations())
+        return self._app_stations()
+
+    async def _check_body(self, d, station: str) -> dict:
+        """Run one check for one station, returning the raw {status,summary,data,error}."""
         ex = registry.executor(d.base_id or d.id)
         topic = f"health.check.{d.base_id or d.id}"
-        params = {"instance_id": d.instance_id} if d.instance_id else {}
+        params = {"station": station}
+        if d.instance_id:
+            params["instance_id"] = d.instance_id
         try:
             if ex is not None:
-                body = await asyncio.wait_for(ex(self.core, self.config, params), d.timeout_ms / 1000)
-            elif self.core.bridge is not None and self.core.bridge.online:
-                reply = await self.core.bridge.request(topic, params, timeout=d.timeout_ms / 1000)
-                body = {"status": reply.get("status", "pass" if reply.get("ok") else "fail"),
+                return await asyncio.wait_for(ex(self.core, self.config, params), d.timeout_ms / 1000)
+            if self._link_ok(station):
+                reply = await self.core.bridge.request(topic, params, station=station,
+                                                       timeout=d.timeout_ms / 1000)
+                return {"status": reply.get("status", "pass" if reply.get("ok") else "fail"),
                         "summary": reply.get("summary", ""), "data": reply.get("result", reply.get("data", {})),
                         "error": reply.get("error")}
-            else:
-                body = {"status": "unavailable", "summary": "executor not reachable", "data": {}, "error": None}
+            return {"status": "unavailable", "summary": "executor not reachable", "data": {}, "error": None}
         except asyncio.TimeoutError:
-            body = {"status": "timeout", "summary": f"no answer within {d.timeout_ms} ms", "data": {}, "error": None}
+            return {"status": "timeout", "summary": f"no answer within {d.timeout_ms} ms", "data": {}, "error": None}
         except Exception as exc:  # noqa: BLE001 — executor malfunction is `error`, not a fault
-            body = {"status": "error", "summary": str(exc), "data": {},
+            return {"status": "error", "summary": str(exc), "data": {},
                     "error": {"type": "about:blank", "title": "check executor error", "detail": str(exc)}}
+
+    def _sign(self, d, v, body) -> None:
+        if v["status"] in _CRITICAL_BAD:
+            err = (body.get("error") or {}) if body else {}
+            v["signature"] = {"check_id": d.base_id or d.id,
+                              "instance_family": self._family.get(d.instance_id),
+                              "error_category": err.get("category"), "error_code": err.get("code"),
+                              "status": v["status"]}
+
+    async def _dispatch(self, d) -> dict:
+        # Bridge checks run once PER station and aggregate (MULTI_STATION.md §4.4); a
+        # single-socket app is just the one iteration. Other checks run once.
+        stations = self._app_stations()
+        if d.domain == "bridge" and len(stations) > 1:
+            return await self._dispatch_per_station(d, stations)
+        t0 = time.time()
+        body = await self._check_body(d, self.core.station)
         v = self._verdict(d.id, body["status"], body.get("summary", ""), body.get("data", {}), body.get("error"))
         v["elapsed_ms"] = round((time.time() - t0) * 1000, 1)
-        if v["status"] in _CRITICAL_BAD:
-            err = body.get("error") or {}
-            v["signature"] = {
-                "check_id": d.base_id or d.id,            # family-level (§7.1)
-                "instance_family": self._family.get(d.instance_id),
-                "error_category": err.get("category"),
-                "error_code": err.get("code"),
-                "status": v["status"],
-            }
+        v["stations"] = self._verdict_stations(d)
+        self._sign(d, v, body)
+        return v
+
+    async def _dispatch_per_station(self, d, stations: list[str]) -> dict:
+        t0 = time.time()
+        per: dict[str, dict] = {}
+        worst = "pass"
+        worst_body = None
+        for st in stations:
+            body = await self._check_body(d, st)
+            per[st] = {"status": body["status"], "summary": body.get("summary", "")}
+            if _rank(body["status"]) > _rank(worst):
+                worst, worst_body = body["status"], body
+        ok = sum(1 for p in per.values() if p["status"] == "pass")
+        v = self._verdict(d.id, worst, f"{ok}/{len(stations)} sockets ok", {"per_station": per})
+        v["elapsed_ms"] = round((time.time() - t0) * 1000, 1)
+        v["stations"] = stations
+        self._sign(d, v, worst_body)
         return v
 
     def _verdict(self, check_id, status, summary, data=None, error=None) -> dict:
@@ -346,6 +407,7 @@ class DefaultHealth:
         summary = f"{overall}: {len(bad)} issue(s)" + (f" — {', '.join(bad)}" if bad else "")
         return {"health_run_id": hid, "mode": mode, "trigger": trigger, "operator": operator,
                 "maintenance": self._maintenance, "overall": overall, "counts": counts,
+                "stations": self._app_stations(),   # sockets this run covered (MULTI_STATION §4.4)
                 "verdicts": verdicts, "suggestions": suggestions, "summary": summary, "ts": time.time()}
 
     def abort(self, hid: str) -> None:

@@ -4,11 +4,24 @@
   "title": "Deployment config (app.json)",
   "description": "CORE.md §3.2 — per-station deployment config.",
   "type": "object",
-  "required": ["schema_version", "station", "license", "modules"],
+  "required": ["schema_version", "license", "modules"],
   "additionalProperties": false,
+  "anyOf": [
+    { "required": ["stations"] },
+    { "required": ["station"] }
+  ],
   "properties": {
     "schema_version": { "const": 1 },
-    "station": { "type": "string", "minLength": 1 },
+    "stations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "This PC's station ids — one test socket per id (MULTI_STATION.md §1)."
+    },
+    "station": {
+      "type": "string", "minLength": 1,
+      "description": "DEPRECATED singular form; read as a one-element `stations` list (MULTI_STATION.md §1)."
+    },
     "branding": {
       "type": "object",
       "description": "App identity shown in the UI (TEMPLATE.md §1 — rebrand via config, not source).",

@@ -1,9 +1,12 @@
-"""The variable engine — the surviving ~200 lines (INSTRUMENT_LIBRARY.md §5.3).
+"""The variable engine — one map per station (INSTRUMENT_LIBRARY.md §5.3,
+MULTI_STATION.md §4.2).
 
-Names signals so recipes/sequencer reference names, never hardware. Read: lookup →
-capability call → raw*gain+offset. Write: clamp (silent, logged; returned so a step
-can detect it) → inverse scale → capability call. A vendor swap is one station-config
-edit and zero recipe changes. Non-scalar capabilities are NEVER bound here (§2.2).
+Names scalar signals so recipes/handlers reference names, never hardware. Each station
+has its own map; the SAME name resolves to a station-specific instance, so one recipe
+runs unchanged on any socket. Resolution is always against the calling station's map;
+when the app runs a single socket, `station` is optional and defaults to it (the front
+end can stay station-unaware). Read: lookup → capability call → raw*gain+offset. Write:
+clamp (silent, logged) → inverse scale → capability call.
 """
 
 from __future__ import annotations
@@ -12,20 +15,29 @@ from instrumentlib.errors import InstrumentError
 
 
 class VariableError(InstrumentError):
-    """Unknown variable, or a read/write against a direction it doesn't declare."""
+    """Unknown variable, unknown station, or a read/write against a direction it doesn't declare."""
 
 
 class VariableEngine:
-    def __init__(self, instances, varmap: dict, diag):
+    def __init__(self, instances, maps: dict[str, dict], diag, default_station: str = ""):
         self.instances = instances
-        self.vars: dict[str, dict] = varmap or {}
+        self.maps: dict[str, dict] = maps or {}
         self.diag = diag
+        self.default_station = default_station
 
-    # ---- introspection (GET /variables) -----------------------------------
+    # ---- station resolution ----------------------------------------------
 
-    def list(self) -> list[dict]:
+    def _station(self, station: str | None) -> str:
+        return station or self.default_station
+
+    def map_for(self, station: str | None) -> dict:
+        return self.maps.setdefault(self._station(station), {})
+
+    # ---- introspection ----------------------------------------------------
+
+    def list(self, station: str | None = None) -> list[dict]:
         out = []
-        for name, v in self.vars.items():
+        for name, v in self.map_for(station).items():
             out.append({
                 "name": name, "instance": v["instance"], "units": v.get("units"),
                 "readable": bool(v.get("read")), "writable": bool(v.get("write")),
@@ -34,45 +46,54 @@ class VariableEngine:
         return sorted(out, key=lambda x: x["name"])
 
     def unbound(self) -> list[str]:
-        """Variables whose instance isn't loaded (blocks /readyz, §5.3)."""
-        return sorted(n for n, v in self.vars.items() if not self.instances.has(v["instance"]))
+        """`station:name` for every binding whose instance isn't loaded (blocks /readyz)."""
+        out = []
+        for st, m in self.maps.items():
+            for n, v in m.items():
+                if not self.instances.has(v["instance"]):
+                    out.append(f"{st}:{n}")
+        return sorted(out)
+
+    def count(self) -> int:
+        return sum(len(m) for m in self.maps.values())
 
     # ---- scalar read/write ------------------------------------------------
 
-    def _var(self, name: str) -> dict:
-        v = self.vars.get(name)
+    def _var(self, name: str, station: str | None) -> dict:
+        v = self.map_for(station).get(name)
         if v is None:
-            raise VariableError(f"unknown variable '{name}'", method="read")
+            raise VariableError(f"unknown variable '{name}' on station '{self._station(station)}'",
+                                method="read")
         return v
 
-    async def read(self, name: str) -> dict:
-        v = self._var(name)
+    async def read(self, name: str, station: str | None = None) -> dict:
+        v = self._var(name, station)
         if not v.get("read"):
             raise VariableError(f"variable '{name}' is not readable", method="read")
         inst = self.instances.require(v["instance"])
-        raw = await inst.invoke(v["read"], *(v.get("args") or []))   # leading fixed args e.g. channel
+        raw = await inst.invoke(v["read"], *(v.get("args") or []))
         gain, offset = _scale(v)
         return {"name": name, "value": raw * gain + offset, "raw": raw, "units": v.get("units")}
 
-    async def write(self, name: str, value: float) -> dict:
-        v = self._var(name)
+    async def write(self, name: str, value: float, station: str | None = None) -> dict:
+        v = self._var(name, station)
         if not v.get("write"):
             raise VariableError(f"variable '{name}' is not writable", method="write")
         clamped, was_clamped = _clamp(v, float(value))
         if was_clamped:
-            self.diag.warning("variables", "value clamped", name=name,
+            self.diag.warning("variables", "value clamped", name=name, station=self._station(station),
                               requested=value, written=clamped, **_clamp_bounds(v))
         gain, offset = _scale(v)
-        scaled = (clamped - offset) / gain if gain else clamped   # inverse scale
+        scaled = (clamped - offset) / gain if gain else clamped
         inst = self.instances.require(v["instance"])
-        await inst.invoke(v["write"], *(v.get("args") or []), scaled)   # args (e.g. channel), value last
+        await inst.invoke(v["write"], *(v.get("args") or []), scaled)
         return {"name": name, "written": clamped, "requested": value, "clamped": was_clamped}
 
-    async def read_many(self, names: list[str]) -> dict:
-        return {n: await self.read(n) for n in names}
+    async def read_many(self, names: list[str], station: str | None = None) -> dict:
+        return {n: await self.read(n, station) for n in names}
 
-    async def write_many(self, values: dict) -> dict:
-        return {n: await self.write(n, val) for n, val in values.items()}
+    async def write_many(self, values: dict, station: str | None = None) -> dict:
+        return {n: await self.write(n, val, station) for n, val in values.items()}
 
 
 def _scale(v: dict) -> tuple[float, float]:

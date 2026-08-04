@@ -17,6 +17,7 @@ from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.streaming import StreamHub
 from modules.runs.acquisition import resolve_recipe_id
 from modules.runs.api import build_router
+from modules.runs.errors import RunActiveError, RunError
 
 # Event types this module persists (LABVIEW_BRIDGE.md §4 event envelope).
 RUN_EVENT_PREFIXES = ("run-", "step-", "safety-", "test-")
@@ -35,6 +36,7 @@ class DefaultRuns:
         self._ui_cfg = config.get("ui", {}) or {}
         self._station_hub = StreamHub()   # event/* -> /ws/station
         self._diag_hub = StreamHub()      # diag    -> /diagnostics/stream
+        self._active: dict[str, str] = {}  # station -> active run_id (MULTI_STATION.md §4.1)
         self.router = build_router(self)
         self.mqtt_handlers = [("event/#", self._on_event), ("diag", self._on_diag)]
 
@@ -116,8 +118,21 @@ class DefaultRuns:
         with (lic.session() if lic is not None else nullcontext()):
             return await self._run_start(body)
 
+    def _resolve_station(self, body: dict) -> str:
+        """Station is required (MULTI_STATION.md §4.1); defaulted only when the app runs
+        a single socket, where there is no ambiguity to address wrongly."""
+        stations = getattr(self.core, "stations", None) or [self.core.station]
+        station = body.get("station") or (stations[0] if len(stations) == 1 else None)
+        if not station:
+            raise RunError(f"station is required (this app runs {stations})")
+        if station not in stations:
+            raise RunError(f"unknown station '{station}' (have {stations})")
+        return station
+
     async def _run_start(self, body: dict | None = None) -> dict:
         body = body or {}
+        # Validate the request first (422), then resolve the station + the per-station
+        # active-run gate (409) — a malformed request fails the same on a busy socket.
         recipe_id = body.get("recipe_id")
         barcode = body.get("barcode")
         if not recipe_id and barcode:
@@ -125,6 +140,10 @@ class DefaultRuns:
         if not recipe_id:
             from modules.runs.acquisition import AcquisitionError
             raise AcquisitionError("recipe_id or barcode required")
+
+        station = self._resolve_station(body)
+        if station in self._active:
+            raise RunActiveError(station, self._active[station])
 
         run_id = body.get("run_id") or uuid.uuid4().hex
         run_parameters = dict(body.get("run_parameters") or {})
@@ -141,7 +160,7 @@ class DefaultRuns:
         serial = identity.get("serial_no")
         if self.core.interlock is not None and serial:
             res = await self.core.interlock.check(serial, {
-                "recipe_id": recipe_id, "operator": operator, "station": self.core.station,
+                "recipe_id": recipe_id, "operator": operator, "station": station,
             })
             if not res.allowed:
                 from core.services.interlock import InterlockError
@@ -151,18 +170,26 @@ class DefaultRuns:
             "run_id": run_id, "recipe_id": recipe_id,
             "version": body.get("version"), "run_parameters": run_parameters,
         }
-        # Pre-create the run record so the UI shows it immediately.
-        await self._upsert_run(run_id, status="starting", recipe_id=recipe_id,
-                               run_parameters=run_parameters, operator=operator, **identity)
-        reply = await self.core.bridge.request("run.start", payload)
-        self.core.diag.info("runs", "run start", run_id=run_id, recipe_id=recipe_id, ok=reply.get("ok"))
-        out = {"run_id": run_id, "recipe_id": recipe_id, **identity}
+        # Reserve the station BEFORE the await so two concurrent starts can't both pass
+        # the active check; release it if the controller never took the command.
+        self._active[station] = run_id
+        try:
+            await self._upsert_run(run_id, status="starting", station=station, recipe_id=recipe_id,
+                                   run_parameters=run_parameters, operator=operator, **identity)
+            reply = await self.core.bridge.request("run.start", payload, station=station)
+        except Exception:
+            self._active.pop(station, None)
+            raise
+        self.core.diag.info("runs", "run start", run_id=run_id, station=station,
+                            recipe_id=recipe_id, ok=reply.get("ok"))
+        out = {"run_id": run_id, "recipe_id": recipe_id, "station": station, **identity}
         if isinstance(reply, dict):
             out.update({k: v for k, v in reply.items() if k != "id"})
         return out
 
-    async def run_abort(self) -> dict:
-        reply = await self.core.bridge.request("run.abort", {})
+    async def run_abort(self, body: dict | None = None) -> dict:
+        station = self._resolve_station(body or {})
+        reply = await self.core.bridge.request("run.abort", {}, station=station)
         self.core.diag.warning("runs", "run abort", ok=reply.get("ok"))
         return reply
 
@@ -214,10 +241,24 @@ class DefaultRuns:
         await self.core.db.repo.put("run", data, id=run_id,
                                     summary=f"run {run_id} {data.get('status', '')}".strip())
 
+    def _release_active(self, topic: str, run_id: str | None) -> None:
+        """Free a station's active-run slot on its own terminal event. Station comes from
+        the event topic `tmf/{station}/event/...`; only clears if this run holds it."""
+        station = self._station_of(topic)
+        if station and self._active.get(station) == run_id:
+            self._active.pop(station, None)
+
+    @staticmethod
+    def _station_of(topic: str) -> str | None:
+        parts = topic.split("/")
+        return parts[1] if len(parts) > 2 and parts[0] == "tmf" else None
+
     async def _on_event(self, topic: str, payload: dict | None) -> None:
         if not payload:
             return
-        self._station_hub.broadcast(payload)  # all events -> /ws/station (BRIDGE §9)
+        # Tag the frame with its socket so /ws/station?station= can filter (MULTI_STATION.md §5).
+        frame = {**payload, "station": self._station_of(topic)}
+        self._station_hub.broadcast(frame)  # all events -> /ws/station (BRIDGE §9)
         etype = payload.get("type") or topic.rsplit("/", 1)[-1]
         if not any(etype.startswith(p) for p in RUN_EVENT_PREFIXES):
             return
@@ -246,9 +287,11 @@ class DefaultRuns:
         elif etype == "run-finished":
             # result rides in body (PASS | FAIL | ABORTED).
             await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
+            self._release_active(topic, run_id)   # terminal -> station free for the next DUT
         elif etype == "run-aborted":
             rest.setdefault("result", "ABORTED")
             await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
+            self._release_active(topic, run_id)
         elif etype == "test-result":
             # Append the row to the run's results table (live UI + history + reports).
             existing = await self.core.db.repo.get("run", run_id)
@@ -268,21 +311,26 @@ class DefaultRuns:
 
     # --- WS fan-out (BRIDGE §9) --------------------------------------------
 
-    def _on_diag(self, _topic: str, payload: dict | None) -> None:
+    def _on_diag(self, topic: str, payload: dict | None) -> None:
         if payload is not None:
-            self._diag_hub.broadcast(payload)
+            self._diag_hub.broadcast({**payload, "station": self._station_of(topic)})
 
-    async def _fanout_ws(self, ws: WebSocket, hub: StreamHub) -> None:
+    async def _fanout_ws(self, ws: WebSocket, hub: StreamHub, station: str | None = None) -> None:
+        """Fan a hub to one WS client. `?station=` filters to that socket's frames; absent
+        shows all — what a single-socket view or a debugging surface wants (§5)."""
         await ws.accept()
         async with hub.subscription() as q:
             try:
                 while True:
-                    await ws.send_json(await q.get())
+                    frame = await q.get()
+                    if station and frame.get("station") != station:
+                        continue
+                    await ws.send_json(frame)
             except WebSocketDisconnect:
                 pass
 
     async def station_ws(self, ws: WebSocket) -> None:
-        await self._fanout_ws(ws, self._station_hub)
+        await self._fanout_ws(ws, self._station_hub, ws.query_params.get("station"))
 
     async def diag_ws(self, ws: WebSocket) -> None:
-        await self._fanout_ws(ws, self._diag_hub)
+        await self._fanout_ws(ws, self._diag_hub, ws.query_params.get("station"))

@@ -11,15 +11,16 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from core import __version__
+from core.services.security import require_role
 from core.framework.contract import Core
 from core.framework.gate import ActivationResult, activate_modules
 from core.framework.manifest import ManifestLoader
 from core.framework.registry import default_registry, discover
 from core.services.auth_verify import TokenVerifier
-from core.services.bridge import BridgeClient
+from core.services.bridge import MultiStationBridge
 from core.services.interlock import InterlockPort
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
@@ -43,10 +44,14 @@ def create_app(
         # 1. Boot core services (CORE.md §5 step 1).
         config = ConfigService(config_dir)
         app_cfg = config.load_app()
-        station = app_cfg["station"]
+        requested_stations = list(app_cfg["stations"])
+        station = requested_stations[0]   # DEPRECATED primary; per-station bridge lands in M2
 
         diag = Diagnostics(station, __version__)
         diag.start()
+        if app_cfg.get("stations_migrated"):
+            diag.warning("core", "app.json uses the deprecated singular `station` key — "
+                         "migrate to `stations: [...]` (MULTI_STATION.md §1)", station=station)
 
         drift = config.config_drift()
         if any(drift.values()):
@@ -58,6 +63,22 @@ def create_app(
                 missing_permissions=drift["permissions"], unlicensed_modules=drift["license_modules"],
             )
 
+        # 2. License first so the station cap is known before the bridge connects.
+        licensing = build_licensing(app_cfg, config, diag)   # stub | keystation (config-selected)
+        license = licensing.load_and_verify(app_cfg.get("license"))
+
+        # License station cap (MULTI_STATION.md §1): take the first `max_stations`
+        # entries, record each refusal in /modules/status — fail-closed, do not refuse
+        # to boot (CORE.md §4). None = uncapped.
+        cap = license.max_stations()
+        if cap is not None and len(requested_stations) > cap:
+            stations = requested_stations[:cap]
+            station_refusals = requested_stations[cap:]
+            diag.warning("core", "stations capped by license max_stations",
+                         max_stations=cap, refused=station_refusals)
+        else:
+            stations, station_refusals = requested_stations, []
+
         db = Database(db_path, station=station, source_version=__version__)
         await db.connect()
 
@@ -65,11 +86,12 @@ def create_app(
         interlock = InterlockPort()  # MES gate port; fail-open until an MES module fills it
 
         # bridge.connect before the gate so modules needing it get it (CORE.md §5).
-        bridge: BridgeClient | None = None
+        # One MQTT connection per licensed station (MULTI_STATION.md §2).
+        bridge: MultiStationBridge | None = None
         if enable_bridge:
-            bridge = BridgeClient(station, host=broker_host, port=broker_port, diag=diag)
+            bridge = MultiStationBridge(stations, host=broker_host, port=broker_port, diag=diag)
             await bridge.connect()
-            web.add_ready_check("bridge", lambda: _check(bridge.online))
+            web.add_ready_check("bridge", lambda: _check(bridge.any_link_online))
             # Mirror Python diag onto diag/# so the Debug Server can capture it
             # alongside LabVIEW's (DEBUG_SERVER.md §0/§3).
             diag.add_sink(BusDiagSink(bridge))
@@ -77,20 +99,20 @@ def create_app(
         app.state.config = config
         app.state.app_config = app_cfg
         app.state.station = station
+        app.state.stations = stations
+        app.state.station_refusals = station_refusals
         app.state.diag = diag
         app.state.db = db
         app.state.bridge = bridge
         app.state.auth = auth  # the core.auth port (CORE.md §6.4); Auth module fills it
         app.state.interlock = interlock
+        app.state.licensing = licensing   # activation endpoints + status surface
 
         web.add_ready_check("db", lambda: _check(db.connected))
 
         # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
-        licensing = build_licensing(app_cfg, config, diag)   # stub | keystation (config-selected)
         core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web,
-                    interlock=interlock, licensing=licensing, station=station)
-        license = licensing.load_and_verify(app_cfg.get("license"))
-        app.state.licensing = licensing   # activation endpoints + status surface
+                    interlock=interlock, licensing=licensing, stations=stations, station=station)
         # The LICENSED unit's identity. For the framework repo this is the framework
         # itself (dev); a derived customer app sets licensing.product to its own
         # app-track slug (SECURE_DISTRIBUTION.md; TEMPLATE.md two-tier model).
@@ -138,40 +160,74 @@ def create_app(
         """Process alive. Trivial (CORE.md §5)."""
         return {"status": "ok", "version": __version__}
 
-    @app.get("/branding")
-    async def branding() -> dict:
-        """Public (pre-login) app identity — config `branding`, not source
-        (TEMPLATE.md §1: an application rebrands via app.json, never code edits)."""
+    _BRAND_FIELDS = ("name", "short", "product", "tagline")
+
+    async def _branding_payload() -> dict:
+        """Defaults ∪ app.json `branding` ∪ the DB override (Setup wizard edit).
+        DB wins so a station rebrands live, without editing app.json (TEMPLATE.md §1:
+        an application rebrands via config, never code edits)."""
         cfg = getattr(app.state, "app_config", None) or {}
         out = {"name": "Test & Measurement", "short": "T",
                "product": "Test & Measurement Framework",
                "tagline": "Authorised access only. All sessions are encrypted.",
                "version": __version__}
         out.update(cfg.get("branding", {}) or {})
+        db = getattr(app.state, "db", None)
+        if db is not None:
+            try:
+                rec = await db.repo.get("branding", "branding")
+            except Exception:  # noqa: BLE001 — no DB yet: static branding only
+                rec = None
+            if rec:
+                out.update({k: v for k, v in (rec["data"] or {}).items() if k in _BRAND_FIELDS})
         return out
+
+    @app.get("/branding")
+    async def branding() -> dict:
+        """Public (pre-login) app identity."""
+        return await _branding_payload()
+
+    @app.put("/branding", dependencies=[Depends(require_role("super_admin"))])
+    async def set_branding(body: dict) -> dict:
+        """Persist the app identity as a DB override (Setup wizard / Branding form).
+        Applies live — clients re-fetch /branding."""
+        clean = {k: str(body.get(k, "")).strip() for k in _BRAND_FIELDS if body.get(k) is not None}
+        if not clean.get("name"):
+            raise HTTPException(status_code=400, detail="name is required")
+        await app.state.db.repo.put("branding", clean, id="branding", summary=clean["name"])
+        app.state.diag.info("core", "branding updated", name=clean["name"])
+        return await _branding_payload()
 
     @app.get("/readyz")
     async def readyz():
-        """Core services up (+ bridge online, added P4). CORE.md §5."""
+        """Core up AND at least one station's bridge link online (MULTI_STATION.md §3).
+        Body carries per-station link state so an operator sees which socket is missing;
+        a single unplugged bench does not take the app down."""
         checks = app.state.ready_checks
         results = {name: await check() for name, check in checks.items()}
         ready = all(results.values())
+        br = getattr(app.state, "bridge", None)
+        stations = getattr(app.state, "stations", [])
+        station_links = br.link_map() if br is not None else {st: "offline" for st in stations}
         from fastapi.responses import JSONResponse
 
         return JSONResponse(
-            {"ready": ready, "checks": results},
+            {"ready": ready, "checks": results, "stations": station_links,
+             "station_refusals": getattr(app.state, "station_refusals", [])},
             status_code=200 if ready else 503,
         )
 
     @app.get("/modules/status")
     async def modules_status() -> dict:
-        """Loaded vs skipped + reason — debug surface + entitlement mirror (CORE.md §4)."""
+        """Loaded vs skipped + reason — debug surface + entitlement mirror (CORE.md §4).
+        Carries the licensed station list + any license-refused stations so the frontend
+        learns the socket count from one place (MULTI_STATION.md §6)."""
         result: ActivationResult = app.state.modules
-        return result.status_payload()
+        return {**result.status_payload(),
+                "stations": getattr(app.state, "stations", []),
+                "station_refusals": getattr(app.state, "station_refusals", [])}
 
     # ---- licensing surface (secure distribution P1; Settings → License) ----
-    from fastapi import Depends, HTTPException
-
     from core.services.security import require_permission
 
     async def _license_guard(request: Request):

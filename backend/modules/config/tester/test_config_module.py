@@ -29,7 +29,7 @@ class FakeBridge:
     def online(self):
         return self._online
 
-    async def request(self, op, args, timeout=None):
+    async def request(self, op, args, *, station=None, timeout=None):
         self.requests.append((op, args))
         return self.reply
 
@@ -94,6 +94,32 @@ async def test_shift_disabled_falls_back_to_calendar(ctx):
     assert r["enabled"] is False and r["business_day"] == "2026-07-05" and r["shift_label"] is None
 
 
+async def test_instrument_stations_multi_and_migration():
+    # M5: instruments carry stations[]; singular migrates; absent -> all sockets;
+    # an unknown socket is rejected (MULTI_STATION.md §4.3).
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, bridge=FakeBridge(),
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]),
+                        stations=["st1", "st2"], station="st1")
+    module = DefaultConfig.construct(core, {})
+    try:
+        a = await module.create_instrument({"id": "load_a", "transport": "visa",
+                                            "params": {"resource": "x"}, "stations": ["st2"]})
+        assert a["stations"] == ["st2"]
+        b = await module.create_instrument({"id": "load_b", "transport": "visa",
+                                            "params": {"resource": "y"}, "station": "st1"})
+        assert b["stations"] == ["st1"]                       # singular migrated
+        c = await module.create_instrument({"id": "load_c", "transport": "visa",
+                                            "params": {"resource": "z"}})
+        assert c["stations"] == ["st1", "st2"]                # absent -> shared across all
+        with pytest.raises(ConfigError):
+            await module.create_instrument({"id": "bad", "transport": "visa",
+                                            "params": {"resource": "q"}, "stations": ["st9"]})
+    finally:
+        await db.close()
+
+
 async def test_python_owned_instrument_crud(ctx):
     module, _, _ = ctx
     inst = await module.create_instrument({
@@ -104,7 +130,8 @@ async def test_python_owned_instrument_crud(ctx):
     assert inst["address"] == "TCPIP0::1.2.3.4::inst0::INSTR"   # from params.resource
     py = await module.python_instruments()
     assert py == [{"id": "psu9", "library": "ctest_supply",
-                   "params": {"resource": "TCPIP0::1.2.3.4::inst0::INSTR"}, "simulated": True}]
+                   "params": {"resource": "TCPIP0::1.2.3.4::inst0::INSTR"}, "simulated": True,
+                   "stations": ["st1"]}]
 
 
 async def test_python_owned_validation(ctx):

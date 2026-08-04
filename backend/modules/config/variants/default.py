@@ -74,12 +74,26 @@ class DefaultConfig:
             "owner": owner,
             "family": body.get("family", ""),
             "capabilities": body.get("capabilities", []) or [],
+            "stations": self._normalise_stations(body),
             "enabled": bool(body.get("enabled", True)),
             "updated_ts": time.time(),
         }
         if owner == "python":
             return {**common, **self._normalise_python(body)}
         return {**common, **self._normalise_labview(body)}
+
+    def _normalise_stations(self, body: dict) -> list[str]:
+        """Sockets this instrument serves (MULTI_STATION.md §4.3). Singular `station`
+        migrates to a one-element list; absent -> every socket (a shared instrument).
+        Each id must be a configured station."""
+        app_stations = list(getattr(self.core, "stations", None) or [self.core.station])
+        stations = body.get("stations")
+        if not stations:
+            stations = [body["station"]] if body.get("station") else list(app_stations)
+        bad = [s for s in stations if s not in app_stations]
+        if bad:
+            raise ConfigError(f"unknown station(s) {bad}; app has {app_stations}")
+        return list(stations)
 
     def _normalise_labview(self, body: dict) -> dict:
         transport = body.get("transport")
@@ -116,7 +130,9 @@ class DefaultConfig:
         (INSTRUMENT_LIBRARY §5.2). The variable engine consumes THIS at startup."""
         rows = await self.list_instruments()
         return [{"id": r["id"], "library": r["library"], "params": r.get("params", {}),
-                 "simulated": r.get("simulated", False)}
+                 "simulated": r.get("simulated", False),
+                 "stations": r.get("stations") or list(getattr(self.core, "stations", None)
+                                                       or [self.core.station])}
                 for r in rows if r.get("owner") == "python" and r.get("enabled", True) and r.get("library")]
 
     async def create_instrument(self, body: dict) -> dict:
@@ -229,7 +245,8 @@ class DefaultConfig:
                     "detail": "LabVIEW bridge offline — cannot probe the device."}
         try:
             reply = await asyncio.wait_for(
-                self.core.bridge.request("instrument.test", payload), _TEST_TIMEOUT_S)
+                self.core.bridge.request("instrument.test", payload, station=self.core.station),
+                _TEST_TIMEOUT_S)
         except asyncio.TimeoutError:
             return {"ok": False, "status": "timeout", "address": address,
                     "detail": f"no answer within {int(_TEST_TIMEOUT_S)} s"}

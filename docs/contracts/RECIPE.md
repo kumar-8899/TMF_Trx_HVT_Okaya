@@ -123,16 +123,23 @@ See `STEP_TYPES.md` for the 15 starter step types' parameter schemas.
 
 ## 3. Step types — one shape, three use cases
 
+> **Amended (`PYTHON_CONTROLLER.md` §7, `MULTI_STATION.md` §8):**
+> `test_reference` and `parametric_test` are **removed as distinct dispatch levels**.
+> Every step type — the 8 core control-flow/glue types and every application step type —
+> registers the same way (`@register_step_type`) in one registry; a recipe references a
+> `step_type` and the sequencer dispatches uniformly. "Point at a LabVIEW test class" and
+> "point at a Python handler" are the same act: name a registered `step_type`. The table
+> below reads historically; use the core set in `PYTHON_CONTROLLER.md` §7.4.
+
 | Use case | Step types used |
 |---|---|
-| **A — Parameter-driven** | `test_reference` steps point at LabVIEW test classes; the recipe carries only parameters and limits. |
+| **A — Parameter-driven** | Application step types (registered like any other) carry only parameters and limits. |
 | **B — Endurance / cycling** | Composite steps (`repeat`, `sweep`) wrap inner steps of any other type. Composition is recursive in the schema. |
-| **C — Sequence editor** | Primitive steps: `set_output`, `measure`, `compare`, `ramp_until`, `wait`, `prompt_operator`, etc. |
+| **C — Sequence editor** | Core primitives: `set_output`, `measure_and_compare`, `wait`, `prompt_operator`, `if`, `group`. |
 
-The risk you flagged for Type C — "what if a test needs complex
-analysis?" — is resolved by **mixing**: a Type-C recipe can drop in a
-single `test_reference` step for the one measurement that needs an FFT,
-without becoming a "different kind of recipe." Authors aren't forced to
+The risk for Type C — "what if a test needs complex analysis?" — is resolved by
+**mixing**: a recipe drops in a single application step type for the one measurement that
+needs an FFT, without becoming a "different kind of recipe." Authors aren't forced to
 choose a recipe style up front.
 
 ---
@@ -147,7 +154,7 @@ Step types are plugins, registered the same way drivers register
 | Half | Where | What |
 |---|---|---|
 | **Schema** | Python — `step_types/<type_id>/schema.json` | JSON Schema for `params`; validated at save, load, and run-start. |
-| **Handler** | LabVIEW — a sub-case inside the Test Sequencer DQMH `Execute` request | Receives `(step.params, run_context)`, returns `{ status, measurements, message, elapsed_ms }`. |
+| **Handler** | **Controller-side** — a LabVIEW sub-case in the Test Sequencer DQMH `Execute` request, *or* a Python step handler (`PYTHON_CONTROLLER.md` §7) | Receives `(step.params, ctx / run_context)`, returns measurements; the **sequencer** computes the step verdict from them (a handler-returned `status` is ignored, `PYTHON_CONTROLLER.md` §8.2). |
 
 The JSON Schema is the shared contract across the seam. The Test
 Sequencer's `Execute` case switches on `step_type` and dispatches to the

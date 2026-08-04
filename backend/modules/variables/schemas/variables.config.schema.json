@@ -26,6 +26,8 @@
           "id": { "type": "string", "minLength": 1 },
           "library": { "type": "string", "minLength": 1, "description": "library_id in the instrumentlib index." },
           "params": { "type": "object", "description": "Connection params for the library." },
+          "stations": { "type": "array", "items": { "type": "string" },
+                        "description": "Sockets this instance serves (MULTI_STATION.md §4.3); absent = all." },
           "simulated": { "type": "boolean", "default": true }
         }
       }

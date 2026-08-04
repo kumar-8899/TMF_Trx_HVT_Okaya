@@ -217,8 +217,9 @@ class StandardReport:
     async def full_csv(self, **f) -> bytes:
         return await self.store.full_csv(**f)
 
-    async def dashboard(self, since=None, until=None, model=None, operator=None, shift=None) -> dict:
-        return await self.store.dashboard(since=since, until=until, model=model, operator=operator, shift=shift)
+    async def dashboard(self, since=None, until=None, model=None, operator=None, shift=None, station=None) -> dict:
+        return await self.store.dashboard(since=since, until=until, model=model, operator=operator,
+                                          shift=shift, station=station)
 
     async def analytics(self, since=None, until=None, recipe_id=None) -> dict:
         d = await self.store.dashboard(since=since, until=until)

@@ -137,6 +137,15 @@ async def _python_instruments(core, cfg, params) -> dict:
             "error": None if ok else {"category": "instrument", "code": "not_connected"}}
 
 
+def _station(core, params):
+    return params.get("station") or core.station
+
+
+def _link_online(core, station) -> bool:
+    ls = getattr(core.bridge, "link_status", None)
+    return ls(station) == "online" if ls else bool(getattr(core.bridge, "online", False))
+
+
 @register(CheckDescriptor(
     id="bridge.online", domain="bridge", title="LabVIEW engine", severity="critical", group="Production Systems",
     description="The MQTT bridge is connected and LabVIEW reports status=online.", tags=["bridge"],
@@ -146,10 +155,12 @@ async def _python_instruments(core, cfg, params) -> dict:
 async def _bridge_online(core, cfg, params) -> dict:
     if core.bridge is None:
         return {"status": "unavailable", "summary": "no bridge configured", "data": {}, "error": None}
-    if core.bridge.online:
-        return {"status": "pass", "summary": "bridge online", "data": {"online": True}, "error": None}
+    st = _station(core, params)
+    if _link_online(core, st):
+        return {"status": "pass", "summary": f"{st} online", "data": {"online": True, "station": st}, "error": None}
     detail = "broker connected, link not online" if core.bridge.connected else "broker not connected"
-    return {"status": "fail", "summary": detail, "data": {"online": False, "connected": core.bridge.connected}, "error": None}
+    return {"status": "fail", "summary": f"{st}: {detail}",
+            "data": {"online": False, "connected": core.bridge.connected, "station": st}, "error": None}
 
 
 @register(CheckDescriptor(
@@ -160,10 +171,11 @@ async def _bridge_online(core, cfg, params) -> dict:
     impact="Tests may run slowly or stall.",
     user_action=["Check controller CPU/load", "Re-test"]))
 async def _bridge_roundtrip(core, cfg, params) -> dict:
-    if core.bridge is None or not core.bridge.online:
-        return {"status": "unavailable", "summary": "bridge not online", "data": {}, "error": None}
+    st = _station(core, params)
+    if core.bridge is None or not _link_online(core, st):
+        return {"status": "unavailable", "summary": f"{st} not online", "data": {}, "error": None}
     t0 = time.time()
-    reply = await core.bridge.request("hello.echo", {"from": "health"})
+    reply = await core.bridge.request("hello.echo", {"from": "health"}, station=st)
     ms = (time.time() - t0) * 1000
     ok = bool(reply.get("ok", True))
     return {"status": "pass" if ok else "fail",
@@ -182,10 +194,11 @@ def _reply_ts(reply: dict):
     impact="Timestamps and result correlation may be wrong.",
     user_action=["Sync the controller and PC system clocks", "Re-test"]))
 async def _bridge_clock_skew(core, cfg, params) -> dict:
-    if core.bridge is None or not core.bridge.online:
-        return {"status": "unavailable", "summary": "bridge not online", "data": {}, "error": None}
+    st = _station(core, params)
+    if core.bridge is None or not _link_online(core, st):
+        return {"status": "unavailable", "summary": f"{st} not online", "data": {}, "error": None}
     tol = float(cfg.get("clock_skew_tolerance_s", 2.0))
-    reply = await core.bridge.request("hello.echo", {"from": "health"})
+    reply = await core.bridge.request("hello.echo", {"from": "health"}, station=st)
     lv_ts = _reply_ts(reply)
     if lv_ts is None:
         return {"status": "error", "summary": "reply carried no timestamp", "data": {},

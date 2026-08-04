@@ -42,6 +42,16 @@ class License:
     def allows_feature(self, key: str) -> bool:
         return bool(self._ent.get("features", {}).get(key, False))
 
+    def max_stations(self) -> int | None:
+        """The application-wide station cap (MULTI_STATION.md §1). None = unspecified
+        (uncapped). An invalid license has no entitlements, so returns None and the
+        caller applies its fail-closed default."""
+        limit = self._ent.get("limits", {}).get("max_stations")
+        try:
+            return int(limit) if limit is not None else None
+        except (TypeError, ValueError):
+            return None
+
 
 class Licensing:
     def __init__(self, config: ConfigService, diag: Diagnostics | None = None) -> None:

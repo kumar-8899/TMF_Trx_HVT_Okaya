@@ -74,3 +74,19 @@ def test_business_day_grouping_and_by_shift():
     # shift filter narrows the corpus
     only = build_dashboard([a, b], shift="Night")
     assert only["kpis"]["runs"] == 1
+
+
+def test_by_station_yield_and_filter():
+    # M6: per-socket yield + station filter (MULTI_STATION.md §4.5)
+    a = _report("s1", "U1", "INV", "PASS", DAY, DAY + 10)
+    b = _report("s2", "U2", "INV", "FAIL", DAY + 20, DAY + 30)
+    c = _report("s3", "U3", "INV", "PASS", DAY + 40, DAY + 50)
+    a["station"], b["station"], c["station"] = "st1", "st1", "st2"
+    d = build_dashboard([a, b, c])
+    by = {s["station"]: s for s in d["by_station"]}
+    assert by["st1"]["total"] == 2 and by["st1"]["yield"] == 50.0    # 1 of 2
+    assert by["st2"]["yield"] == 100.0
+    assert d["stations"] == ["st1", "st2"]
+    # a drifting socket is visible; the filter isolates it
+    only = build_dashboard([a, b, c], station="st1")
+    assert only["kpis"]["runs"] == 2 and only["filters"]["station"] == "st1"
