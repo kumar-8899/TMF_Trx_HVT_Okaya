@@ -19,11 +19,15 @@ import controller.step_types  # noqa: F401 — registers the 8 core step types
 from controller.bridge.client import StationClient
 from controller.config import ConfigError, load_config
 from controller.daq import DaqController, register_daq_ops
-from controller.instruments import (InstrumentRegistry, StationVariables, check_no_lease,
+from controller.instruments import (InstrumentRegistry, StationVariables,
+                                    check_action_capabilities, check_no_lease,
                                     load_libraries, load_variable_map)
 from controller.loop import AsyncLoopThread
+from controller.packages import load_step_type_packages, validate_app_step_types
 from controller.runstate import RunEngine
-from controller.serve import register_core_ops, register_run_ops, register_station_ops
+from controller.safety import SafetyConfigError, SafetyController, SafetyMap, parse_monitors
+from controller.serve import (register_core_ops, register_run_ops, register_safety_ops,
+                              register_station_ops)
 
 
 def _log(level: str, message: str) -> None:
@@ -44,6 +48,11 @@ def main(argv: list[str] | None = None) -> int:
     loop = AsyncLoopThread()
     loop.start()
     load_libraries(cfg.library_paths, cfg.library_packages, log=_log)
+    # App step-type packages: the 8 core types are already imported above; this adds the one
+    # application package so a new customer test ships without a framework release (§7.5).
+    load_step_type_packages(cfg.step_type_paths, cfg.step_type_packages, log=_log)
+    for v in validate_app_step_types():          # the CI gate, re-run at load (warn, don't die)
+        _log("warning", f"step-type gate: {v}")
     registry = InstrumentRegistry(loop, log=_log)
     registry.build(cfg.instruments, simulation=cfg.simulation)
     loop.run(registry.connect_all())
@@ -89,7 +98,29 @@ def main(argv: list[str] | None = None) -> int:
         loop.stop()
         return 3
 
+    # Every action's instance must implement its declared capability (§4.1) — verified
+    # against the built registry, fail-closed.
+    cap_violations = check_action_capabilities(maps, registry)
+    if cap_violations:
+        for v in cap_violations:
+            _log("error", v)
+        _log("error", "action capability binding invalid — refusing to start (§4.1)")
+        loop.stop()
+        return 5
+
+    # Safety monitors: blast radius resolved once from the static map (§10.2), before any
+    # station runs. A monitor pointing at an unknown station/resource is a fail-closed config
+    # bug — refuse to start rather than run without the safety scope it claims.
+    try:
+        safety_map = SafetyMap(parse_monitors(cfg.safety_monitors), all_stations, inst_stations)
+    except SafetyConfigError as exc:
+        _log("error", f"safety config: {exc}")
+        loop.stop()
+        return 4
+
     clients: list[StationClient] = []
+    clients_by_st: dict[str, StationClient] = {}
+    engines_by_st: dict[str, RunEngine] = {}
     daqs: list[DaqController] = []
     for st in cfg.stations:
         c = StationClient(st.station, host=cfg.broker_host, port=cfg.broker_port, on_log=_log)
@@ -105,9 +136,21 @@ def main(argv: list[str] | None = None) -> int:
                             config=cfg.daq, simulation=cfg.simulation)
         register_daq_ops(c, daq)
         daqs.append(daq)
-        c.start()
         clients.append(c)
-    _log("info", f"controller up: {len(clients)} station(s) on {cfg.broker_host}:{cfg.broker_port}")
+        clients_by_st[st.station] = c
+        engines_by_st[st.station] = engine
+
+    # One SafetyController across all stations; its reflex thread never touches the bridge.
+    safety = SafetyController(safety_map, registry, loop, engines_by_st,
+                             (lambda st, sub, p: clients_by_st[st].publish(sub, p)), log=_log)
+    for c in clients:
+        register_safety_ops(c, safety)
+    safety.start()
+    for c in clients:
+        c.start()
+    _log("info", f"controller up: {len(clients)} station(s), "
+                 f"{len(safety_map.monitor_ids())} safety monitor(s) on "
+                 f"{cfg.broker_host}:{cfg.broker_port}")
 
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
@@ -115,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         stop.wait()
     finally:
+        safety.stop()
         for d in daqs:
             d.stop_all()
         for c in clients:

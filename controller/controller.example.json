@@ -14,6 +14,14 @@
     { "station": "st1", "variable_map": "maps/st1.json" }
   ],
 
+  "safety_monitors": [
+    { "id": "estop",       "scope": "pc" },
+    { "id": "psu_ovp_st1", "scope": "resource", "resource": "psu_st1" }
+  ],
+
+  "step_type_paths": ["examples"],
+  "step_type_packages": ["demo_steps"],
+
   "simulation": true,
   "abort_grace_ms": 2000,
   "teardown_timeout_ms": 30000

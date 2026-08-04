@@ -45,8 +45,10 @@ class StepContext:
         return {n: self._vars.read(n)["value"] for n in names}
 
     def invoke(self, action: str, method: str, args=None):
-        # Non-scalar actions arrive in C9; expose the seam now so handlers compile.
-        raise NotImplementedError("ctx.invoke (non-scalar actions) lands in C9")
+        """Call a non-scalar capability (§9.4) — a mux route, a scope capture — by the map's
+        action name, resolved against THIS station's map. `args` is a list (positional) or dict
+        (keyword). No instance id ever reaches the handler."""
+        return self._vars.invoke(action, method, args)
 
     # ---- timing / abort ---------------------------------------------------
 

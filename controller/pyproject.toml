@@ -21,3 +21,6 @@ packages = ["controller"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tester"]
+# examples/ is a stand-in app package with its own tests (run with examples/ on the path,
+# as its CI would). Keep the controller suite from ever recursing into it.
+norecursedirs = ["examples", "*.egg", ".git", "dist", "build"]

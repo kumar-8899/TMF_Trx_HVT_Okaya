@@ -19,6 +19,27 @@ class VariableError(Exception):
     """Unknown signal, or a read/write against a direction it does not declare."""
 
 
+def check_action_capabilities(station_maps: dict[str, dict], registry) -> list[str]:
+    """Every action's bound instance MUST implement the declared `capability` (§4.1). A wrong
+    binding — unknown/unloaded instance, or an instance lacking the capability — fails at
+    config load, loudly. Runs after the registry is built so the actual library declaration is
+    the source of truth (not the config's word)."""
+    errors: list[str] = []
+    for station, vmap in station_maps.items():
+        for name, a in (vmap.get("actions") or {}).items():
+            inst_id, cap = a.get("instance"), a.get("capability")
+            inst = registry.get(inst_id) if registry else None
+            if inst is None:
+                errors.append(f"{station}:{name}: action bound to unknown/unloaded instance "
+                              f"'{inst_id}' — refused (§4.1)")
+                continue
+            caps = list((getattr(type(inst), "_declaration", {}) or {}).get("capabilities", []))
+            if cap and cap not in caps:
+                errors.append(f"{station}:{name}: instance '{inst_id}' does not implement "
+                              f"capability '{cap}' (has {caps}) — refused (§4.1)")
+    return errors
+
+
 def check_no_lease(instrument_stations: dict[str, list[str]], station_maps: dict[str, dict]) -> list[str]:
     """The shared-instrument no-lease rule (PYTHON_CONTROLLER.md §9.3). A shared instrument
     (serves >1 socket) may only be bound read-only: a signal with `write`, or any action,
@@ -79,9 +100,34 @@ class StationVariables:
             raise VariableError(f"unknown signal '{name}' on {self.station}")
         return v
 
+    def _guard_faulted(self, instance_id: str) -> None:
+        if getattr(self._registry, "is_faulted", lambda _i: False)(instance_id):
+            raise VariableError(f"instance '{instance_id}' is faulted after a safety trip — "
+                                f"clear in maintenance mode (§10.4)")
+
     def _invoke(self, instance_id: str, method: str, *args):
+        self._guard_faulted(instance_id)
         inst = self._registry.require(instance_id)
         return self._loop.run(inst.invoke(method, *args), timeout=self._timeout)
+
+    def invoke(self, action_name: str, method: str, args=None):
+        """Call a non-scalar capability method on the action's bound instance (§9.4, ctx.invoke).
+        Unlike signals there is no scale/clamp — an action is a multi-shape capability, not a
+        scalar. `args` is a list (positional) or a dict (keyword); the instance lock arbitrates
+        concurrent access. The capability↔instance binding was verified at load (§4.1)."""
+        a = self.actions.get(action_name)
+        if a is None:
+            raise VariableError(f"unknown action '{action_name}' on {self.station}")
+        inst_id = a["instance"]
+        self._guard_faulted(inst_id)
+        inst = self._registry.require(inst_id)
+        if isinstance(args, dict):
+            coro = inst.invoke(method, **args)
+        elif args is None:
+            coro = inst.invoke(method)
+        else:
+            coro = inst.invoke(method, *args)
+        return self._loop.run(coro, timeout=self._timeout)
 
     def read(self, name: str) -> dict:
         v = self._sig(name)

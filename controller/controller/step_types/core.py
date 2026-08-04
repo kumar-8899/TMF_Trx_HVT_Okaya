@@ -40,6 +40,11 @@ class Group:
 class Repeat:
     """Run inner steps `count` times, or until an `until` signal condition holds
     (RECIPE.md §7: an infinite repeat without a stop condition is a validation error)."""
+    @staticmethod
+    def bindings(params):
+        sig = (params.get("until") or {}).get("signal")
+        return {"signals": [sig] if sig else [], "actions": []}
+
     def execute(self, params, ctx) -> StepResult:
         n = int(params.get("count", 1))
         until = params.get("until") or {}
@@ -62,6 +67,10 @@ class Repeat:
 @register_step_type(type_id="sweep", display_name="Sweep", composite=True, kind=_PRIM)
 class Sweep:
     """Run inner steps once per value in a list, writing that value to a named signal."""
+    @staticmethod
+    def bindings(params):
+        return {"signals": [params["signal"]] if params.get("signal") else [], "actions": []}
+
     def execute(self, params, ctx) -> StepResult:
         signal = params["signal"]
         statuses: list[str] = []
@@ -82,6 +91,11 @@ class Sweep:
 @register_step_type(type_id="if", display_name="If", composite=True, kind=_PRIM)
 class If:
     """Run inner steps only when a signal condition holds; skipped => PASS."""
+    @staticmethod
+    def bindings(params):
+        sig = (params.get("condition") or {}).get("signal")
+        return {"signals": [sig] if sig else [], "actions": []}
+
     def execute(self, params, ctx) -> StepResult:
         cond = params.get("condition") or {}
         value = ctx.read(cond["signal"]) if cond.get("signal") else None
@@ -104,6 +118,10 @@ class Wait:
 @register_step_type(type_id="set_output", display_name="Set output", kind=_PRIM)
 class SetOutput:
     """Write a value to a named signal. Records the written (clamped) value as INFO."""
+    @staticmethod
+    def bindings(params):
+        return {"signals": [params["signal"]] if params.get("signal") else [], "actions": []}
+
     def execute(self, params, ctx) -> StepResult:
         written = ctx.write(params["signal"], params["value"])
         return StepResult(measurements=[
@@ -113,6 +131,10 @@ class SetOutput:
 @register_step_type(type_id="measure_and_compare", display_name="Measure & compare", kind=_PRIM)
 class MeasureAndCompare:
     """Read a signal, compare against limits, produce ONE measurement (§8)."""
+    @staticmethod
+    def bindings(params):
+        return {"signals": [params["signal"]] if params.get("signal") else [], "actions": []}
+
     def execute(self, params, ctx) -> StepResult:
         value = ctx.read(params["signal"])
         lim = Limits(min=params.get("min"), max=params.get("max"), expected=params.get("expected"))

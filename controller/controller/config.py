@@ -31,6 +31,9 @@ class ControllerConfig:
     library_paths: list[str] = field(default_factory=list)
     library_packages: list[str] = field(default_factory=list)
     daq: dict = field(default_factory=dict)
+    safety_monitors: list[dict] = field(default_factory=list)
+    step_type_packages: list[str] = field(default_factory=list)
+    step_type_paths: list[str] = field(default_factory=list)
     simulation: bool = False
     abort_grace_ms: int = 2000
     teardown_timeout_ms: int = 30000
@@ -75,6 +78,9 @@ def parse_config(data: dict) -> ControllerConfig:
         library_paths=list(data.get("library_paths", []) or []),
         library_packages=list(data.get("library_packages", []) or []),
         daq=dict(data.get("daq", {}) or {}),
+        safety_monitors=list(data.get("safety_monitors", []) or []),
+        step_type_packages=list(data.get("step_type_packages", []) or []),
+        step_type_paths=list(data.get("step_type_paths", []) or []),
         simulation=bool(data.get("simulation", False)),
         abort_grace_ms=int(data.get("abort_grace_ms", 2000)),
         teardown_timeout_ms=int(data.get("teardown_timeout_ms", 30000)),

@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["cycles", "on_value", "off_value", "fb_min", "fb_max"],
+  "additionalProperties": false,
+  "properties": {
+    "cycles": {
+      "type": "integer", "minimum": 1, "maximum": 1000000, "default": 500,
+      "title": "Cycle count",
+      "description": "How many energise/de-energise cycles to run. Endurance tests raise this."
+    },
+    "on_value": {
+      "type": "number", "default": 1,
+      "title": "Coil ON value",
+      "description": "Value written to relay_coil to energise the relay."
+    },
+    "off_value": {
+      "type": "number", "default": 0,
+      "title": "Coil OFF value",
+      "description": "Value written to relay_coil to release the relay."
+    },
+    "settle_s": {
+      "type": "number", "minimum": 0, "default": 0.05,
+      "title": "Settle time (s)",
+      "description": "Dwell after each coil change before reading feedback. From the relay's operate/release time in its datasheet."
+    },
+    "fb_min": {
+      "type": "number",
+      "title": "Feedback — min limit",
+      "description": "Lowest acceptable relay_feedback when closed. Below it the contact did not make."
+    },
+    "fb_max": {
+      "type": "number",
+      "title": "Feedback — max limit",
+      "description": "Highest acceptable relay_feedback when closed. Above it may indicate a welded/stuck contact."
+    }
+  }
+}

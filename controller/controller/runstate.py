@@ -17,6 +17,7 @@ import time
 import uuid
 
 from controller.context import StepAborted
+from controller.dryrun import dry_run
 from controller.sequencer import Sequencer
 
 IDLE, STARTING, RUNNING, ABORTING, TEARDOWN, FAULTED = \
@@ -41,6 +42,7 @@ class RunEngine:
         self.run_id: str | None = None
         self._abort = threading.Event()
         self._abort_reason = ""
+        self._safety_trip: str | None = None   # "safety:<monitor_id>" once tripped (§5.5)
         self._deadline = 0.0
         self._thread: threading.Thread | None = None
         self._watchdog: threading.Timer | None = None
@@ -55,6 +57,7 @@ class RunEngine:
         self.state = STARTING
         self._abort.clear()
         self._abort_reason = ""
+        self._safety_trip = None
         self._thread = threading.Thread(target=self._run, args=(run_id, dict(body or {})),
                                         name=f"run-{self.station}", daemon=True)
         self._thread.start()
@@ -66,6 +69,32 @@ class RunEngine:
             self._abort.set()
             self.state = ABORTING
         return {"ok": True}
+
+    # ---- safety (called on the reflex thread, §10.3) ---------------------
+
+    def safety_trip(self, monitor_id: str) -> None:
+        """A safety monitor tripped this station. Different from abort: after a trip the
+        hardware state is unknown, so recipe-authored teardown MUST NOT run (§5.5). The
+        emergency_disable() fan-out already happened on the reflex thread ahead of this.
+        An active run unwinds via StepAborted into the teardown-skipped path below; an idle
+        station still faults so it will not start into a tripped resource."""
+        self._safety_trip = f"safety:{monitor_id}"
+        if self.state in (STARTING, RUNNING, ABORTING):
+            self._abort_reason = self._safety_trip
+            self._abort.set()
+            self.state = ABORTING
+        else:
+            self.state = FAULTED
+
+    def clear_fault(self) -> dict:
+        """Operator un-faults the station (maintenance mode, MAINTENANCE.* — enforced app
+        side; §10.4). Only a faulted station clears."""
+        if self.state == FAULTED:
+            self.state = IDLE
+            self.run_id = None
+            self._safety_trip = None
+            return {"ok": True, "cleared": True, "state": self.state}
+        return {"ok": True, "cleared": False, "state": self.state}
 
     # ---- the run thread --------------------------------------------------
 
@@ -85,6 +114,18 @@ class RunEngine:
             self.state = IDLE
             return
 
+        # Dry run (§12.2): fetch+validate above already ran; now walk + resolve names against
+        # the station map, no hardware, no handler body. One run-started/run-finished pair so
+        # the app tails it as an ordinary (zero-step) run.
+        if body.get("dry_run"):
+            self.state = RUNNING
+            self._emit("run-started", {"run_id": run_id, "recipe_id": recipe_id, "dry_run": True})
+            result, dry_errors = dry_run(recipe, self._vars)
+            self._terminal("run-finished", {"run_id": run_id, "result": result,
+                                            "errors": dry_errors})
+            self.state = IDLE
+            return
+
         self.state = RUNNING
         timeout = (recipe.get("timeout_ms") or _DEFAULT_TIMEOUT_MS) / 1000
         self._deadline = time.monotonic() + timeout
@@ -97,6 +138,12 @@ class RunEngine:
                              deadline_ts=self._deadline, aborted_fn=self._abort.is_set)
         except StepAborted:
             self._disarm_watchdog()
+            if self._safety_trip:
+                # Trip: hardware already emergency-disabled by the reflex loop; recipe
+                # teardown MUST NOT run (state unknown) — skip it, fault the station (§5.5).
+                self._terminal("run-aborted", {"run_id": run_id, "reason": self._safety_trip})
+                self.state = FAULTED
+                return
             timed_out = time.monotonic() >= self._deadline
             reason = "step_timeout" if timed_out else (self._abort_reason or "operator_abort")
             self._teardown()
@@ -110,9 +157,13 @@ class RunEngine:
             self.state = FAULTED
             return
         self._disarm_watchdog()
+        if self._safety_trip:                      # tripped as the run wound down — stay faulted
+            self._terminal("run-aborted", {"run_id": run_id, "reason": self._safety_trip})
+            self.state = FAULTED
+            return
         self._teardown()
         self._terminal("run-finished", {"run_id": run_id, "result": result})
-        self.state = IDLE
+        self.state = FAULTED if self._safety_trip else IDLE
 
     # ---- teardown + watchdog ---------------------------------------------
 

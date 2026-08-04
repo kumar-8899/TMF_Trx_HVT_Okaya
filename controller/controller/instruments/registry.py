@@ -7,6 +7,7 @@ startup (the double-open guard). instrumentlib is a pip package — NOT the fram
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import sys
@@ -46,6 +47,7 @@ class InstrumentRegistry:
         self._by_id: dict = {}
         self._stations_by_id: dict[str, list[str]] = {}   # instance -> sockets it serves
         self._resources: set[str] = set()
+        self._faulted: set[str] = set()                   # instances a safety trip disabled (§10.3)
         self.skipped: list[dict] = []
 
     def build(self, instruments: list[dict], *, simulation: bool = False, on_command=None) -> None:
@@ -62,7 +64,9 @@ class InstrumentRegistry:
             resource = _resource_key(cfg)
             if resource in self._resources:
                 raise RegistryError(f"instance '{iid}' resolves to an already-open resource: {resource}")
-            simulated = bool(cfg.get("simulated", simulation))
+            # Global simulation replaces EVERY instrument (§12.1) — it wins over a per-instance
+            # "simulated": false; a per-instance flag only opts a single device in.
+            simulated = bool(simulation) or bool(cfg.get("simulated", False))
             inst = entry["class"](iid, simulated=simulated, params=cfg.get("params", {}),
                                   on_command=on_command)
             self._by_id[iid] = inst
@@ -77,6 +81,40 @@ class InstrumentRegistry:
         declared (treated as serving all)."""
         return [i for iid, i in self._by_id.items()
                 if station in self._stations_by_id.get(iid, []) or not self._stations_by_id.get(iid)]
+
+    def instances_for_stations(self, stations) -> list:
+        """Instances serving ANY of these sockets (plus serve-all instances)."""
+        want = set(stations)
+        return [i for iid, i in self._by_id.items()
+                if (want & set(self._stations_by_id.get(iid) or [])) or not self._stations_by_id.get(iid)]
+
+    # ---- safety fault state (§10.3) --------------------------------------
+    def mark_faulted(self, instance_ids) -> None:
+        self._faulted.update(instance_ids)
+
+    def clear_faulted(self, instance_ids=None) -> None:
+        if instance_ids is None:
+            self._faulted.clear()
+        else:
+            self._faulted.difference_update(instance_ids)
+
+    def is_faulted(self, instance_id: str) -> bool:
+        return instance_id in self._faulted
+
+    def faulted(self) -> list[str]:
+        return sorted(self._faulted)
+
+    async def emergency_disable(self, instances) -> None:
+        """Cut outputs NOW across the given instances, in parallel, never raising (§10.3).
+        The reflex loop calls this ahead of any other work."""
+        await asyncio.gather(*(self._ed(i) for i in instances), return_exceptions=True)
+
+    @staticmethod
+    async def _ed(inst) -> None:
+        try:
+            await inst.emergency_disable()
+        except Exception:  # noqa: BLE001 — a dead link must not stop the rest of the fan-out
+            pass
 
     def get(self, instance_id: str):
         return self._by_id.get(instance_id)

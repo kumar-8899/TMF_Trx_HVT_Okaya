@@ -74,3 +74,13 @@ def register_run_ops(client: StationClient, engine) -> None:
     client.serve("run.start", lambda a: engine.start(a))
     client.serve("run.abort", lambda a: engine.abort())
     client.serve("sequencer.list_test_classes", lambda a: {"test_classes": step_registry.list_test_classes()})
+
+
+def register_safety_ops(client: StationClient, safety) -> None:
+    """Safety ops (PYTHON_CONTROLLER.md §10). `safety.trip` is one trip source — a manual
+    E-stop over the bridge; it only enqueues, the reflex thread does the fan-out (independent
+    of the bridge). `safety.clear` un-faults (maintenance-gated app-side, §10.4). The one
+    SafetyController is shared across stations, so these are served on every station's client."""
+    client.serve("safety.trip", lambda a: safety.trip((a or {}).get("monitor_id") or (a or {}).get("id")))
+    client.serve("safety.clear", lambda a: safety.clear((a or {}).get("monitor_id") or (a or {}).get("id")))
+    client.serve("safety.status", lambda a: safety.status())
