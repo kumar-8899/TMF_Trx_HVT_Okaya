@@ -239,13 +239,14 @@ class ReportStore:
     # --- analytics (SQL headline + bounded detail) -------------------------
 
     def _where(self, *, since=None, until=None, model=None, shift=None, operator=None,
-               recipe_id=None, result=None, serial=None, date_from=None, date_to=None):
+               station=None, recipe_id=None, result=None, serial=None, date_from=None, date_to=None):
         c = []
         if since is not None: c.append(report.c.started_ts >= since)
         if until is not None: c.append(report.c.started_ts <= until)
         if model: c.append(report.c.model == model)
         if shift: c.append(report.c.shift_label == shift)
         if operator: c.append(report.c.operator == operator)
+        if station: c.append(report.c.station == station)
         if recipe_id: c.append(report.c.recipe_id == recipe_id)
         if result: c.append(report.c.result == result)
         if serial: c.append(report.c.serial_no.like(f"%{serial}%"))     # serial search
@@ -253,19 +254,20 @@ class ReportStore:
         if date_to: c.append(report.c.business_day <= date_to)
         return and_(*c) if c else true()
 
-    async def dashboard(self, *, since=None, until=None, model=None, operator=None, shift=None) -> dict:
+    async def dashboard(self, *, since=None, until=None, model=None, operator=None,
+                        shift=None, station=None) -> dict:
         if not self.configured:
             return {"configured": False, "kpis": {}, "passfail_daily": [], "by_model": [],
-                    "by_shift": [], "failure_pareto": [], "param_pareto": [], "fpy": {"series": [], "pbar": 0},
-                    "cycle": {"histogram": [], "imr": {"points": []}}, "models": [], "operators": [],
-                    "shifts": [], "detail_truncated": False}
-        return await self._run(self._dashboard, since, until, model, operator, shift)
+                    "by_shift": [], "by_station": [], "failure_pareto": [], "param_pareto": [],
+                    "fpy": {"series": [], "pbar": 0}, "cycle": {"histogram": [], "imr": {"points": []}},
+                    "models": [], "operators": [], "shifts": [], "stations": [], "detail_truncated": False}
+        return await self._run(self._dashboard, since, until, model, operator, shift, station)
 
-    def _dashboard(self, since, until, model, operator, shift) -> dict:
+    def _dashboard(self, since, until, model, operator, shift, station=None) -> dict:
         # Filter by BUSINESS DAY (always stamped, shift-aware) rather than started_ts,
         # so a report with a missing/odd started_ts never vanishes from analytics.
         w = self._where(date_from=_ts_date(since), date_to=_ts_date(until),
-                        model=model, shift=shift, operator=operator)
+                        model=model, shift=shift, operator=operator, station=station)
         is_pass = report.c.result.like("PASS%")
         with self._engine.connect() as c:
             total = c.execute(select(func.count()).select_from(report).where(w)).scalar() or 0
@@ -282,6 +284,10 @@ class ReportStore:
                 select(report.c.shift_label, func.count(), func.sum(pf)).where(w)
                 .where(report.c.shift_label.isnot(None)).where(report.c.shift_label != "")
                 .group_by(report.c.shift_label)).all()]
+            by_station = [_grp("station", st, n, p) for st, n, p in c.execute(
+                select(report.c.station, func.count(), func.sum(pf)).where(w)
+                .where(report.c.station.isnot(None)).where(report.c.station != "")
+                .group_by(report.c.station)).all()]
 
             # parameter Pareto: failing result rows grouped by test_name (indexed)
             rr, fail = report_result, report_result.c.result.notlike("PASS%")
@@ -298,6 +304,7 @@ class ReportStore:
             models = [m for (m,) in c.execute(select(distinct(report.c.model)).where(report.c.model.isnot(None))).all() if m]
             operators = [o for (o,) in c.execute(select(distinct(report.c.operator)).where(report.c.operator.isnot(None))).all() if o]
             shifts = [s for (s,) in c.execute(select(distinct(report.c.shift_label)).where(report.c.shift_label.isnot(None))).all() if s]
+            stations = [s for (s,) in c.execute(select(distinct(report.c.station)).where(report.c.station.isnot(None))).all() if s]
 
         failed = int(total) - int(passed) - int(aborted)
         det_reports = [_with_cycle(dict(r)) for r in det]   # cycle_s = summed test cycle_time_ms
@@ -310,11 +317,13 @@ class ReportStore:
             "passfail_daily": passfail,
             "by_model": by_model,
             "by_shift": by_shift,
+            "by_station": by_station,
             "failure_pareto": _cum(pareto),
             "param_pareto": _cum(pareto),
             "fpy": A._fpy_pchart(det_reports),
             "cycle": A._cycle(det_reports),
             "models": sorted(models), "operators": sorted(operators), "shifts": sorted(shifts),
+            "stations": sorted(stations),
             "detail_truncated": len(det) >= _DETAIL_CAP,
         }
 
@@ -359,7 +368,7 @@ def _f(v):
 def _grp(key, name, total, passed):
     total, passed = int(total), int(passed or 0)
     return {key: name or "(none)", "total": total, "passed": passed, "failed": total - passed,
-            ("yield" if key == "shift" else "fpy"): round(100 * passed / total, 1) if total else 0.0}
+            ("yield" if key in ("shift", "station") else "fpy"): round(100 * passed / total, 1) if total else 0.0}
 
 
 def _cum(items):

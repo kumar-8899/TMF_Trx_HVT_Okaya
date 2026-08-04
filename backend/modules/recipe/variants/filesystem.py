@@ -293,6 +293,7 @@ class FilesystemRecipe:
         bridge = self.core.bridge
         if bridge is not None and getattr(bridge, "connected", False):
             try:
-                await bridge.publish(f"event/{kind}", {"type": kind, "ts": time.time(), "payload": payload})
+                await bridge.publish(f"event/{kind}", {"type": kind, "ts": time.time(), "payload": payload},
+                                     station=self.core.station)
             except Exception:  # noqa: BLE001 — events are best-effort
                 pass

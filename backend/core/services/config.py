@@ -77,7 +77,23 @@ class ConfigService:
     def load_app(self, name: str = "app") -> dict:
         path = self.ensure_live(name)
         data = self.load_json(path)
-        return self.validate(data, self.schemas_dir / "app.schema.json", what="app config")
+        data = self.validate(data, self.schemas_dir / "app.schema.json", what="app config")
+        return self._normalise_stations(data)
+
+    @staticmethod
+    def _normalise_stations(data: dict) -> dict:
+        """Multi-station migration (MULTI_STATION.md §1): a config carrying the old
+        singular `station` is read as a one-element `stations` list. `station` is kept
+        as an alias for the first socket so not-yet-converted single-station code paths
+        keep working during the M1-M6 migration. `stations_migrated` flags the old form
+        so the caller can emit a deprecation warning."""
+        if "stations" not in data:
+            st = data.get("station")
+            data["stations"] = [st] if st else []
+            data["stations_migrated"] = bool(st)
+        if not data.get("station") and data["stations"]:
+            data["station"] = data["stations"][0]
+        return data
 
     def load_license(self, path: Path | str | None = None) -> dict:
         """The license lives beside app.json in the config dir; the directory part

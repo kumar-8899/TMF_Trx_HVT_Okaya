@@ -97,7 +97,7 @@ async def test_direction_and_unknown_errors(mod):
 
 async def test_unbound_and_list(mod):
     m, _ = mod
-    assert m.engine.unbound() == ["orphan"]        # instance 'missing' not loaded
+    assert m.engine.unbound() == ["st1:orphan"]    # instance 'missing' not loaded (station:name)
     names = {v["name"]: v for v in m.engine.list()}
     assert names["out_current"]["bound"] is True and names["orphan"]["bound"] is False
     assert await m.ready() is False                # unbound blocks readiness

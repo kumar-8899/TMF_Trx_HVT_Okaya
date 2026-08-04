@@ -9,6 +9,7 @@ from core.services.bridge import BridgeError, BridgeTimeout
 from core.services.interlock import InterlockError
 from core.services.security import require_permission
 from modules.runs.acquisition import AcquisitionError
+from modules.runs.errors import RunActiveError, RunError
 
 
 def _operator(request: Request) -> str | None:
@@ -26,6 +27,10 @@ def _operator(request: Request) -> str | None:
 async def _guard(coro):
     try:
         return await coro
+    except RunActiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RunError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except InterlockError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AcquisitionError as exc:
@@ -56,8 +61,8 @@ def build_router(module) -> APIRouter:
         return await _guard(module.run_start(body))
 
     @router.post("/runs/abort")
-    async def run_abort() -> dict:
-        return await _guard(module.run_abort())
+    async def run_abort(params: dict | None = None) -> dict:
+        return await _guard(module.run_abort(params or {}))
 
     @router.post("/runs/reset-data", dependencies=[Depends(require_permission("SYSTEM.RESET_DATA"))])
     async def reset_data(body: dict | None = None) -> dict:

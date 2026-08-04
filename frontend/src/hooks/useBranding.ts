@@ -14,6 +14,11 @@ export const DEFAULT_BRANDING: Branding = {
 
 let cache: Branding | null = null;
 
+/** Drop the session cache so the next useBranding mount re-fetches (after an edit). */
+export function resetBranding(): void {
+  cache = null;
+}
+
 export function useBranding(): Branding {
   const [b, setB] = useState<Branding>(cache ?? DEFAULT_BRANDING);
   useEffect(() => {

@@ -44,7 +44,16 @@ Every instrument declares one **execution owner** (INSTRUMENT_LIBRARY §0 — di
 The `config` module is the **single instrument registry** (DB `instrument` records).
 The `variables` (variable-engine) module consumes `config.python_instruments()` at
 startup to build its instances — one source of truth, no duplication. Non-scalar
-capabilities are never bound in the variable map (INSTRUMENT_LIBRARY §2.2).
+capabilities appear in the variable map as **actions**, never signals (INSTRUMENT_LIBRARY §2.2).
+
+**Multi-station (`MULTI_STATION.md` §4.3):** each instrument record carries `stations[]`
+(a single-station value migrates to a one-element list). The instruments form gains a
+stations multi-select. For any instance shared across sockets (`len(stations) > 1`), the
+**no-lease binding rule** (`PYTHON_CONTROLLER.md` §9.3) is enforced at save **and** startup,
+loudly — a read-only signal is allowed; a signal with `write`, or any non-scalar `action`,
+is **refused**. It prevents a configure-then-read interleaving across sockets from
+producing a silent wrong PASS. A shared NI-DAQ card serving four stations passes cleanly
+(AI reads are stateless); a shared source bound for write does not.
 
 ## Why a transport-driven UI (the scalability contract)
 

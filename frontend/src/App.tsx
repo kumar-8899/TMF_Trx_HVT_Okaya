@@ -12,10 +12,12 @@ import { Login } from "./screens/Login";
 import { RecipeDetail } from "./screens/RecipeDetail";
 import { RecipeEditor } from "./screens/RecipeEditor";
 import { Analytics } from "./screens/Analytics";
+import { ConfigBranding } from "./screens/config/Branding";
 import { ConfigInstruments } from "./screens/config/Instruments";
 import { ConfigMes } from "./screens/config/Mes";
 import { ConfigBarcode } from "./screens/config/Placeholder";
 import { ConfigShift } from "./screens/config/Shift";
+import { ConfigVariableMap } from "./screens/config/VariableMap";
 import { Diagnostics } from "./screens/Diagnostics";
 import { Health } from "./screens/Health";
 import { Help } from "./screens/Help";
@@ -61,7 +63,9 @@ export function App() {
           <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
           <Route path="/analytics" element={<RequirePermission perm="REPORT.VIEW"><Analytics /></RequirePermission>} />
           <Route path="/health" element={<RequirePermission perm="HEALTH.VIEW"><Health /></RequirePermission>} />
+          <Route path="/config/branding" element={<RequireRole role="super_admin"><ConfigBranding /></RequireRole>} />
           <Route path="/config/instruments" element={<RequirePermission perm="CONFIG.VIEW"><ConfigInstruments /></RequirePermission>} />
+          <Route path="/config/variables" element={<RequireRole role="super_admin"><ConfigVariableMap /></RequireRole>} />
           <Route path="/config/barcode" element={<RequirePermission perm="CONFIG.VIEW"><ConfigBarcode /></RequirePermission>} />
           <Route path="/config/shift" element={<RequirePermission perm="CONFIG.VIEW"><ConfigShift /></RequirePermission>} />
           <Route path="/config/mes" element={<RequirePermission perm="CONFIG.VIEW"><ConfigMes /></RequirePermission>} />

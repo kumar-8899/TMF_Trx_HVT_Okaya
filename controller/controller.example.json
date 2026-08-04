@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "broker": { "host": "127.0.0.1", "port": 1883 },
+
+  "library_paths": ["D:/Experiment/Instrument_Library"],
+  "library_packages": ["instrument_libs"],
+
+  "instruments": [
+    { "id": "psu_st1", "library": "keysight_e36xx", "stations": ["st1"],
+      "params": { "resource": "SIM" }, "simulated": true }
+  ],
+
+  "stations": [
+    { "station": "st1", "variable_map": "maps/st1.json" }
+  ],
+
+  "simulation": true,
+  "abort_grace_ms": 2000,
+  "teardown_timeout_ms": 30000
+}

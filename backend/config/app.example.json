@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "station": "st1",
+  "stations": ["st1"],
   "branding": {
     "name": "Super Test App",
     "short": "S",

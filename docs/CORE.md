@@ -41,7 +41,7 @@ CoreServices:
     auth         : TokenVerifier     # verify(token) -> Principal ; require_role
     diag         : Diagnostics       # emit family + timed span
     web          : WebShell          # mount routers, error handlers
-    station      : str               # this station id
+    stations     : list[str]         # this PC's station ids (one socket = one id)
     get_contract : (name) -> object  # resolve a sibling CONTRACT to its active variant
 ```
 
@@ -140,7 +140,7 @@ Mirrors the HAL exactly:
 ```json
 {
   "schema_version": 1,
-  "station": "st1",
+  "stations": ["st1", "st2", "st3", "st4"],
   "license": "config/license.json",
   "modules": [
     { "id": "auth",   "variant": "local_db",  "config": { "session_ttl_min": 480 } },
@@ -230,7 +230,7 @@ the frontend reads to reflect entitlements (Principle 11).
 Health endpoints (`BORROWABLE_MODULES.md` #4):
 
 - `GET /healthz` → process alive. Trivial.
-- `GET /readyz` → core services up **and** the LabVIEW bridge link is online (its `status` retained = `online`) **and** every module marked required has started.
+- `GET /readyz` → core services up **and at least one** station's bridge link is online (its `status` retained = `online`) **and** every module marked required has started. The body carries per-station link state (`stations: { st1: "online", … }`) so an operator sees which socket is missing; a single unplugged bench does not take the app down (`MULTI_STATION.md` §3).
 
 ---
 

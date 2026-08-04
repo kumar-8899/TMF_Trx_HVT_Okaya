@@ -21,7 +21,7 @@ class FakeBridge:
     def online(self):
         return self._online
 
-    async def request(self, op, args, timeout=None):
+    async def request(self, op, args, *, station=None, timeout=None):
         r = self.replies.get(op)
         return r(args) if callable(r) else (r if r is not None else {"ok": True})
 
@@ -297,5 +297,44 @@ async def test_suggestion_ack(tmp_path):
         rec = await module.list_suggestions()
         assert next(s for s in rec if s["id"] == sid)["operator_ack"] == "helped"
         assert await module.ack_suggestion("nope", "helped") is False
+    finally:
+        await db.close()
+
+
+class _MultiBridge:
+    """Per-station link states for the multi-socket health test (M6 §4.4)."""
+    def __init__(self, online_map):
+        self._online = online_map
+        self.connected = True
+
+    @property
+    def online(self):
+        return any(self._online.values())
+
+    def link_status(self, st):
+        return "online" if self._online.get(st) else "offline"
+
+    async def request(self, op, args, *, station=None, timeout=None):
+        return {"ok": bool(self._online.get(station)), "ts": time.time()}
+
+
+async def test_bridge_check_runs_per_station_and_aggregates(tmp_path):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, bridge=_MultiBridge({"st1": True, "st2": False}),
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]),
+                        stations=["st1", "st2"], station="st1")
+    module = DefaultHealth.construct(core, {"data_root": str(tmp_path)})
+    await module.init()
+    try:
+        hid = await module.run(check_ids=["bridge.online"])
+        run = await module.get_run(hid)
+        v = {x["check_id"]: x for x in run["verdicts"]}["bridge.online"]
+        assert v["stations"] == ["st1", "st2"]                 # ran on both sockets
+        assert v["data"]["per_station"]["st1"]["status"] == "pass"
+        assert v["data"]["per_station"]["st2"]["status"] == "fail"
+        assert v["status"] == "fail"                           # aggregate = worst
+        assert "1/2 sockets ok" in v["summary"]
+        assert run["stations"] == ["st1", "st2"]               # record carries the socket set
     finally:
         await db.close()

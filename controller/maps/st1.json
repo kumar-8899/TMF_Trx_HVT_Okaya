@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "signals": {
+    "supply_voltage": {
+      "instance": "psu_st1", "read": "measure_voltage", "write": "set_voltage",
+      "clamp": { "min": 0.0, "max": 30.0 }, "units": "V"
+    },
+    "supply_current": {
+      "instance": "psu_st1", "read": "measure_current", "units": "A"
+    }
+  },
+  "actions": {}
+}

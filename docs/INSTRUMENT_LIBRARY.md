@@ -113,8 +113,11 @@ DSO:
     capture() → WaveformRecord        # samples[], dt, t0, units, channel meta
 ```
 
-Non-scalar capabilities MUST NOT be bound in the variable map. The sequencer commands
-them directly by instance id. New non-scalar capabilities follow the same rule.
+Non-scalar capabilities appear in the variable map as **actions**, never as **signals**
+(`PYTHON_CONTROLLER.md` §4.1): an action binds `{instance, capability}` with no scale or
+clamp, and the sequencer reaches it via `ctx.invoke(action, method, args)`. Scaling and
+clamping remain signal-only — the reason this rule exists is preserved. At load, an
+action's bound instance MUST be verified to implement its declared `capability`, loudly.
 
 ### 2.3 Interface evolution
 
@@ -205,9 +208,9 @@ artifact, never hand-authored. Drift is structurally impossible.
 {
   "schema_version": 1,
   "instances": [
-    { "id": "load_1_st1", "library": "chroma_63600", "station": 1,
+    { "id": "load_1_st1", "library": "chroma_63600", "stations": ["st1"],
       "params": { "ip": "192.168.10.31" }, "simulated": false },
-    { "id": "load_2_st1", "library": "chroma_63600", "station": 1,
+    { "id": "load_2_st1", "library": "chroma_63600", "stations": ["st1"],
       "params": { "ip": "192.168.10.32" }, "simulated": false }
   ]
 }
@@ -219,6 +222,12 @@ at startup (the in-process double-open guard). The `instance_id` — not the res
 the public name carried by `capability.request`, diagnostics, and health.
 
 ### 5.3 The variable map (the surviving 200 lines)
+
+**One map per station, identical names in each** (`MULTI_STATION.md` §4.2). With N
+stations in one app, `output_current` names N different instruments — `output_current`
+resolves to `load_1_st1` on st1, `load_1_st2` on st2. Resolution is always against the
+**calling station's** map, which is what lets one recipe run unchanged on any socket. The
+rejected alternative (one map with station-prefixed names) makes recipes station-specific.
 
 ```json
 {

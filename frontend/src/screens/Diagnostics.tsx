@@ -2,6 +2,7 @@ import { Box, Chip, MenuItem, Stack, TextField, Typography } from "@mui/material
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api/client";
+import { StationPicker } from "../components/StationPicker";
 import { EmptyState, PageHeader, Section, StatusChip, StatusDot, statusKind } from "../components/ui";
 import { useStream } from "../hooks/useStream";
 import { MONO_STACK } from "../theme/theme";
@@ -18,6 +19,7 @@ export function Diagnostics() {
   const [events, setEvents] = useState<DiagEvent[]>([]);
   const [level, setLevel] = useState("");
   const [subsystem, setSubsystem] = useState("");
+  const [station, setStation] = useState<string | null>(null);   // multi-socket filter
   const [modules, setModules] = useState<any[]>([]);
   const [ready, setReady] = useState<{ ready: boolean; checks: Record<string, boolean> } | null>(null);
 
@@ -36,7 +38,8 @@ export function Diagnostics() {
   useEffect(() => { if (last) setEvents((p) => [last, ...p].slice(0, 300)); }, [last]);
 
   const shown = useMemo(() => events.filter((e) =>
-    (!level || e.level === level) && (!subsystem || (e.subsystem || "").includes(subsystem))), [events, level, subsystem]);
+    (!level || e.level === level) && (!subsystem || (e.subsystem || "").includes(subsystem))
+    && (!station || (e as any).station === station)), [events, level, subsystem, station]);
 
   return (
     <Box>
@@ -57,6 +60,7 @@ export function Diagnostics() {
                 {["debug", "info", "warning", "error", "critical"].map((l) => <MenuItem key={l} value={l}>{l}</MenuItem>)}
               </TextField>
               <TextField size="small" label="Subsystem" value={subsystem} onChange={(e) => setSubsystem(e.target.value)} />
+              <StationPicker value={station} onChange={setStation} allowAll />
             </Stack>
             {shown.length === 0 ? <EmptyState message="Waiting for events…" /> : (
               <Box sx={{ maxHeight: "60vh", overflow: "auto" }}>

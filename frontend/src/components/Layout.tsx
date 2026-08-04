@@ -1,5 +1,5 @@
 import {
-  Article, Assessment, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
+  AccountTreeOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
   GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
   ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TroubleshootOutlined, TuneOutlined,
@@ -44,7 +44,9 @@ const NAV: NavItem[] = [
   { label: "Test Bench", to: "/instruments/test", icon: <TroubleshootOutlined />, role: "super_admin" },
   {
     label: "Config", icon: <TuneOutlined />, perm: "CONFIG.VIEW", children: [
+      { label: "App identity", to: "/config/branding", icon: <BadgeOutlined />, role: "super_admin" },
       { label: "Instruments", to: "/config/instruments", icon: <MemoryOutlined /> },
+      { label: "Variable Map", to: "/config/variables", icon: <AccountTreeOutlined />, role: "super_admin" },
       { label: "Barcode", to: "/config/barcode", icon: <QrCodeScannerOutlined /> },
       { label: "Shift", to: "/config/shift", icon: <ScheduleOutlined /> },
       { label: "MES", to: "/config/mes", icon: <HubOutlined /> },
@@ -100,9 +102,9 @@ function NavLeaf({ n, nested = false }: { n: NavItem; nested?: boolean }) {
   );
 }
 
-function NavGroup({ n, can }: { n: NavItem; can: (p: string) => boolean }) {
+function NavGroup({ n, can, role }: { n: NavItem; can: (p: string) => boolean; role?: string }) {
   const loc = useLocation();
-  const kids = (n.children ?? []).filter((c) => !c.perm || can(c.perm));
+  const kids = (n.children ?? []).filter((c) => (!c.perm || can(c.perm)) && (!c.role || c.role === role));
   const activeInside = kids.some((c) => loc.pathname.startsWith(c.to!));
   const [open, setOpen] = useState(activeInside);
   useEffect(() => { if (activeInside) setOpen(true); }, [activeInside]);
@@ -181,7 +183,7 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
           <Toolbar />
           <List sx={{ py: 1 }}>
             {items.map((n) => n.children
-              ? <NavGroup key={n.label} n={n} can={can} />
+              ? <NavGroup key={n.label} n={n} can={can} role={principal?.role} />
               : <NavLeaf key={n.to} n={n} />)}
           </List>
         </Drawer>

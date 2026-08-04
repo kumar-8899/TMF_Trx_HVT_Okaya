@@ -27,7 +27,7 @@ class FakeBridge:
         # FastAPI deep-copied module->core->bridge per request (TypeError -> 500).
         self._unpicklable = threading.Lock()
 
-    async def request(self, op, args, timeout=None):
+    async def request(self, op, args, *, station=None, timeout=None):
         self.requests.append((op, args))
         return self.replies.get(op, {"id": "x", "ok": True, "result": {}})
 
@@ -76,10 +76,11 @@ async def test_latest_proxies_bridge_cache():
 
 
 class FakeWS:
-    def __init__(self):
+    def __init__(self, station=None):
         self.accepted = False
         self.sent = []
         self.closed = None
+        self.query_params = {} if station is None else {"station": station}
 
     async def accept(self):
         self.accepted = True
@@ -109,23 +110,23 @@ async def test_ws_snapshot_then_live_frames():
     _handler(module, "ai")("tmf/st1/stream/ai", {"seq": 2})
     await asyncio.sleep(0.05)            # drain + send
     task.cancel()
-    assert ws.sent[0] == {"snap": True}  # snapshot-on-join
-    assert {"seq": 2} in ws.sent         # live frame
+    assert ws.sent[0] == {"snap": True}                  # snapshot-on-join
+    assert {"seq": 2, "station": "st1"} in ws.sent       # live frame, station-tagged
 
 
 async def test_values_ws_snapshot_then_live():
     module, _ = _module()
     # a value seen before the client joins -> snapshot
     module._on_value("tmf/st1/value/vbus_main", {"value": 264.0, "ts": 1.0})
-    assert module._values["vbus_main"] == {"name": "vbus_main", "value": 264.0, "ts": 1.0}
+    assert module._values[("st1", "vbus_main")] == {"name": "vbus_main", "station": "st1", "value": 264.0, "ts": 1.0}
     ws = FakeWS()
     task = asyncio.create_task(module.stream_values_ws(ws))
     await asyncio.sleep(0.05)            # accept + snapshot + subscribe
     module._on_value("tmf/st1/value/temp_c", {"value": 41.2, "ts": 2.0})
     await asyncio.sleep(0.05)            # drain + send
     task.cancel()
-    assert {"name": "vbus_main", "value": 264.0, "ts": 1.0} in ws.sent  # snapshot
-    assert {"name": "temp_c", "value": 41.2, "ts": 2.0} in ws.sent      # live
+    assert {"name": "vbus_main", "station": "st1", "value": 264.0, "ts": 1.0} in ws.sent  # snapshot
+    assert {"name": "temp_c", "station": "st1", "value": 41.2, "ts": 2.0} in ws.sent      # live
 
 
 # --- WS over the real ASGI transport (routing + gating) --------------------

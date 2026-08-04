@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
+import { useStations } from "../../hooks/useStations";
 import { EmptyState, PageHeader, Section, StatusChip, type StatusKind } from "../../components/ui";
 import { MONO_STACK } from "../../theme/theme";
 
@@ -22,7 +23,7 @@ interface Library { library_id: string; vendor: string; model: string; capabilit
 interface Instrument {
   id: string; label: string; model?: string; owner?: "python" | "labview";
   transport?: string; library?: string; simulated?: boolean; params: Record<string, any>;
-  address?: string; family?: string; capabilities?: string[]; enabled?: boolean;
+  address?: string; family?: string; capabilities?: string[]; enabled?: boolean; stations?: string[];
 }
 
 const TEST_KIND: Record<string, StatusKind> = { pass: "pass", fail: "fail", timeout: "fail", error: "fail", unavailable: "running" };
@@ -32,6 +33,7 @@ const blank = (): Instrument => ({ id: "", label: "", model: "", owner: "labview
 export function ConfigInstruments() {
   const { can } = useAuth();
   const edit = can("CONFIG.EDIT");
+  const { stations, multi } = useStations();
   const [transports, setTransports] = useState<Transport[]>([]);
   const [list, setList] = useState<Instrument[]>([]);
   const [draft, setDraft] = useState<Instrument | null>(null);
@@ -234,6 +236,15 @@ export function ConfigInstruments() {
                       onChange={(e) => setF("simulated", e.target.checked)} />} label="Simulated" />}
                     <FormControlLabel control={<Switch checked={draft.enabled !== false} disabled={!edit}
                       onChange={(e) => setF("enabled", e.target.checked)} />} label="Enabled" />
+                    {multi && (
+                      <TextField select label="Stations" sx={{ minWidth: 200 }} disabled={!edit}
+                        SelectProps={{ multiple: true, renderValue: (v: any) => (v as string[]).join(", ") || "all sockets" }}
+                        value={draft.stations ?? []} inputProps={{ "aria-label": "stations" }}
+                        onChange={(e) => setF("stations", typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value)}
+                        helperText="sockets served (empty = all)">
+                        {stations.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                      </TextField>
+                    )}
                   </Stack>
                 </Stack>
               </Section>

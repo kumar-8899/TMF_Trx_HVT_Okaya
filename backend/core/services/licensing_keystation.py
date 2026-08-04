@@ -81,6 +81,23 @@ class KeystationLicense:
     def allows_feature(self, key: str) -> bool:
         return self._has(f"feature.{key}")
 
+    def max_stations(self) -> int | None:
+        """Application-wide station cap (MULTI_STATION.md §1) from the lease quota
+        `quota.max_stations`. None = unspecified (uncapped) — ask-never-assert: any
+        error or absent quota means no cap here (the app runs its configured count)."""
+        if not self.valid:
+            return None
+        try:
+            q = self._ks.quota("quota.max_stations")
+        except Exception:  # noqa: BLE001
+            return None
+        val = getattr(q, "allotment", getattr(q, "limit", q))   # tolerate scalar or quota obj
+        try:
+            n = int(val) if val is not None else 0
+        except (TypeError, ValueError):
+            return None
+        return n if n > 0 else None    # absent / not-granted quota reads as 0 -> uncapped
+
 
 class KeystationLicensing:
     """Provider mirroring `core.services.licensing.Licensing`: `load_and_verify()`

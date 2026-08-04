@@ -315,3 +315,95 @@ class BridgeClient:
     def _log(self, level: str, message: str, **context) -> None:
         if self._diag is not None:
             getattr(self._diag, level)("bridge", message, **context)
+
+
+class MultiStationBridge:
+    """N stations, N MQTT connections (MULTI_STATION.md §2). One `BridgeClient` per
+    station — each carries its own LWT + retained `status` so one socket dropping flips
+    only that station's link. `request`/`publish` take a **required** `station` keyword
+    (never defaulted — a default silently addresses the wrong socket, a wrong-DUT-verdict
+    bug). `subscribe`/`serve` fan out to every station. The cache + link liveness are
+    per station because each `BridgeClient` holds its own."""
+
+    def __init__(self, stations: list[str], *, host: str = "127.0.0.1", port: int = 1883,
+                 diag=None, request_timeout: float = 5.0, reconnect_delay: float = 1.0) -> None:
+        if not stations:
+            raise BridgeError("MultiStationBridge needs at least one station")
+        self.stations = list(stations)
+        self._diag = diag
+        self._conns: dict[str, BridgeClient] = {
+            st: BridgeClient(st, host=host, port=port, diag=diag,
+                             request_timeout=request_timeout, reconnect_delay=reconnect_delay)
+            for st in self.stations
+        }
+
+    def _conn(self, station: str) -> BridgeClient:
+        conn = self._conns.get(station)
+        if conn is None:
+            raise BridgeError(f"unknown station '{station}' (have {self.stations})")
+        return conn
+
+    # --- lifecycle (all stations) -----------------------------------------
+
+    async def connect(self, wait_timeout: float = 5.0) -> bool:
+        results = await asyncio.gather(*(c.connect(wait_timeout) for c in self._conns.values()),
+                                       return_exceptions=True)
+        return any(r is True for r in results)
+
+    async def disconnect(self) -> None:
+        await asyncio.gather(*(c.disconnect() for c in self._conns.values()),
+                             return_exceptions=True)
+
+    # --- link state -------------------------------------------------------
+
+    def link_status(self, station: str) -> str:
+        return "online" if self._conn(station).online else "offline"
+
+    @property
+    def any_link_online(self) -> bool:
+        return any(c.online for c in self._conns.values())
+
+    @property
+    def online(self) -> bool:
+        """Back-compat: any station's link is up. Per-station callers use link_status()."""
+        return self.any_link_online
+
+    @property
+    def connected(self) -> bool:
+        return any(c.connected for c in self._conns.values())
+
+    def link_map(self) -> dict[str, str]:
+        return {st: self.link_status(st) for st in self.stations}
+
+    # --- scoped I/O (station required) ------------------------------------
+
+    async def request(self, op: str, args: dict, *, station: str, timeout: float | None = None) -> dict:
+        return await self._conn(station).request(op, args, timeout)
+
+    async def publish(self, sub_topic: str, payload: dict, *, station: str,
+                      qos: int = 1, retain: bool = False) -> None:
+        await self._conn(station).publish(sub_topic, payload, qos=qos, retain=retain)
+
+    async def query(self, op: str, args: dict, *, station: str, timeout: float | None = None) -> dict:
+        return await self._conn(station).query(op, args, timeout)
+
+    def latest(self, sub_topic: str, station: str | None = None) -> dict | None:
+        return self._conn(station or self.stations[0]).latest(sub_topic)
+
+    # --- fan-out registration (all stations) ------------------------------
+
+    def subscribe(self, sub_topic: str, handler: Handler) -> None:
+        for c in self._conns.values():
+            c.subscribe(sub_topic, handler)
+
+    def serve(self, op: str, handler) -> None:
+        """Serve a query op on every station. If the handler accepts a second argument
+        it is called `handler(args, station)` so it can resolve against the calling
+        socket; a one-arg handler is called `handler(args)` unchanged."""
+        import inspect
+        try:
+            wants_station = len(inspect.signature(handler).parameters) >= 2
+        except (TypeError, ValueError):
+            wants_station = False
+        for st, c in self._conns.items():
+            c.serve(op, (lambda a, _st=st: handler(a, _st)) if wants_station else handler)

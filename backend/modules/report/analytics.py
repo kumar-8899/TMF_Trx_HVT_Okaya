@@ -54,7 +54,8 @@ def _first_fail_test(r: dict) -> str | None:
     return None if result_is_pass(r.get("result")) else "(unknown)"
 
 
-def apply_filters(reports, *, since=None, until=None, model=None, operator=None, shift=None) -> list[dict]:
+def apply_filters(reports, *, since=None, until=None, model=None, operator=None,
+                  shift=None, station=None) -> list[dict]:
     out = []
     for r in reports:
         ts = r.get("finished_ts") or r.get("started_ts") or 0
@@ -67,6 +68,8 @@ def apply_filters(reports, *, since=None, until=None, model=None, operator=None,
         if operator and r.get("operator") != operator:
             continue
         if shift and r.get("shift_label") != shift:
+            continue
+        if station and r.get("station") != station:
             continue
         out.append(r)
     return out
@@ -170,6 +173,22 @@ def _by_shift(reports) -> list[dict]:
     return sorted(by.values(), key=lambda c: c["shift"])
 
 
+def _by_station(reports) -> list[dict]:
+    """Per-socket yield — a drifting station is the most common multi-socket failure and
+    is invisible in an aggregate number (MULTI_STATION.md §4.5)."""
+    by: dict[str, dict] = {}
+    for r in reports:
+        st = r.get("station")
+        if not st:
+            continue
+        cell = by.setdefault(st, {"station": st, "total": 0, "passed": 0, "failed": 0})
+        cell["total"] += 1
+        cell["passed" if result_is_pass(r.get("result")) else "failed"] += 1
+    for c in by.values():
+        c["yield"] = round(100 * c["passed"] / c["total"], 1) if c["total"] else 0.0
+    return sorted(by.values(), key=lambda c: c["station"])
+
+
 def _by_model(reports) -> list[dict]:
     by: dict[str, dict] = {}
     for r in reports:
@@ -215,8 +234,10 @@ def _cycle(reports, bins: int = 12) -> dict:
     return {"histogram": hist, "imr": imr}
 
 
-def build_dashboard(reports, *, since=None, until=None, model=None, operator=None, shift=None) -> dict:
-    rs = apply_filters(reports, since=since, until=until, model=model, operator=operator, shift=shift)
+def build_dashboard(reports, *, since=None, until=None, model=None, operator=None,
+                    shift=None, station=None) -> dict:
+    rs = apply_filters(reports, since=since, until=until, model=model, operator=operator,
+                       shift=shift, station=station)
 
     fail_counter: dict[str, int] = {}
     param_counter: dict[str, int] = {}
@@ -231,7 +252,8 @@ def build_dashboard(reports, *, since=None, until=None, model=None, operator=Non
 
     return {
         "generated_ts": time.time(),
-        "filters": {"since": since, "until": until, "model": model, "operator": operator, "shift": shift},
+        "filters": {"since": since, "until": until, "model": model, "operator": operator,
+                    "shift": shift, "station": station},
         "kpis": _kpis(rs),
         "fpy": _fpy_pchart(rs),
         "passfail_daily": _passfail_daily(rs),
@@ -239,8 +261,10 @@ def build_dashboard(reports, *, since=None, until=None, model=None, operator=Non
         "param_pareto": _pareto(param_counter),
         "by_model": _by_model(rs),
         "by_shift": _by_shift(rs),
+        "by_station": _by_station(rs),
         "cycle": _cycle(rs),
         "models": sorted({r.get("model") for r in reports if r.get("model")}),
         "operators": sorted({r.get("operator") for r in reports if r.get("operator")}),
         "shifts": sorted({r.get("shift_label") for r in reports if r.get("shift_label")}),
+        "stations": sorted({r.get("station") for r in reports if r.get("station")}),
     }

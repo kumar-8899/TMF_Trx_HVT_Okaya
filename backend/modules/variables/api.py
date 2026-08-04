@@ -14,6 +14,7 @@ from modules.variables.engine import VariableError
 _VIEW = [Depends(require_permission("CONFIG.VIEW"))]
 _WRITE = [Depends(require_permission("HEALTH.MAINTENANCE"))]
 _TESTBENCH = [Depends(require_role("super_admin"))]   # Test Bench manual command path
+_MAP_EDIT = [Depends(require_role("super_admin"))]    # variable-map authoring
 
 
 async def _guard(coro):
@@ -29,13 +30,24 @@ async def _guard(coro):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+async def _map_guard(coro):
+    from modules.variables.bindings import BindingError
+    from modules.variables.variants.default import BindingUnknownInstance
+    try:
+        return await coro
+    except BindingUnknownInstance as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BindingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def build_router(module) -> APIRouter:
     router = APIRouter(tags=["variables"])
     eng = module.engine
 
     @router.get("/variables", dependencies=_VIEW)
-    async def list_variables() -> list[dict]:
-        return eng.list()
+    async def list_variables(station: str | None = None) -> list[dict]:
+        return eng.list(station)
 
     @router.get("/variables/libraries", dependencies=_VIEW)
     async def libraries() -> dict:
@@ -49,6 +61,38 @@ def build_router(module) -> APIRouter:
     async def instances() -> list[dict]:
         return module.instance_status()
 
+    # --- variable-map editor (bindings) ------------------------------------
+
+    @router.get("/variables/bindings", dependencies=_VIEW)
+    async def list_bindings(station: str | None = None) -> list[dict]:
+        from modules.variables.bindings import BindingError
+        try:
+            return module.list_bindings(station)
+        except BindingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.get("/variables/bindable/{instance_id}", dependencies=_VIEW)
+    async def bindable(instance_id: str) -> dict:
+        from modules.variables.variants.default import BindingUnknownInstance
+        try:
+            return module.bindable(instance_id)
+        except BindingUnknownInstance as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/variables/bindings", dependencies=_MAP_EDIT, status_code=201)
+    async def create_binding(body: dict) -> dict:
+        name = (body or {}).get("name", "")
+        return await _map_guard(module.save_binding(name, body, is_new=True))
+
+    @router.put("/variables/bindings/{name}", dependencies=_MAP_EDIT)
+    async def update_binding(name: str, body: dict) -> dict:
+        return await _map_guard(module.save_binding(name, body, is_new=False))
+
+    @router.delete("/variables/bindings/{name}", dependencies=_MAP_EDIT, status_code=204)
+    async def delete_binding(name: str, station: str | None = None):
+        if not await module.delete_binding(name, station):
+            raise HTTPException(status_code=404, detail=f"no editable binding '{name}'")
+
     @router.post("/variables/instances/{instance_id}/call", dependencies=_TESTBENCH)
     async def call(instance_id: str, body: dict) -> dict:
         if not (body or {}).get("method"):
@@ -56,21 +100,23 @@ def build_router(module) -> APIRouter:
         return await _guard(module.call(instance_id, body["method"], body.get("args")))
 
     @router.get("/variables/{name}/value", dependencies=_VIEW)
-    async def read_variable(name: str) -> dict:
-        return await _guard(eng.read(name))
+    async def read_variable(name: str, station: str | None = None) -> dict:
+        return await _guard(eng.read(name, station))
 
     @router.put("/variables/{name}/value", dependencies=_WRITE)
     async def write_variable(name: str, body: dict) -> dict:
         if "value" not in (body or {}):
             raise HTTPException(status_code=422, detail="value required")
-        return await _guard(eng.write(name, body["value"]))
+        return await _guard(eng.write(name, body["value"], (body or {}).get("station")))
 
     @router.post("/variables/read", dependencies=_VIEW)
     async def read_many(body: dict) -> dict:
-        return await _guard(eng.read_many((body or {}).get("names", [])))
+        b = body or {}
+        return await _guard(eng.read_many(b.get("names", []), b.get("station")))
 
     @router.post("/variables/write", dependencies=_WRITE)
     async def write_many(body: dict) -> dict:
-        return await _guard(eng.write_many((body or {}).get("values", {})))
+        b = body or {}
+        return await _guard(eng.write_many(b.get("values", {}), b.get("station")))
 
     return router
