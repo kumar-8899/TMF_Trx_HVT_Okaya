@@ -22,19 +22,52 @@ framework repo and release — never patch it in the app fork.
 | `backend/config/app.json`, `license.json` | live station config + license (framework ships only `*.example.json`) |
 | `backend/config/known_issues/`, station data dirs | site data |
 | `backend/data/` | runtime DB, recipes, reports (gitignored) |
-| `backend/modules/<app>_*/` | application-specific modules — **prefix with the app name** (e.g. `acme_eol/`) so upstream module additions can never collide |
+| `backend/modules/<app>_*/` | application-specific **backend** modules — **prefix with the app name** (e.g. `acme_eol/`) so upstream module additions can never collide |
+| `app/<name>/` | the **app payload** — controller step-type packages, variable maps, recipes, the app's controller config, app tools/tests/docs. See §1.1. |
+| `instrument_libs/` (repo root) | instrument **drivers this app uses**, COPIED from the central `Instrument_Library` repo — the app is self-contained, it does not reference the central repo at runtime. See §1.2. |
 | `labview/App/` | application LabVIEW: test-case VIs, HAL, station wiring (see §4) |
-| branding block in `app.json` | name/product shown in the UI (no source edits) |
+| branding block + `controller` block in `app.json` | name/product shown in the UI; controller selection (labview\|python) + `config_file` (no source edits) |
 
 ### Framework-owned (read-only in an application)
-`backend/core/`, `backend/instrumentlib/`, the standard `backend/modules/*`
-(daq, runs, auth, logs, recipe, report, mes, health, config, variables, help),
-`backend/debug_server/`, `frontend/`, `docs/`, `labview/Source/` framework modules
-(MQTT Bridge, Sequence Engine), `dev.ps1`, `debug.ps1`.
+`backend/core/`, `backend/instrumentlib/` (the capability **base/SDK** — not drivers),
+the standard `backend/modules/*` (daq, runs, auth, logs, recipe, report, mes, health,
+config, variables, help), `backend/debug_server/`, `controller/` (the Python controller
+engine — app step types are added under `app/<name>/`, never by editing `controller/`),
+`frontend/`, `docs/`, `labview/Source/` framework modules (MQTT Bridge, Sequence Engine),
+`dev.ps1`, `debug.ps1`.
 
 Custom recipes, users, instruments, variable maps, health suites, MES settings,
 permissions — **all data/config**, not code. That is the point of the design
 (PRINCIPLES §1): most "application development" happens in app.json + the UI.
+
+---
+
+## 1.1 The app payload — `app/<name>/`
+
+Controller-side app content has no home under the backend/LabVIEW slots above, so it
+lives in one app-owned tree, `app/<name>/`, kept apart from framework files:
+
+| Path | What |
+|---|---|
+| `<name>_steps/` | **controller step-type package** — product-specific step types (e.g. `hipot_ir`), loaded via `step_type_packages`. Only what the core 8 types can't express; author with the `test-step-authoring` skill. |
+| `maps/<station>.json` | **variable map** — named signals (read/write + scale) and actions bound to instrument capabilities. |
+| `recipes/*.json` | **recipes** — the test sequences + limits, as data. |
+| `controller.json` | the app's **controller config** — instruments, `library_paths` (→ the fork's own `instrument_libs/`), station→map, `step_type_packages`. Referenced by `app.json` → `controller.config_file`. |
+| `tools/`, `tests/`, `docs/` | app runner (e.g. `run_sim.py`), sequence tests, app docs. |
+
+Wire it in `app.json`: `"controller": { "kind": "python", "config_file": "app/<name>/controller.json" }`.
+The backend then auto-starts the Python controller with this config (`controller.config_file`,
+v1.2.1+).
+
+## 1.2 Instrument drivers — copy from central, self-contained
+
+Drivers live in the central `Instrument_Library` repo. A fork **copies in only the
+drivers it uses**, into the fork's own `instrument_libs/` (repo root) — it never
+references the central repo at runtime. `controller.json` `library_paths` points at the
+**fork**, not central. Do not confuse `instrument_libs/` (drivers) with
+`backend/instrumentlib/` (the capability base/SDK the drivers are written against).
+The `new-test-app` skill automates the copy; the manual procedure is the per-app
+`app/<name>/docs/INSTRUMENT_DRIVERS.md`.
 
 ---
 
@@ -57,10 +90,19 @@ cd ..\frontend ; npm install
 # login admin/admin (DEV credential) -> change it; set branding in app.json
 ```
 
-Then per application: set `station` + `branding`, enable/disable modules + license,
-add instruments (Config → Instruments), author recipes, define roles/permissions,
-wire the Instrument_Library (`variables.library_paths` or pip pin), and build the
-LabVIEW app layer against `LABVIEW_BRIDGE.md`.
+Then per application: set `station` + `branding` + the `controller` block, enable/disable
+modules + license, define roles/permissions, and build the LabVIEW app layer (if any)
+against `LABVIEW_BRIDGE.md`. For a **Python-controller** app also:
+
+- **Copy the drivers** it uses from central `Instrument_Library` into `instrument_libs/`
+  (see §1.2 / `app/<name>/docs/INSTRUMENT_DRIVERS.md`).
+- **Create the app payload** under `app/<name>/` (§1.1): step-type package, variable map,
+  recipe(s), `controller.json`.
+- **Wire** `app.json` → `"controller": { "kind": "python", "config_file": "app/<name>/controller.json" }`.
+
+Prefer the **`new-test-app` skill** (global Claude Code skill) — it does the clone, remotes,
+driver copy, app payload scaffold, config wiring, install, and a sim verification, gathering
+the bench details conversationally. `tools/new_app.ps1` is the older mechanical scaffolder.
 
 ---
 
