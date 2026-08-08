@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.framework.contract import CoreServices, Health, HealthStatus
+from modules.recipe import catalog
 from modules.recipe import registry as step_registry
 from modules.recipe import export_import as ei
 from modules.recipe.api import build_router
@@ -237,7 +238,18 @@ class FilesystemRecipe:
 
     def validate(self, payload: dict, station: str | None = None, strict: bool = False) -> dict:
         """RECIPE §7: schema + semantic (errors, hard-fail) + cross-reference
-        (deferred, warn-only). Returns {ok, errors, warnings}."""
+        (deferred, warn-only). Returns {ok, errors, warnings}.
+
+        A controller-native recipe (steps carry `type`, not `step_type`) is validated against
+        the controller step-type catalog (recipe-unify P2), not the legacy schema set."""
+        if catalog.is_controller_native(payload):
+            cat, err = catalog.build_catalog(self.config.get("step_type_paths"),
+                                             self.config.get("step_type_packages"))
+            if err or not cat:
+                return {"ok": False, "warnings": [],
+                        "errors": [f"controller step-type catalog unavailable: {err or 'empty'}"]}
+            errs = catalog.validate_controller_recipe(payload, cat)
+            return {"ok": not errs, "errors": errs, "warnings": []}
         errors = self._schemas.validate_recipe(payload)
         if not errors:  # semantic assumes a well-shaped tree
             errors += check_semantic(payload)

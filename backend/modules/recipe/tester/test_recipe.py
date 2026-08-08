@@ -450,3 +450,41 @@ async def test_rest_export_diff_import(fsmod):
         # import the exported blob back in update mode
         imp = await c.post("/recipes/import?mode=update", headers=editor, content=exp.content)
         assert imp.status_code == 200 and imp.json()["imported"][0]["recipe_id"] == "inv-c"
+
+
+# --- recipe-unify P2: controller-native recipes (id/type + catalog) ----------
+
+_CTRL_PAYLOAD = {
+    "recipe_id": "ctrl-demo", "name": "Ctrl Demo",
+    "steps": [
+        {"type": "group", "id": "g", "params": {"steps": [
+            {"type": "set_output", "id": "so", "params": {"signal": "vout", "value": 5}},
+            {"type": "measure_and_compare", "id": "m", "params": {"signal": "iout", "min": 0, "max": 1}},
+            {"type": "wait", "id": "w", "params": {"seconds": 0.1}},
+        ]}},
+    ],
+}
+
+
+async def test_controller_native_recipe_roundtrips(fsmod):
+    mod, db = fsmod
+    created = await mod.create_recipe(_CTRL_PAYLOAD)
+    pub = await mod.publish_draft("ctrl-demo", created["draft_id"])
+    assert pub["version"] == 1 and pub["status"] == "active"
+    assert "ctrl-demo" in [r["recipe_id"] for r in await mod.list_recipes()]   # shows in the UI list
+    got = await mod.get_recipe("ctrl-demo")
+    assert got["steps"][0]["type"] == "group"           # stored controller-native, unchanged
+    assert got["steps"][0]["params"]["steps"][1]["type"] == "measure_and_compare"
+
+
+async def test_controller_native_bad_step_rejected(fsmod):
+    import pytest
+    from modules.recipe.storage import RecipeValidationError
+    mod, _ = fsmod
+    bad = {"recipe_id": "ctrl-bad", "steps": [
+        {"type": "frobnicate", "id": "x", "params": {}},
+        {"type": "measure_and_compare", "id": "m", "params": {"value": 9}},   # missing 'signal'
+    ]}
+    created = await mod.create_recipe(bad)
+    with pytest.raises(RecipeValidationError):
+        await mod.publish_draft("ctrl-bad", created["draft_id"])
