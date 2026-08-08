@@ -1,0 +1,5 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "Sweep",
+  "type": "object", "required": ["signal", "values", "steps"], "properties": {
+    "signal": { "type": "string", "title": "Signal to write each value to" },
+    "values": { "type": "array", "items": { "type": "number" }, "minItems": 1, "title": "Values" },
+    "steps": { "type": "array", "items": { "type": "object" }, "title": "Inner steps" } } }

@@ -1,0 +1,8 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "Measure & compare",
+  "type": "object", "required": ["signal"], "additionalProperties": false, "properties": {
+    "signal": { "type": "string", "title": "Signal to read" },
+    "name": { "type": "string", "title": "Measurement name" },
+    "unit": { "type": "string", "title": "Unit" },
+    "min": { "type": "number", "title": "Min limit" },
+    "max": { "type": "number", "title": "Max limit" },
+    "expected": { "title": "Expected (exact match)" } } }

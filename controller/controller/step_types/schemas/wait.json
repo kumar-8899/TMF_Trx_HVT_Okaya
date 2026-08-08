@@ -1,0 +1,3 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "Wait",
+  "type": "object", "required": ["seconds"], "additionalProperties": false, "properties": {
+    "seconds": { "type": "number", "minimum": 0, "default": 0, "title": "Seconds", "description": "Deadline- and abort-aware pause." } } }

@@ -1,0 +1,3 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "Prompt operator",
+  "type": "object", "required": ["message"], "additionalProperties": false, "properties": {
+    "message": { "type": "string", "title": "Prompt message" } } }

@@ -1,0 +1,6 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "Repeat",
+  "type": "object", "required": ["steps"], "properties": {
+    "count": { "type": "integer", "minimum": 1, "default": 1, "title": "Repeat count" },
+    "until": { "type": "object", "title": "Stop condition (optional)", "properties": {
+      "signal": { "type": "string" }, "equals": {}, "below": { "type": "number" }, "above": { "type": "number" } } },
+    "steps": { "type": "array", "items": { "type": "object" }, "title": "Inner steps" } } }

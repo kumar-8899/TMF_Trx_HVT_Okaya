@@ -1,0 +1,5 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "If",
+  "type": "object", "required": ["condition", "steps"], "properties": {
+    "condition": { "type": "object", "title": "Condition", "properties": {
+      "signal": { "type": "string" }, "equals": {}, "below": { "type": "number" }, "above": { "type": "number" } } },
+    "steps": { "type": "array", "items": { "type": "object" }, "title": "Inner steps" } } }

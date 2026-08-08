@@ -1,0 +1,5 @@
+{ "$schema": "http://json-schema.org/draft-07/schema#", "title": "Set output",
+  "type": "object", "required": ["signal", "value"], "additionalProperties": false, "properties": {
+    "signal": { "type": "string", "title": "Signal" },
+    "value": { "type": "number", "title": "Value" },
+    "unit": { "type": "string", "title": "Unit" } } }
