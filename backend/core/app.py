@@ -123,7 +123,8 @@ def create_app(
             sup = ControllerSupervisor(
                 stations=stations, broker_host=broker_host, broker_port=broker_port,
                 simulation=controller_cfg.get("simulation", True), diag=diag,
-                data_dir=DEFAULT_DB_PATH.parent, repo_root=Path(__file__).resolve().parents[2])
+                data_dir=DEFAULT_DB_PATH.parent, repo_root=Path(__file__).resolve().parents[2],
+                config_file=controller_cfg.get("config_file"))
             sup.start()
             app.state.controller = sup
 

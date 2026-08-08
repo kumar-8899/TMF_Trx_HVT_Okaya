@@ -23,7 +23,8 @@ from pathlib import Path
 
 class ControllerSupervisor:
     def __init__(self, *, stations: list[str], broker_host: str, broker_port: int,
-                 simulation: bool, diag, data_dir: Path, repo_root: Path) -> None:
+                 simulation: bool, diag, data_dir: Path, repo_root: Path,
+                 config_file: str | None = None) -> None:
         self._stations = list(stations)
         self._host = broker_host
         self._port = broker_port
@@ -31,6 +32,7 @@ class ControllerSupervisor:
         self._diag = diag
         self._data_dir = Path(data_dir)
         self._repo_root = Path(repo_root)
+        self._config_file = config_file           # app controller config (instruments/map/steps)
         self._proc: subprocess.Popen | None = None
         self._pump: threading.Thread | None = None
 
@@ -95,12 +97,26 @@ class ControllerSupervisor:
 
     def _write_config(self) -> Path:
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        cfg = {
-            "schema_version": 1,
-            "broker": {"host": self._host, "port": self._port},
-            "stations": [{"station": s} for s in self._stations],
-            "simulation": self._sim,
-        }
+        cfg: dict = {}
+        # Start from the app's controller config (instruments, variable maps, step-type
+        # packages) when given; the app owns broker + simulation + the station list.
+        if self._config_file:
+            src = Path(self._config_file)
+            try:
+                cfg = json.loads(src.read_text(encoding="utf-8"))
+                cfg_dir = src.resolve().parent
+                for st in cfg.get("stations", []):        # resolve variable_map vs the file's dir
+                    vm = st.get("variable_map")
+                    if vm and not Path(vm).is_absolute():
+                        st["variable_map"] = str((cfg_dir / vm).resolve())
+            except Exception as exc:  # noqa: BLE001 — bad app config must not crash the app
+                self._diag.warning("controller", f"controller config_file unusable: {exc}")
+                cfg = {}
+        cfg["schema_version"] = 1
+        cfg["broker"] = {"host": self._host, "port": self._port}
+        cfg["simulation"] = self._sim
+        if not cfg.get("stations"):                        # file listed none → use the app's
+            cfg["stations"] = [{"station": s} for s in self._stations]
         path = self._data_dir / "controller.generated.json"
         path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
         return path

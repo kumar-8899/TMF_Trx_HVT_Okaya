@@ -28,7 +28,8 @@
       "additionalProperties": false,
       "properties": {
         "kind": { "enum": ["labview", "python"], "description": "labview (external) or python (auto-started)." },
-        "simulation": { "type": "boolean", "description": "Run the Python controller in simulation (no hardware). Default true." }
+        "simulation": { "type": "boolean", "description": "Run the Python controller in simulation (no hardware). Default true." },
+        "config_file": { "type": "string", "description": "Path to an app controller config (instruments, variable maps, step-type packages). The app injects broker + simulation; the app's stations are used if the file lists none. Absent → a minimal generated config." }
       }
     },
     "branding": {
