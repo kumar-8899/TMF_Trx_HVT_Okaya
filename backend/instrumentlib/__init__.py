@@ -36,6 +36,7 @@ from instrumentlib.interfaces import (
     IFrequency,
     IPowerSource,
     IResistance,
+    ISafetyTester,
     ITemperature,
     Multiplexer,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "Capability", "CAPABILITIES", "SCALAR_CAPABILITIES", "NON_SCALAR_CAPABILITIES",
     "IPowerSource", "IElectronicLoad", "IAnalogInput", "IDigitalInput",
     "IDigitalOutput", "ITemperature", "IResistance", "IFrequency", "Multiplexer", "DSO",
+    "ISafetyTester",
     "InstrumentError", "NotConnected", "NotSupported", "DeviceError",
     "CommandTimeout", "GarbageResponse", "IdentityMismatch", "TransportDisconnected",
 ]

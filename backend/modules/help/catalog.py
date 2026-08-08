@@ -59,6 +59,8 @@ PAGES: list[Page] = [
     Page("dev-extending", "Extension how-tos", "dev", "Overview", "help/dev/extending.md"),
     Page("dev-workflow", "Dev workflow", "dev", "Overview", "help/dev/workflow.md"),
     Page("dev-instrument-library", "Instrument library", "dev", "Overview", "help/dev/instrument-library.md"),
+    Page("dev-python-controller", "Python controller", "dev", "Bus & LabVIEW", "PYTHON_CONTROLLER.md"),
+    Page("dev-multi-station", "Multi-station & stations", "dev", "Overview", "MULTI_STATION.md"),
     Page("dev-core", "CORE contract", "dev", "Contracts", "CORE.md"),
     Page("dev-step-types", "Step types", "dev", "Contracts", "contracts/STEP_TYPES.md"),
     Page("dev-recipe", "Recipe", "dev", "Contracts", "contracts/RECIPE.md"),

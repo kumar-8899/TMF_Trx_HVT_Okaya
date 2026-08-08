@@ -16,6 +16,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useBranding } from "../hooks/useBranding";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
+import { ExitButton } from "./ExitButton";
 import { HelpPanel } from "./help/HelpPanel";
 import { StatusDot } from "./ui";
 import { SessionPanel } from "./SessionPanel";
@@ -172,6 +173,7 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
             </IconButton>
           </Tooltip>
           <SessionPanel />
+          <ExitButton />
         </Toolbar>
       </AppBar>
       {!hideNav && (

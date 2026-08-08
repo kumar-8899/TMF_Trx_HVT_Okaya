@@ -22,6 +22,15 @@
       "type": "string", "minLength": 1,
       "description": "DEPRECATED singular form; read as a one-element `stations` list (MULTI_STATION.md §1)."
     },
+    "controller": {
+      "type": "object",
+      "description": "Which controller serves this PC's stations (PYTHON_CONTROLLER.md). `labview` = external LabVIEW engine (default); `python` = the bundled Python controller, auto-started with the app.",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["labview", "python"], "description": "labview (external) or python (auto-started)." },
+        "simulation": { "type": "boolean", "description": "Run the Python controller in simulation (no hardware). Default true." }
+      }
+    },
     "branding": {
       "type": "object",
       "description": "App identity shown in the UI (TEMPLATE.md §1 — rebrand via config, not source).",

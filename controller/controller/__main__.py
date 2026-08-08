@@ -155,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    if hasattr(signal, "SIGBREAK"):        # Windows CTRL_BREAK (graceful stop from a parent)
+        signal.signal(signal.SIGBREAK, lambda *_: stop.set())
     try:
         stop.wait()
     finally:

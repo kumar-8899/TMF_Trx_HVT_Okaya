@@ -2,6 +2,28 @@
 
 Station administration (super_admin).
 
+## Station configuration
+Set how many **test sockets** this PC runs and which **controller** serves them.
+
+- **Test sockets** — the number of independent stations (`st1`, `st2`, …). One
+  socket behaves as a single-station system (no station picker anywhere). The
+  maximum is set by your licence; the field shows the cap.
+- **Controller** — **LabVIEW** (the engine runs separately, as before) or
+  **Python** (the app starts and stops the bundled Python controller for you). For
+  Python you can pick **Simulation** (no hardware — for demos and bring-up) or
+  **Hardware**.
+
+These are start-up settings. Press **Save** to write them, then **Relaunch to
+apply** to restart the station with the new configuration. The banner shows
+"restart required" until you relaunch.
+
+## Exiting the station
+The **power icon** in the top bar (super_admin) exits the station **safely**: it
+drives every instrument to its safe state, stops the controller, and closes the
+app without restarting it. Relaunch it from the desktop shortcut (or `dev.ps1`) to
+bring it back. Use this rather than closing the window, so nothing is left
+energised.
+
 ## Data management
 Select what to permanently delete, then **Reset selected**:
 - Runs & history, Reports, Logs, Recipes, Users (except super_admin).

@@ -1,6 +1,12 @@
 # Dev launcher: starts Mosquitto (:1883), the Python backend (:8000) and the Vite
 # frontend (:5173) each in its own window, then opens the login page in the
 # default browser once the frontend is serving. Run from anywhere:  .\dev.ps1
+#
+# The backend runs under launcher.py so the "Relaunch to apply" button in
+# Settings works in dev (exit 42 -> restart). When app.json sets
+# controller.kind = "python", the backend auto-starts the Python controller as a
+# child on boot (Settings -> Station configuration), so this one window brings up
+# backend + controller together; LabVIEW controllers run externally as before.
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $frontendUrl = "http://localhost:5173"
@@ -17,7 +23,7 @@ if ($brokerUp) {
 }
 
 Start-Process powershell -ArgumentList @(
-  "-NoExit", "-Command", "Set-Location '$root\backend'; python run.py"
+  "-NoExit", "-Command", "Set-Location '$root\backend'; python launcher.py"
 )
 Start-Process powershell -ArgumentList @(
   "-NoExit", "-Command", "Set-Location '$root\frontend'; npm run dev"

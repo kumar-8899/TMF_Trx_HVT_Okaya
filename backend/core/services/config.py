@@ -24,6 +24,18 @@ class ConfigError(Exception):
     """Config missing or failed schema validation. Loud and structured (PRINCIPLES §6)."""
 
 
+def _deep_merge(base: dict, patch: dict) -> dict:
+    """Recursively merge `patch` over a copy of `base` (nested dicts merged, scalars +
+    lists replaced) — so a partial update touches only the keys it names."""
+    out = dict(base)
+    for k, v in (patch or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 class ConfigService:
     def __init__(
         self,
@@ -79,6 +91,19 @@ class ConfigService:
         data = self.load_json(path)
         data = self.validate(data, self.schemas_dir / "app.schema.json", what="app config")
         return self._normalise_stations(data)
+
+    def update_app(self, patch: dict, name: str = "app") -> dict:
+        """Deep-merge `patch` into the live app.json, re-validate, and write it back
+        atomically. Boot-time config (stations, controller) is edited here from the
+        Settings API; it takes effect on the next restart. Returns the normalised config."""
+        path = self.ensure_live(name)
+        current = self.load_json(path)
+        merged = _deep_merge(current, patch)
+        merged = self.validate(merged, self.schemas_dir / "app.schema.json", what="app config")
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)                                   # atomic on the same filesystem
+        return self._normalise_stations(dict(merged))
 
     @staticmethod
     def _normalise_stations(data: dict) -> dict:

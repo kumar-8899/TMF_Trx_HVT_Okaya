@@ -8,6 +8,7 @@ import { api } from "../api/client";
 import { ConfirmDialog, PageHeader, Section } from "../components/ui";
 import { LicenseConfig } from "./config/LicenseConfig";
 import { ReportDbConfig } from "./config/ReportDbConfig";
+import { StationConfig } from "./config/StationConfig";
 import { UpdatesConfig } from "./config/UpdatesConfig";
 
 const RESET_ITEMS = [
@@ -47,6 +48,8 @@ export function Settings() {
       {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
 
       <Stack spacing={2}>
+        <StationConfig />
+
         <Section title="Data management" subtitle="Select what to permanently delete, then reset">
           <Stack spacing={0.5}>
             {RESET_ITEMS.map((it) => (

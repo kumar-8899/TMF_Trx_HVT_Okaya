@@ -2,15 +2,18 @@
 
 Multi-station T&M software template (runs singleton too).
 
-- **LabVIEW** = controller — owns test execution, sequence, step timing, abort/timeout, safety, hardware (HAL).
-- **Python** = app platform + sole web edge — modules, db, web, MQTT bridge client.
-- **React frontend** = operator UI, talks only to Python. LabVIEW ↔ Python over **MQTT only**.
+- **Controller** = owns test execution, sequence, step timing, abort/timeout, safety, hardware. It is a **contract with two implementations**: the LabVIEW engine, or the standalone **Python controller** in `controller/` — the app cannot tell them apart. See [docs/PYTHON_CONTROLLER.md](docs/PYTHON_CONTROLLER.md).
+- **Python** = app platform + sole web edge — modules, db, web, MQTT bridge client. When the Python controller is selected it also supervises it (start/stop with the app).
+- **React frontend** = operator UI, talks only to Python. Controller ↔ Python over **MQTT only**.
+- **Multi-station** = N test sockets on one PC (one socket looks single-station). See [docs/MULTI_STATION.md](docs/MULTI_STATION.md).
 
 ## Source of truth — read first
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — current-state map: tiers, modules + status, the MQTT surface, repo layout (start here for the overview).
 - [docs/PRINCIPLES.md](docs/PRINCIPLES.md) — rules + locked decisions (the constitution).
 - [docs/CORE.md](docs/CORE.md) — Python platform, module framework, activation gate, acceptance (§10).
 - [docs/LABVIEW_BRIDGE.md](docs/LABVIEW_BRIDGE.md) — MQTT wire contract + Phase-0 LabVIEW stub (§12).
+- [docs/PYTHON_CONTROLLER.md](docs/PYTHON_CONTROLLER.md) — the standalone Python controller (C1–C10, as-built).
+- [docs/MULTI_STATION.md](docs/MULTI_STATION.md) — N test sockets, controller selection, relaunch + safe exit.
 - [docs/FRONTEND.md](docs/FRONTEND.md) — the React UI: theme, components, screens, auth, streaming.
 - [docs/contracts/](docs/contracts/) — per-module contracts (auth, daq, runs, recipe, logs, report, step types).
 

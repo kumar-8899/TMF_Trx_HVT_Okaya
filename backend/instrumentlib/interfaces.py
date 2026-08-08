@@ -116,8 +116,24 @@ class DSO(Capability):
         self._ns("capture")
 
 
+class ISafetyTester(Capability):
+    """Hipot / electrical-safety tester (e.g. UT5320R+). Non-scalar: a measurement runs a
+    program step and returns a value plus, for AC withstand, a breakdown flag — so it is
+    reached via `capability.request` / `ctx.invoke`, never bound as a scalar signal."""
+    INTERFACE, INTERFACE_VERSION, SCALAR = "safety_tester", 1, False
+    METHODS = ("measure_ir", "measure_acw")
+
+    async def measure_ir(self, voltage: float, step: int = 1) -> float:
+        """Insulation resistance at `voltage` (program `step`) → MΩ."""
+        self._ns("measure_ir")
+
+    async def measure_acw(self, voltage: float, dwell: float, step: int = 1) -> tuple:
+        """AC withstand at `voltage` for `dwell` s (program `step`) → (leakage_mA, breakdown)."""
+        self._ns("measure_acw")
+
+
 _ALL = (IPowerSource, IElectronicLoad, IAnalogInput, IDigitalInput,
-        IDigitalOutput, ITemperature, IResistance, IFrequency, Multiplexer, DSO)
+        IDigitalOutput, ITemperature, IResistance, IFrequency, Multiplexer, DSO, ISafetyTester)
 
 CAPABILITIES: dict[str, type[Capability]] = {c.INTERFACE: c for c in _ALL}
 SCALAR_CAPABILITIES = {c.INTERFACE for c in _ALL if c.SCALAR}

@@ -7,7 +7,10 @@ client and its readiness gate land in P4.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import signal
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -101,6 +104,7 @@ def create_app(
         app.state.station = station
         app.state.stations = stations
         app.state.station_refusals = station_refusals
+        app.state.max_stations = cap
         app.state.diag = diag
         app.state.db = db
         app.state.bridge = bridge
@@ -109,6 +113,19 @@ def create_app(
         app.state.licensing = licensing   # activation endpoints + status surface
 
         web.add_ready_check("db", lambda: _check(db.connected))
+
+        # Python controller: when selected, the app owns its lifecycle (starts it with the
+        # app, stops it on shutdown). LabVIEW (default) is external — nothing spawned.
+        controller_cfg = app_cfg.get("controller") or {}
+        app.state.controller = None
+        if controller_cfg.get("kind") == "python":
+            from core.services.controller_supervisor import ControllerSupervisor
+            sup = ControllerSupervisor(
+                stations=stations, broker_host=broker_host, broker_port=broker_port,
+                simulation=controller_cfg.get("simulation", True), diag=diag,
+                data_dir=DEFAULT_DB_PATH.parent, repo_root=Path(__file__).resolve().parents[2])
+            sup.start()
+            app.state.controller = sup
 
         # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
         core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web,
@@ -146,6 +163,9 @@ def create_app(
                     await inst.stop()
                 except Exception as exc:  # noqa: BLE001 — keep tearing down
                     diag.exception("core", "module stop failed", exc, module=mid)
+            sup = getattr(app.state, "controller", None)
+            if sup is not None:
+                sup.stop()
             if bridge is not None:
                 await bridge.disconnect()
             await db.close()
@@ -226,6 +246,99 @@ def create_app(
         return {**result.status_payload(),
                 "stations": getattr(app.state, "stations", []),
                 "station_refusals": getattr(app.state, "station_refusals", [])}
+
+    # ---- station configuration (Settings → Station; SYSTEM.SETTINGS) --------
+    from core.services.security import require_permission
+    _SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
+
+    def _running_controller_kind() -> str:
+        return "python" if getattr(app.state, "controller", None) is not None else "labview"
+
+    def _station_config_payload() -> dict:
+        cfg = app.state.app_config
+        configured = list(cfg.get("stations") or [])
+        controller = cfg.get("controller") or {}
+        kind = controller.get("kind", "labview")
+        running = list(app.state.stations)
+        restart = configured != running or kind != _running_controller_kind()
+        return {
+            "station_count": len(configured),
+            "configured_stations": configured,
+            "running_stations": running,
+            "max_stations": app.state.max_stations,          # None = uncapped
+            "controller": {"kind": kind, "simulation": controller.get("simulation", True)},
+            "restart_required": restart,
+        }
+
+    @app.get("/system/station-config", dependencies=_SETTINGS)
+    async def get_station_config() -> dict:
+        return _station_config_payload()
+
+    @app.put("/system/station-config", dependencies=_SETTINGS)
+    async def set_station_config(body: dict) -> dict:
+        """Edit boot config (socket count + controller). Written to app.json; applied on
+        the next restart. Socket count is st1..stN, capped at the licensed max_stations."""
+        patch: dict = {}
+        count = body.get("station_count")
+        if count is not None:
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="station_count must be an integer")
+            if count < 1:
+                raise HTTPException(status_code=422, detail="station_count must be at least 1")
+            cap = app.state.max_stations
+            if cap is not None and count > cap:
+                raise HTTPException(status_code=422,
+                                    detail=f"station_count {count} exceeds licensed max_stations {cap}")
+            patch["stations"] = [f"st{i}" for i in range(1, count + 1)]
+        kind = body.get("controller_kind")
+        if kind is not None:
+            if kind not in ("labview", "python"):
+                raise HTTPException(status_code=422, detail="controller_kind must be 'labview' or 'python'")
+            controller = dict(app.state.app_config.get("controller") or {})
+            controller["kind"] = kind
+            if body.get("simulation") is not None:
+                controller["simulation"] = bool(body.get("simulation"))
+            patch["controller"] = controller
+        if not patch:
+            raise HTTPException(status_code=422, detail="nothing to update")
+        try:
+            app.state.app_config = app.state.config.update_app(patch)
+        except Exception as exc:  # noqa: BLE001 — surface a bad write as 400, not 500
+            raise HTTPException(status_code=400, detail=f"config update failed: {exc}")
+        app.state.diag.info("core", "station config updated", patch=patch)
+        return {"ok": True, **_station_config_payload()}
+
+    @app.post("/system/relaunch", dependencies=_SETTINGS)
+    async def system_relaunch() -> dict:
+        """Relaunch the station to apply a config change (exit 42 → the launcher restarts).
+        os._exit skips lifespan cleanup, so stop the child controller here first."""
+        sup = getattr(app.state, "controller", None)
+        if sup is not None:
+            sup.stop()
+        app.state.diag.info("core", "station relaunch requested (config change)")
+        threading.Timer(0.6, lambda: os._exit(42)).start()
+        return {"ok": True, "relaunching": True, "note": "station is relaunching to apply configuration"}
+
+    @app.post("/system/shutdown", dependencies=_SETTINGS)
+    async def system_shutdown() -> dict:
+        """Exit the station SAFELY. Raises SIGINT to trigger the full lifespan shutdown —
+        modules stop, the Python controller is gracefully stopped (every instrument driven
+        to safe state), the bridge goes offline, the DB is closed — then the process exits 0,
+        so the launcher does NOT restart it (that is what distinguishes exit from relaunch).
+        A watchdog hard-exits if a graceful shutdown stalls."""
+        app.state.diag.info("core", "station shutdown requested")
+
+        def _graceful():
+            try:
+                signal.raise_signal(signal.SIGINT)     # main-thread signal → uvicorn graceful exit
+            except Exception:  # noqa: BLE001 — no signal support → hard exit
+                os._exit(0)
+
+        asyncio.get_event_loop().call_later(0.5, _graceful)
+        threading.Timer(12.0, lambda: os._exit(0)).start()   # fallback if shutdown stalls
+        return {"ok": True, "shutting_down": True, "note": "station is exiting"}
 
     # ---- licensing surface (secure distribution P1; Settings → License) ----
     from core.services.security import require_permission

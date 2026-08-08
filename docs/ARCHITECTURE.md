@@ -18,8 +18,14 @@ and records the build status.
   abort/safety                     bridge client                       Python)
 ```
 
-- **LabVIEW = controller.** Owns test execution, sequencing, step timing,
-  abort/timeout, safety, and hardware (HAL). Speaks MQTT only (3.1.1).
+- **Controller.** Owns test execution, sequencing, step timing, abort/timeout,
+  safety, and hardware (HAL). Speaks MQTT only (3.1.1). It is a **contract with two
+  implementations** — the LabVIEW engine, or the standalone Python controller in
+  `controller/` ([PYTHON_CONTROLLER.md](PYTHON_CONTROLLER.md)); the app can't tell
+  them apart. When Python is selected, the backend starts/stops it with the app.
+- **Multi-station.** One PC runs N test sockets (`st1…stN`); one socket looks
+  single-station. Controller selection, socket count, relaunch, and safe exit are
+  in Settings → Station configuration ([MULTI_STATION.md](MULTI_STATION.md)).
 - **Python = app platform + the only web edge.** Modules, SQLite, the web
   server, and the MQTT bridge client. Nothing else talks to the browser.
 - **React = operator UI.** Talks only to Python (REST + WebSocket); never to the
