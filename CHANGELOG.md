@@ -5,6 +5,21 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.4.0 — 2026-08-09
+
+Per-app screen overrides. MINOR — additive; no contract breaks.
+
+### Frontend screen-override registry
+- New `frontend/src/app/overrides/` (app-owned) + `frontend/src/app/registry.ts`: a fork can
+  replace the operator-facing screens — **Runs, Recipes, recipe editor/detail, Maintenance** —
+  with app-specific React, **without editing framework `screens/*`**, so `git merge
+  upstream/<version>` stays clean. An override file `default`-exports `{ key, component }`; an
+  eager `import.meta.glob` registers it; `App.tsx` renders `APP_SCREENS[key] ?? <default>`.
+- The framework ships `overrides/` empty → all screens use their defaults. Route permission
+  wrappers (`RequirePermission`/`RequireRole`) stay in the framework — an override replaces only
+  the inner screen. `tsconfig` now includes `vite/client` types (for `import.meta.glob`).
+- Docs: `docs/TEMPLATE.md` §1.3 + `overrides/README.md`.
+
 ## v1.3.0 — 2026-08-09
 
 Standalone Python controller, multi-station, station management, and the recipe/controller

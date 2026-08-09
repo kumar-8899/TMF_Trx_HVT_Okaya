@@ -26,6 +26,7 @@ framework repo and release — never patch it in the app fork.
 | `app/<name>/` | the **app payload** — controller step-type packages, variable maps, recipes, the app's controller config, app tools/tests/docs. See §1.1. |
 | `instrument_libs/` (repo root) | instrument **drivers this app uses**, COPIED from the central `Instrument_Library` repo — the app is self-contained, it does not reference the central repo at runtime. See §1.2. |
 | `labview/App/` | application LabVIEW: test-case VIs, HAL, station wiring (see §4) |
+| `frontend/src/app/overrides/` | app **screen overrides** — per-app Runs/Recipe/Maintenance UI. The framework ships this dir empty; a fork drops `*.tsx` files here to replace a screen without editing framework `screens/*`. See §1.3. |
 | branding block + `controller` block in `app.json` | name/product shown in the UI; controller selection (labview\|python) + `config_file` (no source edits) |
 
 ### Framework-owned (read-only in an application)
@@ -33,7 +34,8 @@ framework repo and release — never patch it in the app fork.
 the standard `backend/modules/*` (daq, runs, auth, logs, recipe, report, mes, health,
 config, variables, help), `backend/debug_server/`, `controller/` (the Python controller
 engine — app step types are added under `app/<name>/`, never by editing `controller/`),
-`frontend/`, `docs/`, `labview/Source/` framework modules (MQTT Bridge, Sequence Engine),
+`frontend/` (**except** `frontend/src/app/overrides/` — see §1.3), `docs/`,
+`labview/Source/` framework modules (MQTT Bridge, Sequence Engine),
 `dev.ps1`, `debug.ps1`.
 
 Custom recipes, users, instruments, variable maps, health suites, MES settings,
@@ -68,6 +70,30 @@ references the central repo at runtime. `controller.json` `library_paths` points
 `backend/instrumentlib/` (the capability base/SDK the drivers are written against).
 The `new-test-app` skill automates the copy; the manual procedure is the per-app
 `app/<name>/docs/INSTRUMENT_DRIVERS.md`.
+
+## 1.3 Screen overrides — per-app Runs/Recipe/Maintenance UI
+
+The operator-facing screens (Runs, Recipes, the recipe editor/detail, Maintenance) are not
+one-size-fits-all — a wire-feeder bench wants a gauge dashboard, another app wants a checklist.
+The framework exposes a **screen-override registry** so a fork changes these screens **without
+editing framework `screens/*`** (which would conflict on every `git merge upstream/<version>`).
+
+How it works (`frontend/src/app/registry.ts`):
+- The framework ships `frontend/src/app/overrides/` **empty** → all screens use their defaults.
+- A fork drops `overrides/<something>.tsx` that `default`-exports `{ key, component }`.
+- An eager `import.meta.glob` registers it; `App.tsx` renders `APP_SCREENS[key] ?? <default>`.
+
+| key | default | route(s) |
+|---|---|---|
+| `runs` | `screens/Runs` | `/runs` |
+| `recipes` | `screens/Recipes` | `/recipes` |
+| `recipe-editor` | `screens/RecipeEditor` | `/recipes/new`, `/recipes/:id/edit` |
+| `recipe-detail` | `screens/RecipeDetail` | `/recipes/:id` |
+| `maintenance` | `screens/Maintenance` | `/maintenance` |
+
+The permission wrappers (`RequirePermission`/`RequireRole`) stay in the framework `App.tsx` —
+an override replaces only the inner screen, never the gate. Overrides reuse the framework API
+client and run-stream hooks. See `frontend/src/app/overrides/README.md`.
 
 ---
 

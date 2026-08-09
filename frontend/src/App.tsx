@@ -29,6 +29,7 @@ import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
 import { Settings } from "./screens/Settings";
 import { Users } from "./screens/Users";
+import { screen } from "./app/registry";
 
 function Protected() {
   const { principal, loading, mustChangePassword } = useAuth();
@@ -48,6 +49,13 @@ function Protected() {
 }
 
 export function App() {
+  // App screen overrides (frontend/src/app/overrides/*) win over the framework defaults,
+  // so a fork customizes these screens without touching framework files (TEMPLATE.md §1).
+  const RunsC = screen("runs", Runs);
+  const RecipesC = screen("recipes", Recipes);
+  const RecipeEditorC = screen("recipe-editor", RecipeEditor);
+  const RecipeDetailC = screen("recipe-detail", RecipeDetail);
+  const MaintenanceC = screen("maintenance", Maintenance);
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -55,10 +63,10 @@ export function App() {
         <Route path="/change-password" element={<ChangePassword />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/recipes" element={<RequirePermission perm="RECIPE.VIEW"><Recipes /></RequirePermission>} />
-          <Route path="/recipes/new" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
-          <Route path="/recipes/:id" element={<RequirePermission perm="RECIPE.VIEW"><RecipeDetail /></RequirePermission>} />
-          <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditor /></RequirePermission>} />
+          <Route path="/recipes" element={<RequirePermission perm="RECIPE.VIEW"><RecipesC /></RequirePermission>} />
+          <Route path="/recipes/new" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditorC /></RequirePermission>} />
+          <Route path="/recipes/:id" element={<RequirePermission perm="RECIPE.VIEW"><RecipeDetailC /></RequirePermission>} />
+          <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditorC /></RequirePermission>} />
           <Route path="/daq" element={<Daq />} />
           <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
           <Route path="/analytics" element={<RequirePermission perm="REPORT.VIEW"><Analytics /></RequirePermission>} />
@@ -69,7 +77,7 @@ export function App() {
           <Route path="/config/barcode" element={<RequirePermission perm="CONFIG.VIEW"><ConfigBarcode /></RequirePermission>} />
           <Route path="/config/shift" element={<RequirePermission perm="CONFIG.VIEW"><ConfigShift /></RequirePermission>} />
           <Route path="/config/mes" element={<RequirePermission perm="CONFIG.VIEW"><ConfigMes /></RequirePermission>} />
-          <Route path="/maintenance" element={<RequirePermission perm="HEALTH.MAINTENANCE"><Maintenance /></RequirePermission>} />
+          <Route path="/maintenance" element={<RequirePermission perm="HEALTH.MAINTENANCE"><MaintenanceC /></RequirePermission>} />
           <Route path="/instruments/test" element={<RequireRole role="super_admin"><InstrumentTestBench /></RequireRole>} />
           <Route path="/diagnostics" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Diagnostics /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
@@ -80,7 +88,7 @@ export function App() {
         </Route>
         {/* Operator testing window — same AppBar, no side-menu drawer. */}
         <Route element={<Layout hideNav />}>
-          <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><Runs /></RequirePermission>} />
+          <Route path="/runs" element={<RequirePermission perm="TEST.RUN"><RunsC /></RequirePermission>} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
