@@ -48,17 +48,20 @@ def test_manifest_valid():
 
 
 async def test_step_types(mod):
+    # recipe-unify P4: /step-types serves the CONTROLLER catalog (8 core types), each with
+    # an inline JSON schema so the editor is schema-driven.
     types = {t["type_id"] for t in mod.list_step_types()}
-    assert types == EXPECTED_TYPES
-    assert len(types) == 16
+    assert {"group", "repeat", "sweep", "if", "wait", "set_output",
+            "measure_and_compare", "prompt_operator"} <= types
     composites = {t["type_id"] for t in mod.list_step_types() if t["composite"]}
-    assert composites == {"repeat", "sweep", "if_then_else", "group"}
+    assert composites == {"repeat", "sweep", "if", "group"}
+    assert all(t.get("schema") for t in mod.list_step_types())
 
 
 async def test_get_step_schema(mod):
     schema = mod.get_step_schema("measure_and_compare")
-    assert schema["$id"] == "tmf:recipe:step_types/measure_and_compare/params"
-    assert "limits" in schema["properties"]
+    props = schema["properties"]
+    assert "signal" in props and "min" in props and "max" in props
 
 
 async def test_schema_validation_with_refs(mod):
@@ -118,9 +121,11 @@ async def test_rest_step_types(mod):
         v = {"Authorization": "Bearer viewer"}
         assert (await c.get("/recipes/step-types")).status_code == 401          # no token
         r = await c.get("/recipes/step-types", headers=v)
-        assert r.status_code == 200 and len(r.json()) == 16
-        s = await c.get("/recipes/step-types/measure/schema", headers=v)
-        assert s.status_code == 200 and s.json()["$id"].endswith("measure/params")
+        assert r.status_code == 200
+        ids = {t["type_id"] for t in r.json()}
+        assert "measure_and_compare" in ids and "group" in ids
+        s = await c.get("/recipes/step-types/measure_and_compare/schema", headers=v)
+        assert s.status_code == 200 and "signal" in s.json()["properties"]
         assert (await c.get("/recipes/step-types/ghost/schema", headers=v)).status_code == 404
         assert (await c.get("/recipes/step-types", headers={"Authorization": "Bearer noperm"})).status_code == 403
 
@@ -322,13 +327,14 @@ async def test_validate_endpoint(fsmod):
 
 
 async def test_resolved_step_schema_for_ui(fsmod):
-    # F3b: $ref-resolved schemas so the UI can render forms.
+    # recipe-unify P4: controller step-type schemas are flat (no $ref), so the UI renders
+    # forms directly from them.
     mod, _ = fsmod
     mc = mod.get_step_schema("measure_and_compare", resolved=True)
-    assert "$ref" not in str(mc)  # all refs inlined
-    assert mc["properties"]["limits"]["properties"]["min"]["type"] == "number"
-    rep = mod.get_step_schema("repeat", resolved=True)
-    assert rep["properties"]["inner_steps"]["items"] == {"x-steps": True}  # nested step list marker
+    assert "$ref" not in str(mc)
+    assert mc["properties"]["min"]["type"] == "number"
+    grp = mod.get_step_schema("group", resolved=True)
+    assert "steps" in grp["properties"]   # composite children
 
 
 # --- R4: execution wire (Python half) --------------------------------------

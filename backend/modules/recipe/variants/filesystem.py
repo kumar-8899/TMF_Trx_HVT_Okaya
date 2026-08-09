@@ -75,20 +75,23 @@ class FilesystemRecipe:
     # --- step-type introspection (R1) --------------------------------------
 
     def list_step_types(self) -> list[dict]:
-        return [
-            {
-                "type_id": rec.type_id,
-                "display_name": rec.display_name,
-                "composite": rec.composite,
-                "capabilities": list(rec.capabilities),
-            }
-            for rec in step_registry.all_types().values()
-        ]
+        """The step-type catalog for authoring: ONLY the controller's 8 core types + the app's
+        step_type_packages, each with an inline JSON schema (recipe-unify P4). The legacy
+        module step types are not surfaced."""
+        cat, _ = catalog.build_catalog(self.config.get("step_type_paths"),
+                                       self.config.get("step_type_packages"))
+        return [{"type_id": c["type_id"], "display_name": c["display_name"],
+                 "composite": c["composite"], "kind": c.get("kind"),
+                 "required_signals": c["required_signals"], "required_actions": c["required_actions"],
+                 "schema": c.get("schema")} for c in cat.values()]
 
     def get_step_schema(self, type_id: str, resolved: bool = False) -> dict:
-        if resolved:
-            return self._schemas.resolved_schema(type_id)
-        return step_registry.get(type_id).schema
+        cat, _ = catalog.build_catalog(self.config.get("step_type_paths"),
+                                       self.config.get("step_type_packages"))
+        entry = cat.get(type_id)
+        if entry is None or entry.get("schema") is None:
+            raise step_registry.StepTypeError(f"unknown step type '{type_id}'")
+        return entry["schema"]
 
     # --- discovery (R2) ----------------------------------------------------
 
