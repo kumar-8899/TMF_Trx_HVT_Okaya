@@ -8,6 +8,7 @@ record is upserted per run_id for the run list.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 
@@ -37,6 +38,7 @@ class DefaultRuns:
         self._station_hub = StreamHub()   # event/* -> /ws/station
         self._diag_hub = StreamHub()      # diag    -> /diagnostics/stream
         self._active: dict[str, str] = {}  # station -> active run_id (MULTI_STATION.md §4.1)
+        self._run_locks: dict[str, asyncio.Lock] = {}  # serialize current-state writes per run
         self.router = build_router(self)
         self.mqtt_handlers = [("event/#", self._on_event), ("diag", self._on_diag)]
 
@@ -281,25 +283,30 @@ class DefaultRuns:
         # body fields to merge, minus the keys handled positionally/explicitly.
         rest = {k: v for k, v in body.items() if k not in ("run_id", "id", "status")}
 
-        # current-state run record
-        if etype == "run-started":
-            await self._upsert_run(run_id, status="running", started_ts=ts, **rest)
-        elif etype == "run-finished":
-            # result rides in body (PASS | FAIL | ABORTED).
-            await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
-            self._release_active(topic, run_id)   # terminal -> station free for the next DUT
-        elif etype == "run-aborted":
-            rest.setdefault("result", "ABORTED")
-            await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
-            self._release_active(topic, run_id)
-        elif etype == "test-result":
-            # Append the row to the run's results table (live UI + history + reports).
-            existing = await self.core.db.repo.get("run", run_id)
-            data = dict(existing["data"]) if existing else {"run_id": run_id, "status": "running"}
-            results = list(data.get("results") or [])
-            results.append({k: v for k, v in body.items() if k != "run_id"})
-            data["results"] = results
-            await self.core.db.repo.put("run", data, id=run_id, summary=f"run {run_id} {len(results)} results")
+        # Current-state run record: serialize per run_id so the many rapid test-result
+        # events of a real run don't lose updates via interleaved read-modify-write
+        # (each branch does get→modify→put on the same "run" record across awaits).
+        async with self._run_locks.setdefault(run_id, asyncio.Lock()):
+            if etype == "run-started":
+                await self._upsert_run(run_id, status="running", started_ts=ts, **rest)
+            elif etype == "run-finished":
+                # result rides in body (PASS | FAIL | ABORTED).
+                await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
+                self._release_active(topic, run_id)   # terminal -> station free for the next DUT
+            elif etype == "run-aborted":
+                rest.setdefault("result", "ABORTED")
+                await self._upsert_run(run_id, status="finished", finished_ts=ts, **rest)
+                self._release_active(topic, run_id)
+            elif etype == "test-result":
+                # Append the row to the run's results table (live UI + history + reports).
+                existing = await self.core.db.repo.get("run", run_id)
+                data = dict(existing["data"]) if existing else {"run_id": run_id, "status": "running"}
+                results = list(data.get("results") or [])
+                results.append({k: v for k, v in body.items() if k != "run_id"})
+                data["results"] = results
+                await self.core.db.repo.put("run", data, id=run_id, summary=f"run {run_id} {len(results)} results")
+        if etype in ("run-finished", "run-aborted"):
+            self._run_locks.pop(run_id, None)   # terminal: drop the lock (bounded memory)
 
     # --- queries -----------------------------------------------------------
 
