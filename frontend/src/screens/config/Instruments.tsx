@@ -44,6 +44,9 @@ export function ConfigInstruments() {
   const [notice, setNotice] = useState<string | null>(null);
   const [libs, setLibs] = useState<Library[]>([]);
   const [instances, setInstances] = useState<any[]>([]);
+  // Python-controller app → the LabVIEW-owned transport path is hidden; new
+  // instruments default to Python-owned (drivers from the fork's instrument_libs/).
+  const [pyOnly, setPyOnly] = useState(false);
 
   const refresh = useCallback(() => {
     api.get("/config/instruments").then(setList).catch((e) => setError(e.message));
@@ -53,6 +56,7 @@ export function ConfigInstruments() {
   }, []);
   useEffect(() => {
     api.get("/config/transports").then(setTransports).catch((e) => setError(e.message));
+    api.get("/branding").then((b) => setPyOnly(b?.controller === "python")).catch(() => {});
     refresh();
   }, [refresh]);
 
@@ -71,7 +75,7 @@ export function ConfigInstruments() {
   const open = (inst: Instrument | null) => {
     setError(null); setNotice(null); setTest(null);
     if (inst) { setDraft({ ...inst, params: { ...inst.params } }); setIsNew(false); }
-    else { setDraft(blank()); setIsNew(true); }
+    else { setDraft({ ...blank(), owner: pyOnly ? "python" : "labview" }); setIsNew(true); }
   };
   const setF = (k: keyof Instrument, v: any) => setDraft((d) => (d ? { ...d, [k]: v } : d));
   const setParam = (k: string, v: any) => setDraft((d) => (d ? { ...d, params: { ...d.params, [k]: v } } : d));
@@ -208,20 +212,26 @@ export function ConfigInstruments() {
                     <TextField label="Model" value={draft.model ?? ""} sx={{ width: 180 }} disabled={!edit}
                       onChange={(e) => setF("model", e.target.value)} />
                   </Stack>
-                  <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
-                    <ToggleButtonGroup size="small" exclusive value={draft.owner ?? "labview"}
-                      onChange={(_, v) => v && setDraft((d) => (d ? { ...d, owner: v, params: {}, transport: "", library: "" } : d))}
-                      disabled={!edit || !isNew}>
-                      <ToggleButton value="python">Python-owned (library)</ToggleButton>
-                      <ToggleButton value="labview">LabVIEW-owned (transport)</ToggleButton>
-                    </ToggleButtonGroup>
-                    {!isNew && <Typography variant="caption" color="text.secondary">owner is fixed after creation</Typography>}
-                  </Stack>
+                  {pyOnly ? (
+                    <Typography variant="caption" color="text.secondary">
+                      Python-owned — drivers from this app's <b style={{ fontFamily: MONO_STACK }}>instrument_libs/</b>
+                    </Typography>
+                  ) : (
+                    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
+                      <ToggleButtonGroup size="small" exclusive value={draft.owner ?? "labview"}
+                        onChange={(_, v) => v && setDraft((d) => (d ? { ...d, owner: v, params: {}, transport: "", library: "" } : d))}
+                        disabled={!edit || !isNew}>
+                        <ToggleButton value="python">Python-owned (library)</ToggleButton>
+                        <ToggleButton value="labview">LabVIEW-owned (transport)</ToggleButton>
+                      </ToggleButtonGroup>
+                      {!isNew && <Typography variant="caption" color="text.secondary">owner is fixed after creation</Typography>}
+                    </Stack>
+                  )}
                   <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
                     {isPython ? (
                       <TextField select label="Library" value={draft.library ?? ""} sx={{ width: 260 }} disabled={!edit}
                         onChange={(e) => pickLibrary(e.target.value)} inputProps={{ "aria-label": "library" }}
-                        helperText={libs.length ? undefined : "no libraries loaded — wire variables.library_paths"}>
+                        helperText={libs.length ? undefined : "no libraries loaded — copy drivers into instrument_libs/ (or wire variables.library_paths)"}>
                         <MenuItem value=""><em>select…</em></MenuItem>
                         {libs.map((l) => <MenuItem key={l.library_id} value={l.library_id}>{l.vendor} {l.model} — {(l.capabilities || []).join(", ")}</MenuItem>)}
                       </TextField>

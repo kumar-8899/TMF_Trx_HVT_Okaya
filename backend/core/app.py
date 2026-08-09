@@ -193,6 +193,9 @@ def create_app(
                "tagline": "Authorised access only. All sessions are encrypted.",
                "version": __version__}
         out.update(cfg.get("branding", {}) or {})
+        # Controller kind rides along so the UI can adapt (e.g. the Instruments page
+        # hides the LabVIEW-owned transport path on a Python-controller app).
+        out["controller"] = (cfg.get("controller") or {}).get("kind", "labview")
         db = getattr(app.state, "db", None)
         if db is not None:
             try:

@@ -55,11 +55,24 @@ class DefaultVariables:
     def _load_libraries(self) -> None:
         """Import the external instrument-library package(s) so their registration
         decorators fire (INSTRUMENT_LIBRARY.md §10). `library_paths` are added to
-        sys.path (the sibling library repo); `library_packages` are imported."""
-        for p in self.config.get("library_paths", []):
+        sys.path (the sibling library repo); `library_packages` are imported.
+
+        The repo-root `instrument_libs/` (drivers a fork COPIED from the central
+        Instrument_Library, TEMPLATE.md §1.2) is auto-discovered — no app.json wiring
+        needed: every fork's copied drivers show up in the Instruments config UI."""
+        paths = list(self.config.get("library_paths", []))
+        packages = list(self.config.get("library_packages", []))
+        repo_root = Path(__file__).resolve().parents[4]        # …/backend/modules/variables/variants
+        app_libs = repo_root / "instrument_libs"
+        if (app_libs / "__init__.py").is_file():
+            if str(repo_root) not in paths:
+                paths.append(str(repo_root))
+            if "instrument_libs" not in packages:
+                packages.append("instrument_libs")
+        for p in paths:
             if Path(p).is_dir() and p not in sys.path:
                 sys.path.insert(0, p)
-        for pkg in self.config.get("library_packages", []):
+        for pkg in packages:
             try:
                 importlib.import_module(pkg)
                 self.core.diag.info("variables", "instrument library loaded", package=pkg)

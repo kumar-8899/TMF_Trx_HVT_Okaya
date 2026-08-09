@@ -5,6 +5,17 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.4.1 — 2026-08-09
+
+Fork instrument-library linkage. PATCH — restores the Instruments-config linkage in forks.
+
+- The variables module **auto-discovers the repo-root `instrument_libs/`** (the drivers a fork
+  copied from the central Instrument_Library, TEMPLATE.md §1.2) — no `app.json`
+  `variables.library_paths` wiring needed. The Instruments page's Library dropdown now shows a
+  fork's copied drivers automatically.
+- `/branding` gains `controller` (kind). On a Python-controller app the Instruments page hides
+  the LabVIEW-owned transport path and defaults new instruments to Python-owned.
+
 ## v1.4.0 — 2026-08-09
 
 Per-app screen overrides. MINOR — additive; no contract breaks.
