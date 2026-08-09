@@ -24,7 +24,8 @@ from pathlib import Path
 class ControllerSupervisor:
     def __init__(self, *, stations: list[str], broker_host: str, broker_port: int,
                  simulation: bool, diag, data_dir: Path, repo_root: Path,
-                 config_file: str | None = None) -> None:
+                 config_file: str | None = None,
+                 instruments: list[dict] | None = None) -> None:
         self._stations = list(stations)
         self._host = broker_host
         self._port = broker_port
@@ -32,7 +33,11 @@ class ControllerSupervisor:
         self._diag = diag
         self._data_dir = Path(data_dir)
         self._repo_root = Path(repo_root)
-        self._config_file = config_file           # app controller config (instruments/map/steps)
+        self._config_file = config_file           # app controller config (map/steps/libraries)
+        # The Instruments page is the single source of instrument instances (owner=python,
+        # enabled). None ≠ [] only in intent: both mean the controller gets NO instruments
+        # until they are configured in the app — even in simulation.
+        self._instruments = list(instruments or [])
         self._proc: subprocess.Popen | None = None
         self._pump: threading.Thread | None = None
 
@@ -115,6 +120,18 @@ class ControllerSupervisor:
         cfg["schema_version"] = 1
         cfg["broker"] = {"host": self._host, "port": self._port}
         cfg["simulation"] = self._sim
+        # Instruments come ONLY from the app's Instruments page (config module records) —
+        # a controller.json `instruments` list is ignored, so nothing is reachable (even in
+        # simulation) until it is configured in the app.
+        declared = cfg.pop("instruments", None)
+        if declared:
+            self._diag.warning("controller", "controller config_file `instruments` ignored — "
+                               "instruments are configured on the Instruments page",
+                               declared=len(declared), configured=len(self._instruments))
+        cfg["instruments"] = self._instruments
+        if not self._instruments:
+            self._diag.warning("controller", "no instruments configured — the controller starts "
+                               "with none; add them on the Instruments page and restart")
         if not cfg.get("stations"):                        # file listed none → use the app's
             cfg["stations"] = [{"station": s} for s in self._stations]
         path = self._data_dir / "controller.generated.json"

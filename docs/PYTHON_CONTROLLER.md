@@ -107,6 +107,17 @@ When the **app** starts the controller it writes this file for you at
 `backend/data/controller.generated.json` (broker + stations + simulation), so you
 never hand-edit it in that mode.
 
+**Instruments under app supervision (v1.5.0+):** the app's **Instruments page**
+(Config → Instruments; `instrument` records, owner=python, enabled) is the single
+source of instrument instances for the whole application — the backend variable
+engine AND the controller. In supervised mode a `controller.json` `instruments`
+list is **ignored** (a diag warning names the counts), and an app with nothing
+configured starts the controller with **no instruments — even in simulation**.
+Configure the instruments in the UI, then restart. A standalone
+`python -m controller your-config.json` run (no app) still honors the file's
+`instruments` — the override happens in the app's config generation, not in the
+controller.
+
 ---
 
 ## 4. Build slices — what each delivers (as-built)

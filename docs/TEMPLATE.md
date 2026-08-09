@@ -54,7 +54,7 @@ lives in one app-owned tree, `app/<name>/`, kept apart from framework files:
 | `<name>_steps/` | **controller step-type package** — product-specific step types (e.g. `hipot_ir`), loaded via `step_type_packages`. Only what the core 8 types can't express; author with the `test-step-authoring` skill. |
 | `maps/<station>.json` | **variable map** — named signals (read/write + scale) and actions bound to instrument capabilities. |
 | `recipes/*.json` | **recipes** — the test sequences + limits, as data. |
-| `controller.json` | the app's **controller config** — instruments, `library_paths` (→ the fork's own `instrument_libs/`), station→map, `step_type_packages`. Referenced by `app.json` → `controller.config_file`. |
+| `controller.json` | the app's **controller config** — `library_paths` (→ the fork's own `instrument_libs/`), station→map, `step_type_packages`. Referenced by `app.json` → `controller.config_file`. Instrument **instances** are NOT authored here (v1.5.0+): they come from the app's Instruments page — an `instruments` list in this file is ignored under app supervision. |
 | `tools/`, `tests/`, `docs/` | app runner (e.g. `run_sim.py`), sequence tests, app docs. |
 
 Wire it in `app.json`: `"controller": { "kind": "python", "config_file": "app/<name>/controller.json" }`.

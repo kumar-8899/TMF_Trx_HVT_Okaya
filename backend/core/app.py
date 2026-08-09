@@ -120,11 +120,28 @@ def create_app(
         app.state.controller = None
         if controller_cfg.get("kind") == "python":
             from core.services.controller_supervisor import ControllerSupervisor
+            # The Instruments page (config module `instrument` records) is the single
+            # source of instrument instances for the WHOLE app — backend variable engine
+            # AND the controller. Unconfigured ⇒ the controller starts with none, even in
+            # simulation; the operator adds them in Config → Instruments and restarts.
+            try:
+                _rows = await db.repo.query("instrument")
+            except Exception:  # noqa: BLE001 — fresh station, no records yet
+                _rows = []
+            py_instruments = [
+                {"id": r["data"]["id"], "library": r["data"]["library"],
+                 "params": r["data"].get("params", {}),
+                 "simulated": r["data"].get("simulated", False),
+                 "stations": r["data"].get("stations") or list(stations)}
+                for r in _rows
+                if r["data"].get("owner") == "python"
+                and r["data"].get("enabled", True) and r["data"].get("library")]
             sup = ControllerSupervisor(
                 stations=stations, broker_host=broker_host, broker_port=broker_port,
                 simulation=controller_cfg.get("simulation", True), diag=diag,
                 data_dir=DEFAULT_DB_PATH.parent, repo_root=Path(__file__).resolve().parents[2],
-                config_file=controller_cfg.get("config_file"))
+                config_file=controller_cfg.get("config_file"),
+                instruments=py_instruments)
             sup.start()
             app.state.controller = sup
 

@@ -5,6 +5,18 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.5.0 — 2026-08-09
+
+Instruments page = the single source of instrument instances. MINOR.
+
+- The whole application — variable engine AND the supervised Python controller — now takes
+  its instrument instances ONLY from Config → Instruments (`instrument` records, owner=python,
+  enabled). An app with none configured starts the controller with **no instruments, even in
+  simulation**.
+- A `controller.json` `instruments` list is **ignored** under app supervision (diag warning
+  with declared/configured counts). Standalone `python -m controller <cfg>` still honors it.
+- Docs: PYTHON_CONTROLLER.md, TEMPLATE.md §1.1, help `user/instruments.md`.
+
 ## v1.4.1 — 2026-08-09
 
 Fork instrument-library linkage. PATCH — restores the Instruments-config linkage in forks.
