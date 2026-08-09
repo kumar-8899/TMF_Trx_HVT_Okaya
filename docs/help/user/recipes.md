@@ -17,11 +17,18 @@ Besides Recipe ID and Name, set the **Model** — the DUT type name your company
 product. Runs of this recipe tag their reports with the Model (a Report column + filter).
 
 ## Authoring
-Each test is a `parametric_test` with fixed fields (Test ID, Name, **Test group**, Enabled, Timeout, Retry, On-fail, Safety-critical) and a **Parameter name / value / unit** table.
+Each step has an **id**, a **step type**, and the type's own parameters. The step-type
+list comes from the **controller's catalog**: the 8 core types (`set_output`,
+`measure_and_compare`, `wait`, `group`, `repeat`, `sweep`, `if`, `prompt_operator`)
+plus any **application step types** the app ships (its step-type package). The right
+pane renders each type's parameters from its schema — number/text/select fields for
+scalars; composite parameters (e.g. a `group`'s `steps`) edit as JSON.
 
-- **Parameter names must be unique within a test** (validation blocks duplicates). The same name may repeat in another test.
-- Hover a test in the left rail to **clone** it (duplicates with an incremented Test ID).
-- **Validate** before publishing; errors are listed and the offending tests flagged.
+- Step **ids must be unique within the recipe**.
+- Hover a step in the left rail to **clone** it.
+- **Validate** before publishing; errors are listed and the offending steps flagged.
+- Limits (min/max) live in the step parameters — they come from the product
+  specification, and the sequencer judges results against them.
 
 ## Import/export note
 The export is a **ZIP bundle** (versioned + hash-verified), not plain JSON. Editing the zip by hand corrupts it. To clone, use **Duplicate**.

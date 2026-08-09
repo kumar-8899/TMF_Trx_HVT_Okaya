@@ -14,8 +14,12 @@ screens, auth, and streaming.
 ```
 frontend/src/
   main.tsx            providers (ColorMode → Router → Auth) + App
-  App.tsx             routes + permission gating
+  App.tsx             routes + permission gating (overridable screens resolve via app/registry)
   api/client.ts       fetch wrapper (bearer token, RFC-7807 → Error.message)
+  app/                registry.ts + overrides/ — the APP-OWNED screen-override seam
+                      (TEMPLATE.md §1.3): a fork drops overrides/<x>.tsx exporting
+                      { key, component } to replace Runs / Recipes / recipe editor /
+                      recipe detail / Maintenance; framework ships overrides/ empty
   theme/              theme.ts (tokens), ColorMode.tsx (light/dark provider+toggle)
   components/         Layout, SessionPanel, BrandMark, ui.tsx, Sparkline, RecipeForm, StepEditor
   screens/            Login, ChangePassword, Dashboard, Daq, Runs, Recipes,
@@ -80,6 +84,13 @@ The visual vocabulary every screen reuses:
 - Runs station feed + live results (`/ws/station`).
 
 ## Screens
+
+**Per-app overrides (v1.4.0+):** Runs, Recipes, the recipe editor/detail, and
+Maintenance are override-able — an application fork replaces them by dropping a
+file in `src/app/overrides/` (default-export `{ key, component }`; keys `runs`,
+`recipes`, `recipe-editor`, `recipe-detail`, `maintenance`). `App.tsx` renders
+`APP_SCREENS[key] ?? <framework default>`; the permission wrappers stay in the
+framework. The framework ships `overrides/` empty. See TEMPLATE.md §1.3.
 
 | Screen | Route | Notes |
 |---|---|---|

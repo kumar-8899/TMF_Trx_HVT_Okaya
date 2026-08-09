@@ -123,9 +123,11 @@ attributed `action_log` records, with cursor-paginated query/stats/delete gated 
 [docs/PHASE2_LOGS_ACCEPTANCE.md](docs/PHASE2_LOGS_ACCEPTANCE.md) and
 [docs/contracts/LOGS.md](docs/contracts/LOGS.md).
 
-The `recipe` module (Test Recipe) is complete on the Python side (R1–R6): one
-recipe shape with 16 pluggable step types (incl. the simplified `parametric_test`
-authored by the UI), filesystem versioning (append-only,
+The `recipe` module (Test Recipe) is complete on the Python side (R1–R6) and
+**unified with the controller's step-type model** (v1.3.0): recipes are
+controller-native (`{id, type, params}`), authored against the controller's
+catalog — the 8 core step types plus the app's step-type packages — with
+schema-driven editing in the UI. Filesystem versioning (append-only,
 content-hashed) + DB corpus mirror, schema + semantic validation, the
 `query/recipe.fetch` execution wire with `${run.x}` substitution, ZIP
 export/import, and version diff. See

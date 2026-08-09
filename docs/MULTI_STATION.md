@@ -47,7 +47,7 @@ everywhere and omitting it targets the sole socket.
 `app.json` carries a `controller` block:
 
 ```jsonc
-"controller": { "kind": "labview", "simulation": true }
+"controller": { "kind": "labview" }
 ```
 
 - **`labview`** (default) — the LabVIEW engine runs externally, exactly as before.
@@ -56,7 +56,9 @@ everywhere and omitting it targets the sole socket.
   it generates a controller config from the app's own stations + broker
   (`backend/data/controller.generated.json`), spawns `python -m controller` as a
   child, pipes its stdout into diagnostics (subsystem `controller`), and stops it
-  on shutdown. `simulation` runs the controller with no hardware.
+  on shutdown. Instrument **instances** come from the Instruments page (v1.5.0+),
+  and each runs simulated or real by its own **Simulated** toggle (v1.5.1+) — there
+  is no app-level simulation switch (`controller.simulation` is deprecated/ignored).
 
 Because the supervisor lives in the backend lifespan, **every** entry point —
 `dev.ps1`, the launcher, a frozen build — starts the controller with the app; no
@@ -73,8 +75,8 @@ per-launcher wiring. Source: `core/services/controller_supervisor.py`.
 Super_admin, under **Settings** (`frontend/src/screens/config/StationConfig.tsx`):
 
 - **Test sockets** — a number, `st1…stN`, capped at the licensed `max_stations`.
-- **Controller** — LabVIEW (external) or Python (auto-started), with a
-  simulation/hardware mode for Python.
+- **Controller** — LabVIEW (external) or Python (auto-started). Simulation vs
+  hardware is per-instrument, on the Instruments page — not set here.
 - **Save** writes `app.json` (via `ConfigService.update_app`, atomic, re-validated).
 - **Relaunch to apply** — station count and controller kind are **boot config**,
   so they take effect on the next restart; the button triggers it.
@@ -83,8 +85,8 @@ API (all `SYSTEM.SETTINGS`, in `core/app.py`):
 
 ```
 GET  /system/station-config   → { station_count, configured_stations, running_stations,
-                                   max_stations, controller:{kind,simulation}, restart_required }
-PUT  /system/station-config   { station_count?, controller_kind?, simulation? }
+                                   max_stations, controller:{kind}, restart_required }
+PUT  /system/station-config   { station_count?, controller_kind? }
                               → validates count ≥ 1 and ≤ max_stations, writes app.json
 POST /system/relaunch         → stop controller child, exit 42 (launcher restarts)
 POST /system/shutdown         → safe exit (see below)

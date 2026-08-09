@@ -61,13 +61,13 @@ activation gate with skip-and-continue), CoreServices DI, and the core services:
 | `runs` | runs | run control proxy, run records, `/ws/station` + `/diagnostics/stream`, **barcode/recipe acquisition**, **test-result rows** | backend done |
 | `auth` | auth | permission-first auth, sessions, full user management, **protected super_admin**, **temp-password creation** | backend done |
 | `logs` | logs | error-log + action-log persistence, query/stats/retention | backend done |
-| `recipe` | recipe | versioned recipes, 16 step types (incl **`parametric_test`**), validation, `recipe.fetch` wire, export/import, diff | backend done |
+| `recipe` | recipe | versioned recipes, **controller-native step-type catalog** (8 core + app step-type packages; the legacy 16-type path remains internally but is not surfaced), validation, `recipe.fetch` wire, export/import, diff | backend done; unified with the controller model (v1.3.0) |
 | `report` | report | run reports + analytics (counts/yield/by-recipe), multi-sink (SQLite/folder, pass/fail), export | backend done |
 | `mes` | mes | cross-station interlock (gate/publish), pluggable transport | backend done |
 | `health` | health | check registry + sequencer, operator/technician/engineer UX, trends, scheduled runs, known-issues | backend done |
-| `config` | config | station config centre (cascaded menu); **instruments** (transport-driven profiles + LabVIEW connection test); barcode/shift/MES sections follow | instruments done; live test needs real LabVIEW |
+| `config` | config | station config centre (cascaded menu); **instruments** — the **single source of instrument instances** for the whole app (v1.5.0: variable engine + supervised controller consume its records; nothing reaches an instrument until configured here; simulation is the per-instrument `simulated` toggle, v1.5.1); transport-driven profiles + LabVIEW connection test (transport path hidden on python-controller apps); barcode/shift/MES sections follow | instruments done; live test needs real LabVIEW |
 | `help` | help | in-app docs (user docs all-roles, developer docs super_admin) from the repo docs/ tree; context-aware **?** panel + `/help` page; future AI-chatbot corpus | done |
-| `variables` | variables | variable engine (INSTRUMENT_LIBRARY §5.3): name → instrument scalar signal (scale/clamp); loads the external library package + builds instances via `instrumentlib` registry; serves `variable.*` + `capability.request` over the bridge + REST `/variables` (+ `/libraries`, `/instances`) | IL2–IL4 done; libraries live in the sibling `Instrument_Library` repo |
+| `variables` | variables | variable engine (INSTRUMENT_LIBRARY §5.3): name → instrument scalar signal (scale/clamp); loads library packages + builds instances via `instrumentlib` registry — **auto-discovers the repo-root `instrument_libs/`** (a fork's copied drivers, v1.4.1) so no config wiring is needed; serves `variable.*` + `capability.request` over the bridge + REST `/variables` (+ `/libraries`, `/instances`) | IL2–IL4 done; central driver repo is `Instrument_Library`, forks carry copies |
 
 Every module follows the same lifecycle (construct → init → start → stop →
 health), declares a `manifest.json` (+ optional config schema), and is gated by

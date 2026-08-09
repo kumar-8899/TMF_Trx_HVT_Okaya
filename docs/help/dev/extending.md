@@ -6,7 +6,23 @@ Concrete recipes for the common extensions.
 See [Module framework](#). Copy an existing small module (`config`, `mes`) as a template; register, manifest, gate it in config + license, gate routes, write a tester.
 
 ## Add a recipe step type
-Under `modules/recipe/step_types/<name>/`: `schema.json` (envelope-validated) + `type.py`. Add semantic rules in `modules/recipe/validation/semantic.py` if needed. Phase-1 authoring uses `parametric_test`.
+Step types are the **controller's** (v1.3.0 unification): the 8 core types live in
+`controller/controller/step_types/` (handler + `schemas/<type>.json`); an application
+adds product-specific types as a **step-type package** under its own `app/<name>/`
+(handler + schema beside it; loaded via `step_type_packages`). The recipe module
+serves the combined catalog at `GET /recipes/step-types` and validates recipes
+against it — the editor UI adapts automatically. Author app types with the
+`test-step-authoring` skill. (The legacy `modules/recipe/step_types/` path still
+validates old recipes but is not surfaced.)
+
+## Override an operator screen (per-app UI)
+Runs, Recipes, recipe editor/detail, and Maintenance can be replaced per application
+without touching framework files: drop `frontend/src/app/overrides/<x>.tsx`
+default-exporting `{ key, component }` (keys: `runs`, `recipes`, `recipe-editor`,
+`recipe-detail`, `maintenance`). `src/app/registry.ts` auto-registers it and the
+router uses it in place of the framework screen; permission wrappers stay in the
+framework. The overrides directory is app-owned (TEMPLATE.md §1.3) — framework
+upgrades merge cleanly.
 
 ## Add an instrument transport
 One entry in `backend/modules/config/transports.py` (`id`, `label`, typed `fields`, `address_template`). The UI renders it automatically — **no frontend change**. LabVIEW handles the actual I/O for that transport.

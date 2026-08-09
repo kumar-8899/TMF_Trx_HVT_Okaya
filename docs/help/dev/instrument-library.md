@@ -73,7 +73,20 @@ bridge (Py-served `query/{op}`) plus REST (`GET /variables`,
   reports any Python-owned instance not connected.
 
 ## Wiring an application to the library repo
-In the `variables` module config:
+
+**Application forks need no wiring (v1.4.1+):** the variables module auto-discovers
+the repo-root `instrument_libs/` (the drivers a fork copied from the central
+`Instrument_Library`, TEMPLATE.md §1.2) and imports it — the copied drivers appear
+in the Instruments page's Library dropdown automatically.
+
+**Instances come from the Instruments page (v1.5.0+):** the page's records
+(owner=python, enabled) are the single source of instrument instances for the whole
+app — the variable engine AND the supervised Python controller. Nothing reaches an
+instrument (even simulated) until configured there; each instrument runs simulated
+or real by its own **Simulated** toggle (v1.5.1+ — no app-level switch).
+
+The explicit `variables` module config below remains for dev setups and tests
+(inline `instances` build in addition to the page's records):
 ```json
 "config": {
   "library_paths": ["D:/Experiment/Instrument_Library"],

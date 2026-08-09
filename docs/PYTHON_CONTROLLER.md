@@ -97,15 +97,15 @@ arbitrates a shared instrument in-process, with no cross-thread races.
   "step_type_paths":    ["examples"],       // dev: add package repos to sys.path
   "step_type_packages": ["demo_steps"],     // app step-type packages to import
 
-  "simulation": true,                        // force EVERY instrument simulated (§12.1)
+  "simulation": true,                        // force EVERY instrument simulated (§12.1) — standalone/dev only; always false under app supervision
   "abort_grace_ms": 2000,
   "teardown_timeout_ms": 30000
 }
 ```
 
 When the **app** starts the controller it writes this file for you at
-`backend/data/controller.generated.json` (broker + stations + simulation), so you
-never hand-edit it in that mode.
+`backend/data/controller.generated.json` (broker + stations + the Instruments-page
+instrument instances), so you never hand-edit it in that mode.
 
 **Instruments under app supervision (v1.5.0+):** the app's **Instruments page**
 (Config → Instruments; `instrument` records, owner=python, enabled) is the single
