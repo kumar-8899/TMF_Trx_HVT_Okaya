@@ -5,6 +5,41 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.3.0 — 2026-08-09
+
+Standalone Python controller, multi-station, station management, and the recipe/controller
+step-type unification. MINOR — additive; no contract breaks. (Folds in the interim tags
+v1.2.0 = station config + controller selection + safe exit + `safety_tester`; v1.2.1 =
+`controller.config_file`.)
+
+### Python controller (C7–C10)
+- Standalone `controller/` — a peer implementation of the MQTT controller contract; the app
+  can't tell it from LabVIEW. Safety (monitors-as-data, independent reflex loop,
+  emergency_disable fan-out, teardown-skipped trip), simulation + `dry_run`, non-scalar
+  actions (`ctx.invoke` + capability verify at load), app step-type packages + a CI gate.
+
+### Multi-station & station management
+- Settings → Station configuration: test-socket count (`st1..stN`, license-capped) +
+  controller selection (`labview | python`); `/system/station-config`.
+- The backend supervises the Python controller when `controller.kind = python`, using the
+  app's `controller.config_file` (instruments / variable maps / step packages); graceful
+  stop drives instruments to safe state. Safe **Exit** button (`/system/shutdown`) +
+  `/system/relaunch`; `dev.ps1` runs under the launcher.
+- `instrumentlib`: new `ISafetyTester` capability (hipot IR / AC-withstand).
+
+### Recipe ↔ controller unification
+- Canonical step-type catalog (`registry.catalog()`, JSON schemas for the 8 core types).
+- Recipe module authors/validates/stores/lists/fetches **controller-native** recipes
+  (`id`/`type`, nested groups) against the catalog (core + the app's `step_type_packages`);
+  `/step-types` serves only that catalog (legacy 16-type authoring retired). Schema-driven
+  recipe editor, same two-pane UI.
+- Fixed a runs-module lost-update race (per-run lock) so every test-result persists.
+
+### Framework template
+- `TEMPLATE.md`: ratified the `app/<name>/` payload convention + self-contained driver copy
+  (`instrument_libs/`). Global skills: `new-test-app` (fork the framework), `add-bench-test`
+  (add a test in dependency order).
+
 ## v1.1.0 — 2026-07-14
 
 Secure distribution + instrument features. MINOR — additive; no contract breaks.
