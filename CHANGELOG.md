@@ -5,6 +5,19 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.5.1 — 2026-08-09
+
+Simulation is per-instrument only. PATCH — fixes an Instruments-page `simulated: false`
+being overridden by the app-level flag.
+
+- The generated controller config always sets global `simulation: false`; each instrument
+  runs simulated or real by its own Instruments-page **Simulated** toggle (the controller's
+  force-all flag stays a standalone/dev knob for hand-written configs).
+- `app.json` `controller.simulation` is **deprecated and ignored** (diag warning; dropped on
+  the next Settings save). Settings → Station configuration loses its Mode select;
+  `/system/station-config` no longer carries `simulation`.
+- Docs: PYTHON_CONTROLLER.md, help `user/settings.md` + `user/instruments.md`, app schema.
+
 ## v1.5.0 — 2026-08-09
 
 Instruments page = the single source of instrument instances. MINOR.

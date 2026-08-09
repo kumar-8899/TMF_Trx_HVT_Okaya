@@ -21,7 +21,7 @@ class _Diag:
 def _sup(tmp_path, *, config_file=None, instruments=None) -> tuple[ControllerSupervisor, _Diag]:
     diag = _Diag()
     sup = ControllerSupervisor(
-        stations=["st1"], broker_host="127.0.0.1", broker_port=1883, simulation=True,
+        stations=["st1"], broker_host="127.0.0.1", broker_port=1883,
         diag=diag, data_dir=tmp_path / "data", repo_root=tmp_path,
         config_file=config_file, instruments=instruments)
     return sup, diag
@@ -65,6 +65,17 @@ def test_page_instruments_without_config_file(tmp_path):
     assert cfg["instruments"] == PAGE
     assert cfg["stations"] == [{"station": "st1"}]     # app's stations fill in
     assert not diag.warnings
+
+
+def test_global_simulation_always_off_under_supervision(tmp_path):
+    """Sim vs hardware is per-instrument (Instruments page). The generated config's
+    global `simulation` (force-all, §12.1) must be False even if the app's
+    controller.json says true — so a page record with simulated:false runs REAL."""
+    p = tmp_path / "controller.json"
+    p.write_text(json.dumps({"schema_version": 1, "simulation": True}), encoding="utf-8")
+    sup, _ = _sup(tmp_path, config_file=str(p), instruments=PAGE)
+    cfg = json.loads(sup._write_config().read_text(encoding="utf-8"))
+    assert cfg["simulation"] is False
 
 
 def test_variable_map_still_resolved_relative_to_config_file(tmp_path):

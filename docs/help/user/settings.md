@@ -9,9 +9,9 @@ Set how many **test sockets** this PC runs and which **controller** serves them.
   socket behaves as a single-station system (no station picker anywhere). The
   maximum is set by your licence; the field shows the cap.
 - **Controller** — **LabVIEW** (the engine runs separately, as before) or
-  **Python** (the app starts and stops the bundled Python controller for you). For
-  Python you can pick **Simulation** (no hardware — for demos and bring-up) or
-  **Hardware**.
+  **Python** (the app starts and stops the bundled Python controller for you).
+  Simulation vs hardware is **not** set here — it is a per-instrument choice, the
+  **Simulated** toggle on the **Instruments** page.
 
 These are start-up settings. Press **Save** to write them, then **Relaunch to
 apply** to restart the station with the new configuration. The banner shows

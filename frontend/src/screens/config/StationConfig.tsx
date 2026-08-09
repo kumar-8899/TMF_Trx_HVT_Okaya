@@ -16,7 +16,7 @@ interface StationCfg {
   configured_stations?: string[];
   running_stations?: string[];
   max_stations?: number | null;
-  controller?: { kind?: "labview" | "python"; simulation?: boolean };
+  controller?: { kind?: "labview" | "python" };
   restart_required?: boolean;
 }
 
@@ -24,7 +24,6 @@ export function StationConfig() {
   const [cfg, setCfg] = useState<StationCfg>({});
   const [count, setCount] = useState<number>(1);
   const [kind, setKind] = useState<"labview" | "python">("labview");
-  const [sim, setSim] = useState<boolean>(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -33,7 +32,6 @@ export function StationConfig() {
     setCfg(d);
     setCount(d.station_count ?? 1);
     setKind(d.controller?.kind ?? "labview");
-    setSim(d.controller?.simulation ?? true);
   };
 
   useEffect(() => {
@@ -49,7 +47,7 @@ export function StationConfig() {
     setBusy(true); setError(null); setNotice(null);
     try {
       const d = await api.put("/system/station-config",
-        { station_count: count, controller_kind: kind, simulation: sim });
+        { station_count: count, controller_kind: kind });
       load(d);
       setNotice("Saved to app.json. Relaunch the station to apply.");
     } catch (e: any) { setError(e.message); }
@@ -89,12 +87,9 @@ export function StationConfig() {
             <MenuItem value="python">Python (auto-started with the app)</MenuItem>
           </TextField>
           {kind === "python" && (
-            <TextField select label="Mode" value={sim ? "sim" : "hw"} sx={{ width: 200 }}
-              onChange={(e) => setSim(e.target.value === "sim")}
-              inputProps={{ "aria-label": "controller mode" }}>
-              <MenuItem value="sim">Simulation (no hardware)</MenuItem>
-              <MenuItem value="hw">Hardware</MenuItem>
-            </TextField>
+            <Typography variant="body2" color="text.secondary">
+              Simulation vs hardware is set <b>per instrument</b> on the Instruments page.
+            </Typography>
           )}
         </Stack>
 

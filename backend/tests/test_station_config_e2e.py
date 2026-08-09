@@ -37,11 +37,13 @@ async def test_put_sets_controller_and_persists(config_dir):
         async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             admin = await _admin(c)
             r = await c.put("/system/station-config", headers=admin,
-                            json={"station_count": 1, "controller_kind": "python", "simulation": True})
+                            json={"station_count": 1, "controller_kind": "python"})
             assert r.status_code == 200
             body = r.json()
             assert body["configured_stations"] == ["st1"]
-            assert body["controller"]["kind"] == "python" and body["controller"]["simulation"] is True
+            assert body["controller"]["kind"] == "python"
+            # simulation is per-instrument (Instruments page) — no app-level knob
+            assert "simulation" not in body["controller"]
             assert body["restart_required"] is True           # controller kind changed vs running
             # a fresh GET reflects the written app.json
             d = (await c.get("/system/station-config", headers=admin)).json()

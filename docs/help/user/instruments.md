@@ -15,6 +15,10 @@ Two kinds of instrument live here, chosen by **owner**:
   **library** + fill its connection fields. The Library dropdown lists the app's
   copied drivers automatically.
 
+The **Simulated** toggle here is the ONLY simulation control: each instrument runs
+simulated or real according to its own toggle — there is no app-wide simulation
+switch. Mixed setups (one real, one simulated) are fine.
+
 ## Add / edit an instrument
 1. **Add instrument** → choose the **owner** (fixed after creation), give an **id**
    (lowercase, immutable) and a **label**.

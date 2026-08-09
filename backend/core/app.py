@@ -136,9 +136,14 @@ def create_app(
                 for r in _rows
                 if r["data"].get("owner") == "python"
                 and r["data"].get("enabled", True) and r["data"].get("library")]
+            # Simulation is per-instrument only (Instruments page `simulated` toggle).
+            # The old app-level controller.simulation knob is deprecated and ignored.
+            if controller_cfg.get("simulation"):
+                diag.warning("controller", "app.json controller.simulation is deprecated and "
+                             "ignored — simulation is set per instrument on the Instruments page")
             sup = ControllerSupervisor(
                 stations=stations, broker_host=broker_host, broker_port=broker_port,
-                simulation=controller_cfg.get("simulation", True), diag=diag,
+                diag=diag,
                 data_dir=DEFAULT_DB_PATH.parent, repo_root=Path(__file__).resolve().parents[2],
                 config_file=controller_cfg.get("config_file"),
                 instruments=py_instruments)
@@ -287,7 +292,7 @@ def create_app(
             "configured_stations": configured,
             "running_stations": running,
             "max_stations": app.state.max_stations,          # None = uncapped
-            "controller": {"kind": kind, "simulation": controller.get("simulation", True)},
+            "controller": {"kind": kind},
             "restart_required": restart,
         }
 
@@ -319,8 +324,9 @@ def create_app(
                 raise HTTPException(status_code=422, detail="controller_kind must be 'labview' or 'python'")
             controller = dict(app.state.app_config.get("controller") or {})
             controller["kind"] = kind
-            if body.get("simulation") is not None:
-                controller["simulation"] = bool(body.get("simulation"))
+            # simulation is per-instrument (Instruments page) — the old app-level knob
+            # is dropped from the config when this section is saved.
+            controller.pop("simulation", None)
             patch["controller"] = controller
         if not patch:
             raise HTTPException(status_code=422, detail="nothing to update")

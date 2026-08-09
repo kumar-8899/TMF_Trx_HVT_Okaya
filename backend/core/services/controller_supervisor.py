@@ -23,13 +23,12 @@ from pathlib import Path
 
 class ControllerSupervisor:
     def __init__(self, *, stations: list[str], broker_host: str, broker_port: int,
-                 simulation: bool, diag, data_dir: Path, repo_root: Path,
+                 diag, data_dir: Path, repo_root: Path,
                  config_file: str | None = None,
                  instruments: list[dict] | None = None) -> None:
         self._stations = list(stations)
         self._host = broker_host
         self._port = broker_port
-        self._sim = bool(simulation)
         self._diag = diag
         self._data_dir = Path(data_dir)
         self._repo_root = Path(repo_root)
@@ -60,7 +59,8 @@ class ControllerSupervisor:
             self._diag.warning("controller", "python controller failed to start", error=str(exc))
             return
         self._diag.info("controller", "python controller started",
-                        pid=self._proc.pid, stations=self._stations, simulation=self._sim)
+                        pid=self._proc.pid, stations=self._stations,
+                        instruments=len(self._instruments))
         self._pump = threading.Thread(target=self._pump_logs, name="controller-logs", daemon=True)
         self._pump.start()
 
@@ -119,7 +119,11 @@ class ControllerSupervisor:
                 cfg = {}
         cfg["schema_version"] = 1
         cfg["broker"] = {"host": self._host, "port": self._port}
-        cfg["simulation"] = self._sim
+        # Simulation is controlled ONLY per-instrument, on the Instruments page (its
+        # `simulated` toggle). The controller's global `simulation` flag (which forces
+        # EVERY instrument simulated, §12.1) is a standalone/dev knob — under app
+        # supervision it is always off so the page's per-instrument choice decides.
+        cfg["simulation"] = False
         # Instruments come ONLY from the app's Instruments page (config module records) —
         # a controller.json `instruments` list is ignored, so nothing is reachable (even in
         # simulation) until it is configured in the app.

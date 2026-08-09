@@ -118,6 +118,12 @@ Configure the instruments in the UI, then restart. A standalone
 `instruments` — the override happens in the app's config generation, not in the
 controller.
 
+**Simulation under app supervision (v1.5.1+):** simulation is a **per-instrument**
+choice — the Instruments page `simulated` toggle. The generated config always sets
+the global `simulation: false`; the app-level `app.json` `controller.simulation`
+knob is deprecated and ignored (diag warning). The global force-all flag remains a
+standalone/dev convenience for hand-written configs only.
+
 ---
 
 ## 4. Build slices — what each delivers (as-built)
