@@ -83,7 +83,8 @@ export function RecipeForm({
 
   useEffect(() => { api.get("/recipes/step-types").then(setTypes).catch(() => setTypes([])); }, []);
   const typeById = useMemo(() => Object.fromEntries(types.map((t) => [t.type_id, t])), [types]);
-  const defaultType = types.find((t) => !t.composite)?.type_id || types[0]?.type_id || "measure_and_compare";
+  const defaultType = typeById["measure_and_compare"] ? "measure_and_compare"
+    : (types.find((t) => !t.composite)?.type_id || types[0]?.type_id || "measure_and_compare");
 
   const patch = (v: Partial<RecipeValue>) => onChange?.({ ...value, ...v });
   const setSteps = (s: Step[]) => patch({ steps: s });
