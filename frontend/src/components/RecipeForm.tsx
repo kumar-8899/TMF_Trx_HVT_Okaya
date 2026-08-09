@@ -1,32 +1,34 @@
-/** Shared recipe authoring/viewing surface — used editable by the editor and
- * read-only by the detail view. Phase-1 model: each test is a `parametric_test`
- * step = fixed fields + a flat list of {name, value, unit} parameter rows. */
+/** Recipe authoring/viewing surface — controller-native recipes (recipe-unify P4).
+ *
+ * A recipe is an ordered list of steps `{ id, type, params }`; the step types + their
+ * parameter JSON schemas come from the controller catalog (`GET /step-types`: the 8 core
+ * types + the app's step_type_packages). The right-pane param form is rendered from the
+ * selected step type's schema. Same two-pane look as before. Composite params (a nested
+ * `steps` list) and other array/object params are edited as JSON. */
 import {
   Add, ArrowDownward, ArrowUpward, ContentCopy, DeleteOutline, NavigateBefore, NavigateNext, Search,
 } from "@mui/icons-material";
 import {
   Box, Button, Checkbox, Divider, FormControlLabel, IconButton, LinearProgress, MenuItem,
-  Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField,
-  ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  Paper, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { api } from "../api/client";
 import { MONO_STACK } from "../theme/theme";
 import { Section, StatusDot } from "./ui";
 
-export interface ParamRow { name: string; value?: number | string | boolean | null; unit?: string }
-export interface Test {
-  step_id: string;
-  step_type: string;
+export interface Step {
+  id: string;
+  type: string;
   name?: string;
   test_group?: string;
-  description?: string;
   enabled?: boolean;
   timeout_ms?: number;
   retry_count?: number;
   on_fail?: string;
   safety_critical?: boolean;
-  params?: { parameters?: ParamRow[]; [k: string]: any };
+  params?: Record<string, any>;
 }
 export interface RecipeValue {
   recipe_id: string;
@@ -34,33 +36,35 @@ export interface RecipeValue {
   model?: string;
   owner?: string;
   description?: string;
-  steps: Test[];
+  steps: Step[];
+}
+
+interface StepType {
+  type_id: string;
+  display_name: string;
+  composite: boolean;
+  kind?: string;
+  required_signals?: string[];
+  required_actions?: string[];
+  schema?: { properties?: Record<string, any>; required?: string[] } | null;
 }
 
 const ON_FAIL = ["stop", "continue", "retry"];
-export const PARAM_TYPE = "parametric_test";
 
-/** Numeric-looking strings become numbers; blank clears the value. */
-function coerce(v: string): number | string | undefined {
-  const t = v.trim();
-  if (t === "") return undefined;
-  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : v;
-}
-
-type Status = "configured" | "partial" | "empty" | "error" | "disabled";
-const DOT: Record<Status, "pass" | "running" | "idle" | "fail"> = {
-  configured: "pass", partial: "running", empty: "idle", error: "fail", disabled: "idle",
+type Status = "configured" | "empty" | "error" | "disabled";
+const DOT: Record<Status, "pass" | "idle" | "fail"> = {
+  configured: "pass", empty: "idle", error: "fail", disabled: "idle",
 };
 
-function testStatus(t: Test, errorIds: Set<string>): Status {
-  if (t.enabled === false) return "disabled";
-  if (errorIds.has(t.step_id)) return "error";
-  const rows = t.params?.parameters ?? [];
-  if (t.step_type === PARAM_TYPE) {
-    if (rows.length === 0) return "empty";
-    return rows.every((r) => r.name?.trim()) ? "configured" : "partial";
-  }
-  return Object.keys(t.params ?? {}).length ? "configured" : "empty";
+function requiredOf(t: StepType | undefined): string[] {
+  return t?.schema?.required ?? [];
+}
+function stepStatus(s: Step, type: StepType | undefined, errorIds: Set<string>): Status {
+  if (s.enabled === false) return "disabled";
+  if (errorIds.has(s.id)) return "error";
+  const req = requiredOf(type);
+  const p = s.params ?? {};
+  return req.every((k) => p[k] !== undefined && p[k] !== "") ? "configured" : (req.length ? "empty" : "configured");
 }
 
 export function RecipeForm({
@@ -75,23 +79,24 @@ export function RecipeForm({
   const steps = value.steps;
   const [selected, setSelected] = useState(0);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "set" | "empty">("all");
+  const [types, setTypes] = useState<StepType[]>([]);
+
+  useEffect(() => { api.get("/step-types").then(setTypes).catch(() => setTypes([])); }, []);
+  const typeById = useMemo(() => Object.fromEntries(types.map((t) => [t.type_id, t])), [types]);
+  const defaultType = types.find((t) => !t.composite)?.type_id || types[0]?.type_id || "measure_and_compare";
 
   const patch = (v: Partial<RecipeValue>) => onChange?.({ ...value, ...v });
-  const setSteps = (s: Test[]) => patch({ steps: s });
-  const updateStep = (i: number, t: Test) => setSteps(steps.map((x, j) => (j === i ? t : x)));
-  const setField = (i: number, k: keyof Test, v: any) => updateStep(i, { ...steps[i], [k]: v });
-  const setRows = (i: number, r: ParamRow[]) =>
-    updateStep(i, { ...steps[i], params: { ...steps[i].params, parameters: r } });
-
-  const addTest = () => {
-    const n = steps.length + 1;
-    const t: Test = { step_id: `test_${n}`, step_type: PARAM_TYPE, name: `Test ${n}`, enabled: true, params: { parameters: [] } };
-    setSteps([...steps, t]); setSelected(steps.length);
+  const setSteps = (s: Step[]) => patch({ steps: s });
+  const updateStep = (i: number, s: Step) => setSteps(steps.map((x, j) => (j === i ? s : x)));
+  const setField = (i: number, k: keyof Step, v: any) => updateStep(i, { ...steps[i], [k]: v });
+  const setParam = (i: number, key: string, v: any) => {
+    const p = { ...(steps[i].params ?? {}) };
+    if (v === undefined || v === "") delete p[key]; else p[key] = v;
+    updateStep(i, { ...steps[i], params: p });
   };
-  // unique step_id by incrementing the trailing number (test_3 -> test_4 -> …)
+
   const uniqueId = (base: string) => {
-    const ids = new Set(steps.map((s) => s.step_id));
+    const ids = new Set(steps.map((s) => s.id));
     const m = base.match(/^(.*?)(\d+)$/);
     const stem = m ? m[1] : `${base}_`;
     let n = m ? Number(m[2]) + 1 : 2;
@@ -99,37 +104,33 @@ export function RecipeForm({
     while (ids.has(id)) { n++; id = `${stem}${n}`; }
     return id;
   };
-  const duplicateTest = (i: number) => {
-    const src = steps[i];
-    const copy: Test = {
-      ...src, step_id: uniqueId(src.step_id),
-      name: src.name ? `${src.name} (copy)` : src.name,
-      params: { ...src.params, parameters: (src.params?.parameters ?? []).map((p) => ({ ...p })) },
-    };
-    setSteps([...steps.slice(0, i + 1), copy, ...steps.slice(i + 1)]);
-    setSelected(i + 1);
+  const addStep = () => {
+    const n = steps.length + 1;
+    setSteps([...steps, { id: `step_${n}`, type: defaultType, name: `Step ${n}`, enabled: true, params: {} }]);
+    setSelected(steps.length);
   };
-  const removeTest = (i: number) => { setSteps(steps.filter((_, j) => j !== i)); setSelected((s) => Math.max(0, s > i ? s - 1 : s)); };
+  const duplicateStep = (i: number) => {
+    const src = steps[i];
+    const copy: Step = { ...src, id: uniqueId(src.id), name: src.name ? `${src.name} (copy)` : src.name,
+      params: { ...(src.params ?? {}) } };
+    setSteps([...steps.slice(0, i + 1), copy, ...steps.slice(i + 1)]); setSelected(i + 1);
+  };
+  const removeStep = (i: number) => { setSteps(steps.filter((_, j) => j !== i)); setSelected((s) => Math.max(0, s > i ? s - 1 : s)); };
   const move = (i: number, d: number) => {
     const j = i + d; if (j < 0 || j >= steps.length) return;
     const c = [...steps]; [c[i], c[j]] = [c[j], c[i]]; setSteps(c); setSelected(j);
   };
 
-  const has = (s: Test) => (s.params?.parameters?.length ?? 0) > 0;
-  const setCount = steps.filter(has).length;
-  const emptyCount = steps.length - setCount;
-  const configured = steps.filter((s) => testStatus(s, errorIds) === "configured").length;
+  const configured = steps.filter((s) => stepStatus(s, typeById[s.type], errorIds) === "configured").length;
   const pct = steps.length ? Math.round((configured / steps.length) * 100) : 0;
 
   const railRows = steps.map((s, i) => ({ s, i })).filter(({ s }) => {
-    if (filter === "set" && !has(s)) return false;
-    if (filter === "empty" && has(s)) return false;
     const q = search.toLowerCase().trim();
-    return !q || `${s.name ?? ""} ${s.step_id}`.toLowerCase().includes(q);
+    return !q || `${s.name ?? ""} ${s.id} ${s.type}`.toLowerCase().includes(q);
   });
 
   const cur = steps[selected];
-  const curRows = cur?.params?.parameters ?? [];
+  const curType = cur ? typeById[cur.type] : undefined;
 
   return (
     <Stack spacing={2}>
@@ -143,15 +144,14 @@ export function RecipeForm({
             <TextField label="Model" value={value.model ?? ""} sx={{ width: 180 }} disabled={readOnly}
               onChange={(e) => patch({ model: e.target.value })} helperText="DUT type name"
               inputProps={{ "aria-label": "model" }} />
-            <TextField label="Owner" value={value.owner ?? ""} sx={{ width: 180 }} disabled
-              helperText="Set to the creator" />
+            <TextField label="Owner" value={value.owner ?? ""} sx={{ width: 180 }} disabled helperText="Set to the creator" />
           </Stack>
           <TextField label="Description" value={value.description ?? ""} multiline minRows={1} disabled={readOnly}
             onChange={(e) => patch({ description: e.target.value })} />
           <Box>
             <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
               <Typography variant="caption" color="text.secondary">Configuration progress</Typography>
-              <Typography variant="caption" color="text.secondary">{configured} of {steps.length} tests configured</Typography>
+              <Typography variant="caption" color="text.secondary">{configured} of {steps.length} steps configured</Typography>
             </Stack>
             <LinearProgress variant="determinate" value={pct} color={pct === 100 ? "success" : "primary"} sx={{ height: 8, borderRadius: 4 }} />
           </Box>
@@ -159,29 +159,24 @@ export function RecipeForm({
       </Section>
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="stretch">
-        {/* Left rail — sole navigation */}
+        {/* Left rail */}
         <Paper sx={{ width: { xs: "100%", md: 300 }, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <Box sx={{ bgcolor: "sectionHeader", color: "onNavy", px: 1.5, py: 1.25 }}>
-            <Typography variant="subtitle2" sx={{ color: "onNavy" }}>Tests ({steps.length})</Typography>
+            <Typography variant="subtitle2" sx={{ color: "onNavy" }}>Steps ({steps.length})</Typography>
           </Box>
           <Box sx={{ p: 1.5, pb: 1 }}>
-            <TextField fullWidth size="small" placeholder="Search tests…" value={search}
+            <TextField fullWidth size="small" placeholder="Search steps…" value={search}
               onChange={(e) => setSearch(e.target.value)}
               InputProps={{ startAdornment: <Search fontSize="small" sx={{ mr: 0.5, color: "text.secondary" }} /> }} />
-            <ToggleButtonGroup exclusive size="small" value={filter} onChange={(_, v) => v && setFilter(v)} sx={{ mt: 1 }} fullWidth>
-              <ToggleButton value="all">All {steps.length}</ToggleButton>
-              <ToggleButton value="set">Set {setCount}</ToggleButton>
-              <ToggleButton value="empty">Empty {emptyCount}</ToggleButton>
-            </ToggleButtonGroup>
           </Box>
           <Divider />
           <Box sx={{ flex: 1, overflowY: "auto", maxHeight: { md: "52vh" } }}>
             {railRows.length === 0 ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", p: 2, textAlign: "center" }}>
-                {steps.length ? "No tests match." : "No tests yet."}
+                {steps.length ? "No steps match." : "No steps yet."}
               </Typography>
             ) : railRows.map(({ s, i }) => {
-              const st = testStatus(s, errorIds);
+              const st = stepStatus(s, typeById[s.type], errorIds);
               const sel = i === selected;
               return (
                 <Box key={i} onClick={() => setSelected(i)} sx={{
@@ -195,16 +190,16 @@ export function RecipeForm({
                   <StatusDot kind={DOT[st]} />
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography variant="body2" noWrap sx={{ fontWeight: 600, textDecoration: st === "disabled" ? "line-through" : "none" }}>
-                      {s.name || s.step_id}
+                      {s.name || s.id}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block", fontFamily: MONO_STACK }}>
-                      {s.step_id}
+                      {s.id} · {s.type}
                     </Typography>
                   </Box>
                   {!readOnly && (
-                    <Tooltip title="Duplicate test">
+                    <Tooltip title="Duplicate step">
                       <IconButton className="clone-btn" size="small" sx={{ opacity: 0, transition: "opacity .15s" }}
-                        onClick={(e) => { e.stopPropagation(); duplicateTest(i); }}>
+                        onClick={(e) => { e.stopPropagation(); duplicateStep(i); }}>
                         <ContentCopy fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -216,24 +211,22 @@ export function RecipeForm({
           {!readOnly && (
             <>
               <Divider />
-              <Box sx={{ p: 1.5 }}>
-                <Button fullWidth variant="contained" startIcon={<Add />} onClick={addTest}>Add test</Button>
-              </Box>
+              <Box sx={{ p: 1.5 }}><Button fullWidth variant="contained" startIcon={<Add />} onClick={addStep}>Add step</Button></Box>
             </>
           )}
         </Paper>
 
-        {/* Right pane — selected test */}
+        {/* Right pane */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           {!cur ? (
             <Section><Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-              {readOnly ? "This recipe has no tests." : "Add a test on the left to begin."}
+              {readOnly ? "This recipe has no steps." : "Add a step on the left to begin."}
             </Typography></Section>
           ) : (
             <Stack spacing={2}>
               <Section
-                title={cur.name || cur.step_id}
-                subtitle={`Test ${selected + 1} of ${steps.length}`}
+                title={cur.name || cur.id}
+                subtitle={`Step ${selected + 1} of ${steps.length}`}
                 actions={
                   <Stack direction="row" spacing={0.5} alignItems="center">
                     <FormControlLabel sx={{ mr: 0.5 }} control={
@@ -243,20 +236,21 @@ export function RecipeForm({
                     {!readOnly && <>
                       <Tooltip title="Move up"><span><IconButton size="small" sx={{ color: "onNavy" }} disabled={selected === 0} onClick={() => move(selected, -1)}><ArrowUpward fontSize="small" /></IconButton></span></Tooltip>
                       <Tooltip title="Move down"><span><IconButton size="small" sx={{ color: "onNavy" }} disabled={selected >= steps.length - 1} onClick={() => move(selected, 1)}><ArrowDownward fontSize="small" /></IconButton></span></Tooltip>
-                      <Tooltip title="Delete test"><IconButton size="small" sx={{ color: "onNavy" }} onClick={() => removeTest(selected)}><DeleteOutline fontSize="small" /></IconButton></Tooltip>
+                      <Tooltip title="Delete step"><IconButton size="small" sx={{ color: "onNavy" }} onClick={() => removeStep(selected)}><DeleteOutline fontSize="small" /></IconButton></Tooltip>
                     </>}
                   </Stack>
                 }
               >
-                {/* Fixed parameters */}
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                  <TextField label="Test ID" value={cur.step_id} sx={{ width: 180 }} disabled={readOnly}
-                    onChange={(e) => setField(selected, "step_id", e.target.value)} />
-                  <TextField label="Test name" value={cur.name ?? ""} sx={{ flex: 1, minWidth: 180 }} disabled={readOnly}
+                  <TextField label="Step ID" value={cur.id} sx={{ width: 180 }} disabled={readOnly}
+                    onChange={(e) => setField(selected, "id", e.target.value)} />
+                  <TextField label="Step name" value={cur.name ?? ""} sx={{ flex: 1, minWidth: 160 }} disabled={readOnly}
                     onChange={(e) => setField(selected, "name", e.target.value)} />
-                  <TextField label="Test group" value={cur.test_group ?? ""} sx={{ width: 160 }} disabled={readOnly}
-                    onChange={(e) => setField(selected, "test_group", e.target.value || undefined)}
-                    inputProps={{ "aria-label": "test_group" }} />
+                  <TextField select label="Step type" value={cur.type} sx={{ width: 220 }} disabled={readOnly}
+                    onChange={(e) => setField(selected, "type", e.target.value)} inputProps={{ "aria-label": "step_type" }}>
+                    {types.map((t) => <MenuItem key={t.type_id} value={t.type_id}>{t.display_name}{t.composite ? " (group)" : ""}</MenuItem>)}
+                    {!typeById[cur.type] && <MenuItem value={cur.type}>{cur.type}</MenuItem>}
+                  </TextField>
                   <TextField label="Timeout (ms)" type="number" value={cur.timeout_ms ?? ""} sx={{ width: 130 }} disabled={readOnly}
                     onChange={(e) => setField(selected, "timeout_ms", e.target.value === "" ? undefined : Number(e.target.value))} />
                   <TextField label="Retry count" type="number" value={cur.retry_count ?? ""} sx={{ width: 130 }} disabled={readOnly}
@@ -273,55 +267,9 @@ export function RecipeForm({
                 </Stack>
               </Section>
 
-              <Section title="Parameters" subtitle="Test-specific parameters" bodyPad={cur.step_type === PARAM_TYPE ? 0 : 2}>
-                {cur.step_type !== PARAM_TYPE ? (
-                  <Box component="pre" sx={{ fontFamily: MONO_STACK, fontSize: 12, m: 0, whiteSpace: "pre-wrap" }}>
-                    {`(step type "${cur.step_type}" — edit in the phase-2 sequence editor)\n` + JSON.stringify(cur.params ?? {}, null, 2)}
-                  </Box>
-                ) : (
-                  <>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Parameter name</TableCell>
-                          <TableCell>Value</TableCell>
-                          <TableCell sx={{ width: 120 }}>Unit</TableCell>
-                          {!readOnly && <TableCell sx={{ width: 48 }} />}
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {curRows.length === 0 ? (
-                          <TableRow><TableCell colSpan={readOnly ? 3 : 4} sx={{ color: "text.secondary" }}>No parameters.</TableCell></TableRow>
-                        ) : curRows.map((r, ri) => (
-                          <TableRow key={ri}>
-                            <TableCell>
-                              <TextField fullWidth variant="standard" value={r.name} disabled={readOnly}
-                                onChange={(e) => setRows(selected, curRows.map((x, j) => (j === ri ? { ...x, name: e.target.value } : x)))} />
-                            </TableCell>
-                            <TableCell>
-                              <TextField fullWidth variant="standard" value={r.value ?? ""} disabled={readOnly}
-                                onChange={(e) => setRows(selected, curRows.map((x, j) => (j === ri ? { ...x, value: coerce(e.target.value) } : x)))} />
-                            </TableCell>
-                            <TableCell>
-                              <TextField fullWidth variant="standard" value={r.unit ?? ""} disabled={readOnly}
-                                onChange={(e) => setRows(selected, curRows.map((x, j) => (j === ri ? { ...x, unit: e.target.value || undefined } : x)))} />
-                            </TableCell>
-                            {!readOnly && (
-                              <TableCell>
-                                <IconButton size="small" onClick={() => setRows(selected, curRows.filter((_, j) => j !== ri))}><DeleteOutline fontSize="small" /></IconButton>
-                              </TableCell>
-                            )}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    {!readOnly && (
-                      <Box sx={{ p: 1.5 }}>
-                        <Button size="small" startIcon={<Add />} onClick={() => setRows(selected, [...curRows, { name: "" }])}>Add parameter</Button>
-                      </Box>
-                    )}
-                  </>
-                )}
+              <Section title="Parameters" subtitle={curType?.display_name ? `${curType.display_name} — from its schema` : cur.type}>
+                <ParamsForm type={curType} params={cur.params ?? {}} readOnly={readOnly}
+                  onSet={(k, v) => setParam(selected, k, v)} />
               </Section>
 
               <Stack direction="row" justifyContent="space-between">
@@ -333,5 +281,77 @@ export function RecipeForm({
         </Box>
       </Stack>
     </Stack>
+  );
+}
+
+/** Renders one form field per schema property; scalars get native inputs, arrays/objects
+ * (points, values, step_map, composite `steps`, condition/until) are edited as JSON. */
+function ParamsForm({ type, params, readOnly, onSet }: {
+  type: StepType | undefined; params: Record<string, any>; readOnly: boolean;
+  onSet: (key: string, value: any) => void;
+}) {
+  const props = type?.schema?.properties;
+  const required = new Set(type?.schema?.required ?? []);
+  if (!props || Object.keys(props).length === 0) {
+    return <Typography variant="body2" color="text.secondary">This step type has no parameters.</Typography>;
+  }
+  const scalars = Object.entries(props).filter(([, s]: any) => ["number", "integer", "string", "boolean"].includes(s.type) || s.enum);
+  const complex = Object.entries(props).filter(([, s]: any) => !(["number", "integer", "string", "boolean"].includes(s.type) || s.enum));
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="flex-start">
+        {scalars.map(([key, spec]: any) => (
+          <Field key={key} name={key} spec={spec} required={required.has(key)} readOnly={readOnly}
+            value={params[key]} onSet={(v: any) => onSet(key, v)} />
+        ))}
+      </Stack>
+      {complex.map(([key, spec]: any) => (
+        <JsonField key={key} name={key} spec={spec} required={required.has(key)} readOnly={readOnly}
+          value={params[key]} onSet={(v: any) => onSet(key, v)} />
+      ))}
+    </Stack>
+  );
+}
+
+function label(name: string, spec: any, required: boolean) {
+  return (spec.title || name) + (required ? " *" : "");
+}
+
+function Field({ name, spec, required, readOnly, value, onSet }: any) {
+  const help = spec.description as string | undefined;
+  if (spec.type === "boolean") {
+    return <FormControlLabel control={<Switch checked={Boolean(value ?? spec.default)} disabled={readOnly}
+      onChange={(e) => onSet(e.target.checked)} />} label={label(name, spec, required)} />;
+  }
+  if (spec.enum) {
+    return <TextField select label={label(name, spec, required)} value={value ?? ""} sx={{ width: 200 }} disabled={readOnly}
+      helperText={help} onChange={(e) => onSet(e.target.value || undefined)}>
+      <MenuItem value=""><em>—</em></MenuItem>
+      {spec.enum.map((o: any) => <MenuItem key={String(o)} value={o}>{String(o)}</MenuItem>)}
+    </TextField>;
+  }
+  const num = spec.type === "number" || spec.type === "integer";
+  return <TextField label={label(name, spec, required)} type={num ? "number" : "text"} value={value ?? ""} sx={{ width: 200 }}
+    disabled={readOnly} helperText={help}
+    onChange={(e) => onSet(e.target.value === "" ? undefined : (num ? Number(e.target.value) : e.target.value))}
+    inputProps={{ "aria-label": name }} />;
+}
+
+function JsonField({ name, spec, required, readOnly, value, onSet }: any) {
+  const [text, setText] = useState(value === undefined ? "" : JSON.stringify(value, null, 1));
+  const [bad, setBad] = useState(false);
+  useEffect(() => { setText(value === undefined ? "" : JSON.stringify(value, null, 1)); }, [name]);  // reload on step switch
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary">{label(name, spec, required)} — {spec.description || "JSON"}</Typography>
+      <TextField fullWidth multiline minRows={2} value={text} disabled={readOnly} error={bad}
+        InputProps={{ sx: { fontFamily: MONO_STACK, fontSize: 12 } }}
+        helperText={bad ? "invalid JSON" : undefined}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (e.target.value.trim() === "") { setBad(false); onSet(undefined); return; }
+          try { onSet(JSON.parse(e.target.value)); setBad(false); } catch { setBad(true); }
+        }} />
+    </Box>
   );
 }

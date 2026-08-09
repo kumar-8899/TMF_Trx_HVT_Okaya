@@ -36,7 +36,7 @@ export function RecipeEditor() {
   // Map validation errors back to the tests that mention them (red rail dots).
   const errorIds = new Set<string>();
   for (const e of report?.errors ?? [])
-    for (const s of value.steps) if (s.step_id && e.includes(s.step_id)) errorIds.add(s.step_id);
+    for (const s of value.steps) if (s.id && e.includes(s.id)) errorIds.add(s.id);
 
   const onChange = (v: RecipeValue) => { setValue(v); setDirty(true); };
 
