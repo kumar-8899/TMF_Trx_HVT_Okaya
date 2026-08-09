@@ -81,7 +81,7 @@ export function RecipeForm({
   const [search, setSearch] = useState("");
   const [types, setTypes] = useState<StepType[]>([]);
 
-  useEffect(() => { api.get("/step-types").then(setTypes).catch(() => setTypes([])); }, []);
+  useEffect(() => { api.get("/recipes/step-types").then(setTypes).catch(() => setTypes([])); }, []);
   const typeById = useMemo(() => Object.fromEntries(types.map((t) => [t.type_id, t])), [types]);
   const defaultType = types.find((t) => !t.composite)?.type_id || types[0]?.type_id || "measure_and_compare";
 
