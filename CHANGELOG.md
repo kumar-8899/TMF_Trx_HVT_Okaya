@@ -5,6 +5,15 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.8.1 — 2026-08-11
+
+spec-lint: uniform signal rule. PATCH.
+
+- A test's Signals/actions are now checked the same way regardless of kind: every `set_output`
+  and `measure_and_compare` signal the test's steps touch (reads must exist in the variable map),
+  plus an authored step's `required_signals`/`required_actions` + its `action` param. Input-param
+  ↔ schema stays authored-only (core steps use the fixed core schema).
+
 ## v1.8.0 — 2026-08-11
 
 Literate test authoring — a spec `.md` per test + a drift gate (issue #5). MINOR.

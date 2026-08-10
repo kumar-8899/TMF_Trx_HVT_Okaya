@@ -6,4 +6,4 @@ MAJOR = a module contract_version or locked-contract breaking change;
 MINOR = new modules/features; PATCH = fixes.
 """
 
-__version__ = "1.8.0"
+__version__ = "1.8.1"

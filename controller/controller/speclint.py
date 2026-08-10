@@ -207,41 +207,38 @@ def _check_one(tid: str, sp: Spec, leaves: list[dict], cat: dict,
         for missing in sorted(real_set - spec_set):
             rep.errors.append(f"{tid}: {kind} '{missing}' in the code/recipe is missing from the spec")
 
-    # Output measurements — always checkable from the sim run.
+    # Output measurements — strict, from the sim run (both kinds).
     if emitted:
         diff("measurement", sp.measurements, emitted)
 
+    # Signals / actions — uniform: everything the test's steps touch. set_output + the
+    # measure_and_compare reads (which must exist in the map) + an authored step's declared
+    # required_signals/actions and its `action` param.
+    sigs: set[str] = set()
+    for s in leaves:
+        p = s.get("params", {})
+        st = s.get("type")
+        if st == "set_output" and p.get("signal"):
+            sigs.add(p["signal"])
+        elif st == "measure_and_compare" and p.get("signal"):
+            sigs.add(p["signal"])
+            if p["signal"] not in map_signals:
+                rep.errors.append(f"{tid}: signal '{p['signal']}' not in the variable map")
+        else:
+            entry = cat.get(st)
+            if entry and entry.get("kind") == "application":
+                sigs |= set(entry.get("required_signals", [])) | set(entry.get("required_actions", []))
+                if p.get("action"):
+                    sigs.add(p["action"])
+    diff("signal/action", sp.signals, sigs)
+
+    # Input parameters — authored only (the step's schema is the contract). Core tests use the
+    # fixed core schema, so their Input table is human context, not machine-checked.
     if sp.kind == "authored":
-        types = {s.get("type") for s in leaves} & set(cat)
-        # the authored type named in front-matter should be one of the group's steps
         if sp.type and sp.type not in {s.get("type") for s in leaves}:
             rep.warnings.append(f"{tid}: spec type '{sp.type}' not used by any step in the recipe group")
         entry = cat.get(sp.type)
         if entry:
-            props = set((entry.get("schema") or {}).get("properties", {}))
-            diff("parameter", sp.params, props)
-            reqs = set(entry.get("required_signals", [])) | set(entry.get("required_actions", []))
-            # actions used at runtime (e.g. hipot) come from params; accept the union
-            for s in leaves:
-                if s.get("type") == sp.type:
-                    act = s.get("params", {}).get("action")
-                    if act:
-                        reqs.add(act)
-            diff("signal/action", sp.signals, reqs)
+            diff("parameter", sp.params, set((entry.get("schema") or {}).get("properties", {})))
         else:
             rep.warnings.append(f"{tid}: authored type '{sp.type}' not in the step catalog")
-        _ = types
-    else:  # core
-        params: set[str] = set()
-        sigs: set[str] = set()
-        for s in leaves:
-            p = s.get("params", {})
-            if s.get("type") == "measure_and_compare":
-                if p.get("signal"):
-                    sigs.add(p["signal"])
-                    if p["signal"] not in map_signals:
-                        rep.errors.append(f"{tid}: signal '{p['signal']}' not in the variable map")
-            if s.get("type") == "set_output" and p.get("signal"):
-                sigs.add(p["signal"])
-        diff("signal/action", sp.signals, sigs)
-        _ = params
