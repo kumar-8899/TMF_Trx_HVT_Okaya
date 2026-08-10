@@ -331,7 +331,7 @@ wrong, and that docstring answers it.
 
 ## Output
 
-Five files in the application package:
+Files in the application package + the app's `specs/` dir:
 
 ```
 inverter_eol_steps/ac_voltage_cutoff/
@@ -340,12 +340,36 @@ inverter_eol_steps/ac_voltage_cutoff/
     schema.json       parameter schema
     simulate.py       fake DUT, numbers from the engineer
     test_step.py      the four+ scenarios
-    README.md         what it does, params, measurements, spec reference
+app/<name>/specs/<test>.md   the authoritative, human-editable procedure spec
 ```
 
-`README.md` covers: what the test does in plain language, every
-parameter and what changing it does, every measurement and its unit,
-which spec section the behaviour comes from, and known limitations.
+### The spec `.md` is the source of truth (issue #5)
+
+The engineer may not read Python. So the test's **procedure lives in
+`app/<name>/specs/<test>.md`** — structured (front-matter + tables) so it
+is both human-readable and machine-checkable. Write it from the engineer's
+plain-language description (Purpose + Procedure in their words) and fill the
+tables from the schema/handler you wrote. Template + format:
+`docs/templates/test-spec.md` and `docs/TEST_SPECS.md`.
+
+Front-matter: `test` (= the recipe group id), `type`, `kind: authored`,
+`spec_source`. Tables (the machine-checked contract):
+- **Input — recipe parameters** — one row per `schema.json` property.
+- **Output — report measurements** — one row per `Measurement` the handler
+  emits (names must match what runs).
+- **Signals / actions** — the `required_signals`/`required_actions` (+ the
+  `action` param).
+Prose: Purpose, Procedure (the numbered algorithm), Timing/delays, Complex
+calls, Simulation (behavioural numbers + their spec source).
+
+### Round-trip — never let code and spec drift
+
+The spec is authoritative. When the engineer **edits the `.md`** (a limit, a
+delay, a procedure step, a parameter), reconcile the **code to the spec** —
+never regenerate the spec from code — then re-run `spec-lint` + `run_sim`.
+`spec-lint` (`controller/speclint.py`, run via `app/<name>/tools/spec_lint.py`)
+fails on any mismatch between the spec tables and the code/sim, so drift is
+caught, not eyeballed.
 
 ---
 
@@ -376,6 +400,11 @@ Walk this before handing the step type over.
 - [ ] Behavioural numbers came from the engineer, cited in a docstring
 - [ ] Nominal, out-of-limit, non-responsive, and abort scenarios present
 - [ ] At least one boundary case, with the expected resolution stated
+
+**Spec (issue #5)**
+- [ ] `app/<name>/specs/<test>.md` written from the engineer's description
+- [ ] Input/Output/Signals tables match the schema/handler/registration
+- [ ] `spec-lint` green (`python app/<name>/tools/spec_lint.py`)
 
 **Before release**
 - [ ] Runs green in simulation
