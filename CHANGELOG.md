@@ -5,6 +5,21 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.8.0 — 2026-08-11
+
+Literate test authoring — a spec `.md` per test + a drift gate (issue #5). MINOR.
+
+- **`controller/controller/speclint.py`**: parses an authoritative per-test procedure spec
+  (`app/<name>/specs/<test>.md` — front-matter + Input/Output/Signals tables) and checks it
+  against the code that runs: input params ↔ the step type's `schema.json`, output measurements ↔
+  what the step emits in a sim run, signals/actions ↔ `required_*`/the variable map. Reports
+  drift (errors) so an edited `.md` can't silently diverge from the handler. The spec is the
+  source of truth; the checker never rewrites either side.
+- Spec template `docs/templates/test-spec.md`; `docs/TEST_SPECS.md` (format + round-trip loop);
+  `specs/` added to the app-owned payload (TEMPLATE.md §1.1).
+- The `test-step-authoring` / `add-bench-test` / `new-test-app` skills now emit and maintain
+  these specs and run spec-lint as a gate.
+
 ## v1.7.0 — 2026-08-10
 
 Serial-scan runs, branding logos, grouped nav (issue #6/#7 framework items). MINOR.
