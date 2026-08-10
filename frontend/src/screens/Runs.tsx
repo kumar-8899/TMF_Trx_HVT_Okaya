@@ -14,6 +14,7 @@ import { ResultsTable, type ResultRow } from "../components/testing/ResultsTable
 import { TodayStrip } from "../components/testing/TodayStrip";
 import { VerdictBanner } from "../components/testing/VerdictBanner";
 import { StationPicker } from "../components/StationPicker";
+import { useRunActivity } from "../components/RunActivity";
 import { useStream } from "../hooks/useStream";
 import { useValues } from "../hooks/useValues";
 import { MONO_STACK } from "../theme/theme";
@@ -28,7 +29,7 @@ interface Profile {
 const FINAL = new Set(["PASS", "FAIL", "ABORTED"]);
 
 export function Runs() {
-  const { can } = useAuth();
+  const { can, principal } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [runs, setRuns] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +91,10 @@ export function Runs() {
   const prefixLen = profile?.acquisition?.barcode?.length ?? 3;
   const resolvedPreview = barcode.trim().slice(0, prefixLen);
 
+  // #6.5 lock the shell to this screen while a run runs (only Abort reachable).
+  const { setActive } = useRunActivity();
+  useEffect(() => { setActive(running); return () => setActive(false); }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // After a run ends, auto-prompt for the next unit (operator presses Start once).
   const reopenForNext = () => {
     setMode(profile?.acquisition?.default_mode === "recipe" ? "recipe" : "barcode");
@@ -146,7 +151,7 @@ export function Runs() {
           <Stack direction="row" spacing={4} alignItems="center" flexWrap="wrap" useFlexGap>
             <Field label="Serial No" value={serial || "—"} />
             <Field label="Model" value={model || "—"} />
-            <Field label="Run" value={runId || "—"} />
+            <Field label="Inspector" value={principal?.username || "—"} />
             <Field label="Status" value={(runStatus || "idle").toString()} />
             <Field label="Results" value={`${results.length}`} />
             {shift?.enabled && <Field label="Shift" value={shift.shift_label || "—"} />}

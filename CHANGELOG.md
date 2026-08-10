@@ -5,6 +5,22 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.6.0 — 2026-08-10
+
+Operator-window hardening (issue #6, framework items). MINOR.
+
+- **Maintenance mode works on a Python-controller app** (#6.2): the controller now serves
+  `maintenance.enter`/`maintenance.exit` and publishes the retained `state/maintenance` the
+  health module reads — previously only LabVIEW did, so entering maintenance timed out.
+- **Full-screen toggle** in the AppBar (#6.4).
+- **Navigation lock during a run** (#6.5): while a run is active the shell blocks the Back
+  button + tab-close, the brand link goes inert, and every AppBar action but the test screen
+  is hidden ("TEST IN PROGRESS") — only Abort is reachable. New `RunActivity` context.
+- **Runs banner** (#6.6/#6.7): the Run ID is gone and an **Inspector** field shows the
+  logged-in user.
+- Exit backdrop resolves to "Station stopped — you can close this window" once the backend is
+  really down, instead of an endless "shutting down…" spinner (#6.8).
+
 ## v1.5.1 — 2026-08-09
 
 Simulation is per-instrument only. PATCH — fixes an Instruments-page `simulated: false`

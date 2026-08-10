@@ -1,5 +1,6 @@
 import {
   AccountTreeOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
+  Fullscreen, FullscreenExit,
   GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
   ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TroubleshootOutlined, TuneOutlined,
@@ -14,6 +15,7 @@ import { Link as RouterLink, NavLink, Outlet, useLocation } from "react-router-d
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useBranding } from "../hooks/useBranding";
+import { useRunActivity } from "./RunActivity";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
 import { ExitButton } from "./ExitButton";
@@ -128,6 +130,20 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
   const { can, principal } = useAuth();
   const { mode, toggle } = useColorMode();
   const branding = useBranding();
+  const { active: runActive } = useRunActivity();   // #6.5 lock nav while a run runs
+
+  // #6.4 full-screen: a toggle in the AppBar (browsers only allow FS from a user gesture,
+  // so no auto-enter). Tracks the actual fullscreen element so the icon stays honest.
+  const [fs, setFs] = useState(false);
+  useEffect(() => {
+    const onFs = () => setFs(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+  const toggleFs = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  };
   const items = NAV.filter((n) => (!n.perm || can(n.perm)) && (!n.role || principal?.role === n.role));
   const showHelp = can("HELP.VIEW");
   const [helpOpen, setHelpOpen] = useState(false);
@@ -148,32 +164,52 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
       <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar sx={{ gap: 1 }}>
-          {/* Brand returns to the dashboard — the only "back" on the drawer-less test page. */}
-          <Box component={RouterLink} to="/" sx={{ mr: 1.25, display: "flex", textDecoration: "none" }}>
-            <BrandMark size={28} />
-          </Box>
+          {/* Brand returns to the dashboard — the only "back" on the drawer-less test page.
+              While a run is active it is inert (#6.5: only Abort is reachable). */}
+          {runActive ? (
+            <Box sx={{ mr: 1.25, display: "flex" }}><BrandMark size={28} /></Box>
+          ) : (
+            <Box component={RouterLink} to="/" sx={{ mr: 1.25, display: "flex", textDecoration: "none" }}>
+              <BrandMark size={28} />
+            </Box>
+          )}
           <Typography variant="h6" sx={{ fontWeight: 700, color: "inherit" }}>
             {branding.name}
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          <UpdateChip />
-          <LinkStatus />
-          {showHelp && (
-            <Tooltip title="Help (F1)">
-              <IconButton onClick={() => setHelpOpen(true)} size="small" aria-label="open help"
-                sx={{ color: "rgba(255,255,255,0.85)" }}>
-                <HelpOutlineOutlined fontSize="small" />
-              </IconButton>
-            </Tooltip>
+          {/* Run in progress → hide everything but keep the operator on the test screen. */}
+          {runActive ? (
+            <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.85)", fontWeight: 600, letterSpacing: "0.05em" }}>
+              TEST IN PROGRESS
+            </Typography>
+          ) : (
+            <>
+              <UpdateChip />
+              <LinkStatus />
+              {showHelp && (
+                <Tooltip title="Help (F1)">
+                  <IconButton onClick={() => setHelpOpen(true)} size="small" aria-label="open help"
+                    sx={{ color: "rgba(255,255,255,0.85)" }}>
+                    <HelpOutlineOutlined fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title={fs ? "Exit full screen" : "Full screen"}>
+                <IconButton onClick={toggleFs} size="small" aria-label="toggle full screen"
+                  sx={{ color: "rgba(255,255,255,0.85)" }}>
+                  {fs ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title={mode === "dark" ? "Switch to light" : "Switch to dark"}>
+                <IconButton onClick={toggle} size="small" aria-label="toggle color mode"
+                  sx={{ color: "rgba(255,255,255,0.85)" }}>
+                  {mode === "dark" ? <LightMode fontSize="small" /> : <DarkMode fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+              <SessionPanel />
+              <ExitButton />
+            </>
           )}
-          <Tooltip title={mode === "dark" ? "Switch to light" : "Switch to dark"}>
-            <IconButton onClick={toggle} size="small" aria-label="toggle color mode"
-              sx={{ color: "rgba(255,255,255,0.85)" }}>
-              {mode === "dark" ? <LightMode fontSize="small" /> : <DarkMode fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-          <SessionPanel />
-          <ExitButton />
         </Toolbar>
       </AppBar>
       {!hideNav && (

@@ -76,6 +76,38 @@ def register_run_ops(client: StationClient, engine) -> None:
     client.serve("sequencer.list_test_classes", lambda a: {"test_classes": step_registry.list_test_classes()})
 
 
+def register_maintenance_ops(client: StationClient, state: dict) -> None:
+    """Maintenance mode (PYTHON_CONTROLLER.md §8). The app's health module proxies
+    `maintenance.enter/exit` to the controller and reads the state from the retained
+    `state/maintenance` topic. Maintenance is PC-wide, so `state` is one dict shared
+    across every station's client; each publishes the retained snapshot on its own
+    station topic so the app (subscribed per station) sees it.
+
+    Entering maintenance only flips the flag — it hands the operator direct hardware
+    control (variable writes are maintenance-gated app-side, §10.4); it does NOT start
+    or stop a run. Exiting clears it."""
+
+    def _publish(st: dict) -> None:
+        state.clear()
+        state.update(st)
+        client.publish("state/maintenance", st, retain=True)
+
+    def maintenance_enter(args: dict) -> dict:
+        st = {"state": "on", "since": time.time(),
+              "by": (args or {}).get("operator"), "reason": (args or {}).get("reason")}
+        _publish(st)
+        return st
+
+    def maintenance_exit(args: dict) -> dict:
+        st = {"state": "off", "since": time.time(),
+              "by": (args or {}).get("operator"), "reason": None}
+        _publish(st)
+        return st
+
+    client.serve("maintenance.enter", maintenance_enter)
+    client.serve("maintenance.exit", maintenance_exit)
+
+
 def register_safety_ops(client: StationClient, safety) -> None:
     """Safety ops (PYTHON_CONTROLLER.md §10). `safety.trip` is one trip source — a manual
     E-stop over the bridge; it only enqueues, the reflex thread does the fan-out (independent

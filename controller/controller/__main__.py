@@ -26,8 +26,8 @@ from controller.loop import AsyncLoopThread
 from controller.packages import load_step_type_packages, validate_app_step_types
 from controller.runstate import RunEngine
 from controller.safety import SafetyConfigError, SafetyController, SafetyMap, parse_monitors
-from controller.serve import (register_core_ops, register_run_ops, register_safety_ops,
-                              register_station_ops)
+from controller.serve import (register_core_ops, register_maintenance_ops, register_run_ops,
+                              register_safety_ops, register_station_ops)
 
 
 def _log(level: str, message: str) -> None:
@@ -139,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
         clients.append(c)
         clients_by_st[st.station] = c
         engines_by_st[st.station] = engine
+
+    # Maintenance is PC-wide (§8): one shared state dict, served + published per station.
+    maint_state: dict = {"state": "off", "since": None, "by": None, "reason": None}
+    for c in clients:
+        register_maintenance_ops(c, maint_state)
 
     # One SafetyController across all stations; its reflex thread never touches the bridge.
     safety = SafetyController(safety_map, registry, loop, engines_by_st,

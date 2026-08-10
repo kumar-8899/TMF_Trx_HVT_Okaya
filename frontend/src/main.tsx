@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 
 import { App } from "./App";
 import { AuthProvider } from "./auth/AuthContext";
+import { RunActivityProvider } from "./components/RunActivity";
 import { ColorModeProvider } from "./theme/ColorMode";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -11,7 +12,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <ColorModeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <RunActivityProvider>
+            <App />
+          </RunActivityProvider>
         </AuthProvider>
       </BrowserRouter>
     </ColorModeProvider>
