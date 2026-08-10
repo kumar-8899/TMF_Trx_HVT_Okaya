@@ -35,16 +35,26 @@ interface NavItem {
   children?: NavItem[]; // cascaded menu group
 }
 
+// Grouped into a few cascaded dropdowns to keep the drawer short (issue #6/#7 nav).
+// Dashboard + Runs stay top-level (the two most-used); the rest fold into groups.
 const NAV: NavItem[] = [
   { label: "Dashboard", to: "/", icon: <SpaceDashboardOutlined /> },
-  { label: "DAQ", to: "/daq", icon: <Speed /> },
   { label: "Runs", to: "/runs", icon: <PlayCircleOutline />, perm: "TEST.RUN" },
-  { label: "Recipes", to: "/recipes", icon: <ScienceOutlined />, perm: "RECIPE.VIEW" },
-  { label: "Reports", to: "/reports", icon: <Assessment />, perm: "REPORT.VIEW" },
-  { label: "Analytics", to: "/analytics", icon: <QueryStatsOutlined />, perm: "REPORT.VIEW" },
-  { label: "Health", to: "/health", icon: <FavoriteBorder />, perm: "HEALTH.VIEW" },
-  { label: "Maintenance", to: "/maintenance", icon: <BuildOutlined />, perm: "HEALTH.MAINTENANCE" },
-  { label: "Test Bench", to: "/instruments/test", icon: <TroubleshootOutlined />, role: "super_admin" },
+  {
+    label: "Operations", icon: <ScienceOutlined />, children: [
+      { label: "Recipes", to: "/recipes", icon: <ScienceOutlined />, perm: "RECIPE.VIEW" },
+      { label: "Reports", to: "/reports", icon: <Assessment />, perm: "REPORT.VIEW" },
+      { label: "Analytics", to: "/analytics", icon: <QueryStatsOutlined />, perm: "REPORT.VIEW" },
+      { label: "DAQ", to: "/daq", icon: <Speed /> },
+    ],
+  },
+  {
+    label: "Health", icon: <FavoriteBorder />, children: [
+      { label: "Health", to: "/health", icon: <FavoriteBorder />, perm: "HEALTH.VIEW" },
+      { label: "Maintenance", to: "/maintenance", icon: <BuildOutlined />, perm: "HEALTH.MAINTENANCE" },
+      { label: "Test Bench", to: "/instruments/test", icon: <TroubleshootOutlined />, role: "super_admin" },
+    ],
+  },
   {
     label: "Config", icon: <TuneOutlined />, perm: "CONFIG.VIEW", children: [
       { label: "App identity", to: "/config/branding", icon: <BadgeOutlined />, role: "super_admin" },
@@ -55,11 +65,15 @@ const NAV: NavItem[] = [
       { label: "MES", to: "/config/mes", icon: <HubOutlined /> },
     ],
   },
-  { label: "Diagnostics", to: "/diagnostics", icon: <MonitorHeartOutlined />, perm: "DIAGNOSTICS.VIEW" },
-  { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
-  { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
-  { label: "Permissions", to: "/permissions", icon: <LockPersonOutlined />, perm: "AUTH.MANAGE_ROLES" },
-  { label: "Settings", to: "/settings", icon: <SettingsOutlined />, perm: "SYSTEM.RESET_DATA" },
+  {
+    label: "Administration", icon: <LockPersonOutlined />, children: [
+      { label: "Users", to: "/users", icon: <GroupsOutlined />, perm: "AUTH.MANAGE_USERS" },
+      { label: "Permissions", to: "/permissions", icon: <LockPersonOutlined />, perm: "AUTH.MANAGE_ROLES" },
+      { label: "Settings", to: "/settings", icon: <SettingsOutlined />, perm: "SYSTEM.RESET_DATA" },
+      { label: "Diagnostics", to: "/diagnostics", icon: <MonitorHeartOutlined />, perm: "DIAGNOSTICS.VIEW" },
+      { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
+    ],
+  },
   { label: "Help", to: "/help", icon: <HelpOutlineOutlined />, perm: "HELP.VIEW" },
 ];
 
@@ -173,10 +187,20 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
               <BrandMark size={28} />
             </Box>
           )}
+          {/* Client logo, top-left next to the brand (issue #7). */}
+          {branding.logo_client && (
+            <Box component="img" src={branding.logo_client} alt="client logo"
+              sx={{ height: 30, maxWidth: 160, objectFit: "contain", mr: 1 }} />
+          )}
           <Typography variant="h6" sx={{ fontWeight: 700, color: "inherit" }}>
             {branding.name}
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
+          {/* Exeliq logo, top-right (issue #7) — always shown when set, even during a run. */}
+          {branding.logo_exeliq && (
+            <Box component="img" src={branding.logo_exeliq} alt="Exeliq"
+              sx={{ height: 26, maxWidth: 140, objectFit: "contain", mr: 1 }} />
+          )}
           {/* Run in progress → hide everything but keep the operator on the test screen. */}
           {runActive ? (
             <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.85)", fontWeight: 600, letterSpacing: "0.05em" }}>

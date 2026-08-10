@@ -203,7 +203,9 @@ def create_app(
         """Process alive. Trivial (CORE.md §5)."""
         return {"status": "ok", "version": __version__}
 
-    _BRAND_FIELDS = ("name", "short", "product", "tagline")
+    # logo_client / logo_exeliq are data: URLs (small PNG/SVG) uploaded from the Branding
+    # page — client logo shows top-left, Exeliq logo top-right (issue #7).
+    _BRAND_FIELDS = ("name", "short", "product", "tagline", "logo_client", "logo_exeliq")
 
     async def _branding_payload() -> dict:
         """Defaults ∪ app.json `branding` ∪ the DB override (Setup wizard edit).
@@ -213,6 +215,7 @@ def create_app(
         out = {"name": "Test & Measurement", "short": "T",
                "product": "Test & Measurement Framework",
                "tagline": "Authorised access only. All sessions are encrypted.",
+               "logo_client": "", "logo_exeliq": "",
                "version": __version__}
         out.update(cfg.get("branding", {}) or {})
         # Controller kind rides along so the UI can adapt (e.g. the Instruments page

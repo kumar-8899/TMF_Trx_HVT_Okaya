@@ -5,6 +5,20 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.7.0 — 2026-08-10
+
+Serial-scan runs, branding logos, grouped nav (issue #6/#7 framework items). MINOR.
+
+- **`fixed` barcode acquisition** (#6.2 follow-on / run-by-serial): a single-product bench
+  scans a DUT **serial** — `runs.acquisition.barcode.strategy = "fixed"` + `recipe_id` always
+  runs that recipe. Previously only `prefix` existed, so a scanned serial resolved to a bogus
+  3-char recipe id and the run aborted at start.
+- **Branding logos** (#7): `/branding` carries `logo_client` + `logo_exeliq` (data: URLs
+  uploaded on Config → App identity, with preview). The header shows the **client logo
+  top-left** and the **Exeliq logo top-right**.
+- **Grouped navigation**: the drawer folds into Operations / Health / Config / Administration
+  dropdowns (was a long flat list) to save space; Dashboard + Runs stay top-level.
+
 ## v1.6.0 — 2026-08-10
 
 Operator-window hardening (issue #6, framework items). MINOR.

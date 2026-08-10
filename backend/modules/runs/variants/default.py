@@ -104,6 +104,7 @@ class DefaultRuns:
             barcode,
             strategy=self._barcode_cfg.get("strategy", "prefix"),
             length=self._barcode_cfg.get("length", 3),
+            recipe_id=self._barcode_cfg.get("recipe_id"),
         )
 
     # --- run control -------------------------------------------------------

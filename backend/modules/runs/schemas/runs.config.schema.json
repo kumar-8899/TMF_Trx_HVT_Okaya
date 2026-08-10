@@ -18,8 +18,9 @@
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "strategy": { "type": "string", "description": "Resolver strategy id (phase-1: 'prefix')." },
-            "length": { "type": "integer", "minimum": 1, "description": "Chars taken for the 'prefix' strategy." }
+            "strategy": { "type": "string", "description": "Resolver strategy: 'prefix' (first N chars = recipe id) or 'fixed' (barcode is the DUT serial; always run 'recipe_id')." },
+            "length": { "type": "integer", "minimum": 1, "description": "Chars taken for the 'prefix' strategy." },
+            "recipe_id": { "type": "string", "description": "The recipe run by the 'fixed' strategy (single-product bench scanning a serial)." }
           }
         }
       }

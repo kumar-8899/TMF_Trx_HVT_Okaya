@@ -2,14 +2,19 @@
  * editing app.json — persisted as a DB override that /branding merges live. TEMPLATE.md
  * §1: an application rebrands via config, never code edits. */
 import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "../../api/client";
 import { resetBranding } from "../../hooks/useBranding";
 import { PageHeader, Section } from "../../components/ui";
 
-interface Brand { name: string; short: string; product: string; tagline: string; version?: string }
-const BLANK: Brand = { name: "", short: "", product: "", tagline: "" };
+interface Brand {
+  name: string; short: string; product: string; tagline: string; version?: string;
+  logo_client?: string; logo_exeliq?: string;
+}
+const BLANK: Brand = { name: "", short: "", product: "", tagline: "", logo_client: "", logo_exeliq: "" };
+
+const MAX_LOGO = 512 * 1024;   // 512 KB — logos are small; keep the branding record light
 
 export function ConfigBranding({ embedded = false }: { embedded?: boolean }) {
   const [b, setB] = useState<Brand>(BLANK);
@@ -25,6 +30,7 @@ export function ConfigBranding({ embedded = false }: { embedded?: boolean }) {
     try {
       const out = await api.put("/branding", {
         name: b.name, short: b.short, product: b.product, tagline: b.tagline,
+        logo_client: b.logo_client || "", logo_exeliq: b.logo_exeliq || "",
       });
       setB({ ...BLANK, ...out });
       resetBranding();                       // clears the session cache
@@ -69,6 +75,47 @@ export function ConfigBranding({ embedded = false }: { embedded?: boolean }) {
           </Box>
         </Stack>
       </Section>
+
+      <Section title="Logos" subtitle="Client logo shows top-left, Exeliq logo top-right (PNG or SVG, ≤ 512 KB)">
+        <Stack direction="row" spacing={4} flexWrap="wrap" useFlexGap>
+          <LogoField label="Client logo" value={b.logo_client} onChange={(v) => set("logo_client", v)} onError={setError} />
+          <LogoField label="Exeliq logo" value={b.logo_exeliq} onChange={(v) => set("logo_exeliq", v)} onError={setError} />
+        </Stack>
+        <Box sx={{ mt: 2 }}>
+          <Button variant="contained" onClick={save} disabled={busy || !b.name}>Save logos</Button>
+        </Box>
+      </Section>
+    </Box>
+  );
+}
+
+function LogoField({ label, value, onChange, onError }: {
+  label: string; value?: string; onChange: (v: string) => void; onError: (m: string) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const pick = (file: File) => {
+    if (file.size > MAX_LOGO) { onError(`${label} too large (max 512 KB)`); return; }
+    const reader = new FileReader();
+    reader.onload = () => onChange(String(reader.result || ""));
+    reader.readAsDataURL(file);          // stored + served as a data: URL
+  };
+  return (
+    <Box sx={{ width: 280 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>{label}</Typography>
+      <Box sx={{
+        height: 72, borderRadius: 2, border: "1px dashed", borderColor: "divider", mb: 1,
+        display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+        bgcolor: "action.hover",
+      }}>
+        {value ? <Box component="img" src={value} alt={label} sx={{ maxHeight: 64, maxWidth: 260, objectFit: "contain" }} />
+               : <Typography variant="caption" color="text.disabled">No logo</Typography>}
+      </Box>
+      <Stack direction="row" spacing={1}>
+        <Button size="small" variant="outlined" onClick={() => ref.current?.click()}>Choose file…</Button>
+        {value && <Button size="small" color="inherit" onClick={() => onChange("")}>Clear</Button>}
+      </Stack>
+      <input ref={ref} type="file" accept="image/png,image/jpeg,image/svg+xml" hidden
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ""; }} />
     </Box>
   );
 }

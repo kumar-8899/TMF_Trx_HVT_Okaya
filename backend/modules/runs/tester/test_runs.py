@@ -10,7 +10,7 @@ from httpx import ASGITransport
 from core.framework.contract import CoreServices
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
-from modules.runs.acquisition import AcquisitionError
+from modules.runs.acquisition import AcquisitionError, resolve_recipe_id
 from modules.runs.variants.default import DefaultRuns
 
 
@@ -121,6 +121,17 @@ async def test_acquisition_config(ctx):
     cfg = module.acquisition_config()
     assert cfg["default_mode"] == "barcode"
     assert cfg["barcode"]["length"] == 3
+
+
+def test_fixed_acquisition_scans_serial_runs_one_recipe():
+    """#6.2: a single-product bench scans a SERIAL, not a model code — `fixed` always
+    resolves to the configured recipe (prefix would give a bogus 3-char id → abort)."""
+    assert resolve_recipe_id("WF-000512", strategy="fixed", recipe_id="default_feeder") == "default_feeder"
+    # empty scan still rejected; missing recipe_id is a config error
+    with pytest.raises(AcquisitionError):
+        resolve_recipe_id("", strategy="fixed", recipe_id="default_feeder")
+    with pytest.raises(AcquisitionError):
+        resolve_recipe_id("WF-1", strategy="fixed")
 
 
 # --- event -> records ------------------------------------------------------
