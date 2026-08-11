@@ -5,6 +5,17 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.8.5 — 2026-08-11
+
+Fix: the finish-reconcile fetched too early and missed the tail. PATCH.
+
+- v1.8.4 fetched the persisted record once on `run-finished`, but the backend writes results
+  asynchronously (the WS frame is broadcast before persistence), so the last group (e.g. VRA)
+  wasn't written yet → the board/table came back short (e.g. 49 of 53, intermittently).
+- `screens/Runs.tsx` now **polls the record until its `status` is terminal** — `run-finished`
+  persists `status="finished"` under the same per-run lock, *after* every test-result (asyncio.Lock
+  is FIFO), so `status=finished` ⇒ all results present. Guaranteed complete, no early stop.
+
 ## v1.8.4 — 2026-08-11
 
 Runs: reconcile with the persisted record on finish. PATCH.

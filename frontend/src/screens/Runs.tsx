@@ -102,13 +102,23 @@ export function Runs() {
     },
   });
 
-  // On terminal, replace the streamed rows with the persisted record — authoritative + complete,
-  // closing any gap from frames that arrived before this run's id was known.
+  // On terminal, sync to the persisted record — authoritative + complete. The backend writes
+  // results asynchronously (broadcast happens before persistence), so the tail may not be
+  // written the instant run-finished arrives on the WS. Poll until the RECORD's status is
+  // terminal: run-finished persists status="finished" under the same per-run lock, AFTER every
+  // test-result (asyncio.Lock is FIFO), so status=finished ⇒ all results are present.
   const reconcile = (id: string) => {
-    api.get(`/runs/${id}`).then((rec) => {
-      const rows = rec?.data?.results;
-      if (Array.isArray(rows)) setResults(rows as ResultRow[]);
-    }).catch(() => {});
+    let tries = 0;
+    const tick = async () => {
+      tries += 1;
+      try {
+        const d = (await api.get(`/runs/${id}`))?.data;
+        if (Array.isArray(d?.results)) setResults(d.results as ResultRow[]);
+        if (d?.status === "finished" || d?.status === "aborted") return;   // results complete
+      } catch { /* transient */ }
+      if (tries < 25) setTimeout(tick, 300);   // ~7.5s ceiling
+    };
+    tick();
   };
 
   const startRun = async () => {
