@@ -96,11 +96,20 @@ export function Runs() {
       if (t === "run-started") setErrLine("");
       if (runId && body.run_id === runId) {
         if (t === "test-result") setResults((prev) => [...prev, body as ResultRow]);
-        else if (t === "run-finished") { setRunStatus(body.result || "finished"); reopenForNext(); }
-        else if (t === "run-aborted") { setRunStatus("ABORTED"); reopenForNext(); }
+        else if (t === "run-finished") { setRunStatus(body.result || "finished"); reconcile(runId); reopenForNext(); }
+        else if (t === "run-aborted") { setRunStatus("ABORTED"); reconcile(runId); reopenForNext(); }
       }
     },
   });
+
+  // On terminal, replace the streamed rows with the persisted record — authoritative + complete,
+  // closing any gap from frames that arrived before this run's id was known.
+  const reconcile = (id: string) => {
+    api.get(`/runs/${id}`).then((rec) => {
+      const rows = rec?.data?.results;
+      if (Array.isArray(rows)) setResults(rows as ResultRow[]);
+    }).catch(() => {});
+  };
 
   const startRun = async () => {
     setError(null);

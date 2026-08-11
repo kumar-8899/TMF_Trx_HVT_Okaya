@@ -5,6 +5,15 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.8.4 — 2026-08-11
+
+Runs: reconcile with the persisted record on finish. PATCH.
+
+- On `run-finished`/`run-aborted`, `screens/Runs.tsx` re-loads the run's persisted results
+  (authoritative + complete), closing the small gap where frames that arrive before the UI knows
+  the new run's id would be filtered out. Live streaming still drives the board in real time; this
+  guarantees the final table is 100% complete.
+
 ## v1.8.3 — 2026-08-11
 
 Fix: Runs live view dropped test-results under load. MINOR (hook API additive).
