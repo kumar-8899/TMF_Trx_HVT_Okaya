@@ -5,6 +5,17 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.8.2 — 2026-08-11
+
+Fix: Python controller test-result payload now matches the MQTT contract. PATCH.
+
+- `controller.results.measurement_dict` emitted `value` + a step-id-prefixed `test_name` and no
+  `measured`/`expected`, so the app UI + report (which read the documented `test_name`/`measured`/
+  `expected` contract, MQTT_MESSAGES.md) showed **empty values everywhere** — dials, tables, and
+  reports — even on a passing run. Now emits clean `test_name`, `measured`, `expected`, `result`
+  (identical to the LabVIEW controller), keeping `qualified_name` (step_id.name) for report
+  addressing and the raw `value`/`limits` for in-process consumers.
+
 ## v1.8.1 — 2026-08-11
 
 spec-lint: uniform signal rule. PATCH.

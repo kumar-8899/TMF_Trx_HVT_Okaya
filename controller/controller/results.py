@@ -72,9 +72,33 @@ def step_status(measurements: list[Measurement]) -> str:
     return FAIL if any(m.status == FAIL for m in measurements) else PASS
 
 
+def _expected_str(lim: "Limits | None") -> str:
+    """Human 'expected' cell for the test-result contract (MQTT_MESSAGES §test-result)."""
+    if lim is None:
+        return ""
+    if lim.expected is not None:
+        return str(lim.expected)
+    lo, hi = lim.min, lim.max
+    if lo is not None and hi is not None:
+        return f"{lo}–{hi}"
+    if lo is not None:
+        return f"≥ {lo}"
+    if hi is not None:
+        return f"≤ {hi}"
+    return ""
+
+
 def measurement_dict(m: Measurement, step_id: str) -> dict:
-    """Wire shape for a test-result event / report row (fully-qualified name, §8.3)."""
-    d = asdict(m)
-    d["test_name"] = f"{step_id}.{m.name}"
+    """Wire shape for a test-result event / report row.
+
+    Conforms to the MQTT `test-result` contract (MQTT_MESSAGES.md): `test_name` (clean),
+    `measured`, `expected`, `result` — the fields the app UI + report read, identical to the
+    LabVIEW controller. `qualified_name` (step_id.name, §8.3) is kept for report addressing, and
+    the raw `name`/`value`/`limits`/`unit`/`sequence` for in-process consumers (run_sim, spec-lint)."""
+    d = asdict(m)                                   # name, value, unit, limits, status, sequence
+    d["test_name"] = m.name                         # clean — matches "OVP"-style contract + the UI
+    d["qualified_name"] = f"{step_id}.{m.name}"     # disambiguated report row id (§8.3)
+    d["measured"] = m.value                         # contract field the UI/report render
+    d["expected"] = _expected_str(m.limits)         # contract field
     d["result"] = m.status
     return d
