@@ -51,7 +51,6 @@ export function Runs() {
   const [recipes, setRecipes] = useState<{ recipe_id: string; name: string }[]>([]);
 
   const [station, setStation] = useState<string | null>(null);   // multi-socket: which DUT position
-  const { last } = useStream<EventEnvelope>(`/ws/station${station ? `?station=${encodeURIComponent(station)}` : ""}`);
   const values = useValues("/instruments/values/ws");
 
   const refresh = () => api.get("/runs").then(setRuns).catch((e) => setError(e.message));
@@ -70,23 +69,6 @@ export function Runs() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    if (!last) return;
-    const t = String(last.type);
-    const body = last.payload ?? {};
-    if (t.startsWith("run-")) refresh();
-    // message/status line from any event
-    if (body.message) setMessage(String(body.message));
-    else if (t) setMessage(t.replace(/-/g, " "));
-    if (/fail|error|safety|abort/i.test(t) || body.level === "error") setErrLine(String(body.reason || body.error || body.message || t));
-    if (t === "run-started") setErrLine("");
-    if (runId && body.run_id === runId) {
-      if (t === "test-result") setResults((prev) => [...prev, body as ResultRow]);
-      else if (t === "run-finished") { setRunStatus(body.result || "finished"); reopenForNext(); }
-      else if (t === "run-aborted") { setRunStatus("ABORTED"); reopenForNext(); }
-    }
-  }, [last]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const running = runStatus === "running";
   const prefixLen = profile?.acquisition?.barcode?.length ?? 3;
   const resolvedPreview = barcode.trim().slice(0, prefixLen);
@@ -100,6 +82,25 @@ export function Runs() {
     setMode(profile?.acquisition?.default_mode === "recipe" ? "recipe" : "barcode");
     setBarcode(""); setPickRecipe(""); setOpen(true);
   };
+
+  // Every station event, without loss (onMessage fires per frame — see useStream). A run
+  // bursts its test-results, so accumulating from `last` would drop most of them.
+  useStream<EventEnvelope>(`/ws/station${station ? `?station=${encodeURIComponent(station)}` : ""}`, {
+    onMessage: (ev) => {
+      const t = String(ev.type);
+      const body = ev.payload ?? {};
+      if (t.startsWith("run-")) refresh();
+      if (body.message) setMessage(String(body.message));
+      else if (t) setMessage(t.replace(/-/g, " "));
+      if (/fail|error|safety|abort/i.test(t) || body.level === "error") setErrLine(String(body.reason || body.error || body.message || t));
+      if (t === "run-started") setErrLine("");
+      if (runId && body.run_id === runId) {
+        if (t === "test-result") setResults((prev) => [...prev, body as ResultRow]);
+        else if (t === "run-finished") { setRunStatus(body.result || "finished"); reopenForNext(); }
+        else if (t === "run-aborted") { setRunStatus("ABORTED"); reopenForNext(); }
+      }
+    },
+  });
 
   const startRun = async () => {
     setError(null);

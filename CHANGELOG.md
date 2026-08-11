@@ -5,6 +5,18 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.8.3 — 2026-08-11
+
+Fix: Runs live view dropped test-results under load. MINOR (hook API additive).
+
+- `useStream` gained an `onMessage(msg)` option that fires **synchronously for every frame**.
+  The previous `last`-only API is lossy for accumulation: React batches state updates, so a burst
+  of test-results (a whole run fires in milliseconds) collapsed into a few `[last]` effect runs and
+  the live Runs board showed only a handful of the results — dials/table stayed mostly empty. The
+  persisted record was always complete; only the live view lost frames.
+- `screens/Runs.tsx` now accumulates results via `onMessage`, so the live table shows every
+  measurement as it streams. `last`-based "latest value" consumers are unchanged.
+
 ## v1.8.2 — 2026-08-11
 
 Fix: Python controller test-result payload now matches the MQTT contract. PATCH.
