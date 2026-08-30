@@ -25,19 +25,23 @@ from core.framework.registry import default_registry, discover
 from core.services.auth_verify import TokenVerifier
 from core.services.bridge import MultiStationBridge
 from core.services.interlock import InterlockPort
-from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
+from core.services.config import ConfigService, resolve_state_dirs
 from core.services.db import Database
 from core.services.diagnostics import LEVELS, BusDiagSink, Diagnostics
 from core.services.licensing_keystation import build_licensing
 from core.services.spa import install_spa, resolve_frontend_dist
 from core.services.web import install_web
 
-DEFAULT_DB_PATH = Path(DEFAULT_CONFIG_DIR).parent / "data" / "tmf.sqlite"
+# Live config + data live OUTSIDE a swappable run.dist when frozen (TMF_STATE_DIR); the
+# read-only *.example.json stay bundled. Source/tests = today's backend/ layout.
+_LIVE_CONFIG_DIR, _EXAMPLES_DIR, _DATA_DIR = resolve_state_dirs()
+DEFAULT_CONFIG_DIR = _LIVE_CONFIG_DIR
+DEFAULT_DB_PATH = _DATA_DIR / "tmf.sqlite"
 
 
 def create_app(
     *,
-    config_dir: Path | str = DEFAULT_CONFIG_DIR,
+    config_dir: Path | str = _LIVE_CONFIG_DIR,
     db_path: Path | str = DEFAULT_DB_PATH,
     enable_bridge: bool = True,
     broker_host: str = "127.0.0.1",
@@ -45,8 +49,10 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # 1. Boot core services (CORE.md §5 step 1).
-        config = ConfigService(config_dir)
+        # 1. Boot core services (CORE.md §5 step 1). Bundled examples only when using the
+        # default (possibly external) config dir; a caller-supplied dir is self-contained.
+        examples = _EXAMPLES_DIR if str(config_dir) == str(_LIVE_CONFIG_DIR) else None
+        config = ConfigService(config_dir, examples_dir=examples)
         app_cfg = config.load_app()
         requested_stations = list(app_cfg["stations"])
         station = requested_stations[0]   # DEPRECATED primary; per-station bridge lands in M2

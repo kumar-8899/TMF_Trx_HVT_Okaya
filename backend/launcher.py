@@ -39,8 +39,11 @@ HERE = Path(__file__).resolve().parent
 # `live` is the tree a swap replaces (run.dist when frozen; the source dir in dev).
 LIVE = HERE
 FROZEN = (HERE / "run.exe").exists()
-# Persistent state must survive swapping LIVE, so it sits BESIDE it when frozen.
-STATE = (HERE.parent / "data") if FROZEN else (HERE / "data")
+# Persistent state (config + data) must survive swapping LIVE, so it sits BESIDE it when
+# frozen. STATE_ROOT is the external deploy root handed to the backend as TMF_STATE_DIR so
+# both agree on where the DB, marker, backups and live config live.
+STATE_ROOT = HERE.parent if FROZEN else HERE
+STATE = STATE_ROOT / "data"
 
 MARKER = STATE / "relaunch.json"
 LOG = STATE / "launcher.log"
@@ -305,8 +308,9 @@ def main() -> int:
 
     strikes = 0
     reverted = False
+    child_env = {**os.environ, "TMF_STATE_DIR": str(STATE_ROOT)}   # external config+data
     while True:
-        proc = subprocess.Popen(backend_cmd(), cwd=str(HERE))
+        proc = subprocess.Popen(backend_cmd(), cwd=str(HERE), env=child_env)
         log(f"backend started pid={proc.pid}")
         healthy = _await_boot(proc)
         lkg_timer: threading.Timer | None = None

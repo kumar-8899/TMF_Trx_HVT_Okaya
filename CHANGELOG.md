@@ -5,6 +5,17 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.9.2 — 2026-08-30
+
+Frozen-layout: persistent state lives outside the swappable run.dist. PATCH.
+
+- Live config + data (DB, relaunch marker, backups, last_known_good, debug captures) now
+  resolve to an EXTERNAL deploy root via `TMF_STATE_DIR`, so an update swap of `run.dist`
+  can never destroy or orphan them (UPDATES.md §1 frozen layout). `config.py`
+  `resolve_state_dirs()` + a bundled-examples/external-live split; `launcher.py` passes
+  `TMF_STATE_DIR` to the backend; `app.py` config + DB paths honor it. Source/tests are
+  unchanged (no `TMF_STATE_DIR` = today's `backend/` layout).
+
 ## v1.9.1 — 2026-08-30
 
 App-independent versioning. PATCH.

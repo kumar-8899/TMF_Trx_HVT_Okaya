@@ -17,7 +17,21 @@ from jsonschema import ValidationError as _SchemaError
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 CORE_SCHEMAS_DIR = Path(__file__).resolve().parents[1] / "schemas"
-DEFAULT_CONFIG_DIR = BACKEND_DIR / "config"
+DEFAULT_CONFIG_DIR = BACKEND_DIR / "config"   # bundled: ships the *.example.json
+
+
+def resolve_state_dirs():
+    """(live_config_dir, examples_dir, data_dir). Persistent, mutable state must live
+    OUTSIDE the swappable `run.dist` (UPDATES.md §1 frozen layout), so the launcher passes
+    `TMF_STATE_DIR` = the external deploy root; live config + data hang off it while the
+    read-only `*.example.json` stay bundled. With no `TMF_STATE_DIR` (source / tests) it is
+    exactly today's layout under `backend/`."""
+    import os
+    state = os.environ.get("TMF_STATE_DIR")
+    if state:
+        root = Path(state)
+        return root / "config", DEFAULT_CONFIG_DIR, root / "data"
+    return DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_DIR, BACKEND_DIR / "data"
 
 
 class ConfigError(Exception):
@@ -41,8 +55,10 @@ class ConfigService:
         self,
         config_dir: Path | str = DEFAULT_CONFIG_DIR,
         schemas_dir: Path | str = CORE_SCHEMAS_DIR,
+        examples_dir: Path | str | None = None,
     ) -> None:
-        self.config_dir = Path(config_dir)
+        self.config_dir = Path(config_dir)               # live config (may be external)
+        self.examples_dir = Path(examples_dir) if examples_dir else self.config_dir  # bundled *.example.json
         self.schemas_dir = Path(schemas_dir)
         self._validators: dict[Path, Draft202012Validator] = {}
 
@@ -66,12 +82,15 @@ class ConfigService:
         return instance
 
     def ensure_live(self, name: str) -> Path:
-        """Copy `<name>.example.json` -> `<name>.json` if the live file is absent."""
+        """Copy the bundled `<name>.example.json` -> the live `<name>.json` if absent
+        (live dir may be external of the bundle, so the example comes from examples_dir)."""
         live = self.config_dir / f"{name}.json"
         if not live.exists():
-            example = self.config_dir / f"{name}.example.json"
+            example = self.examples_dir / f"{name}.example.json"
             if not example.exists():
-                raise ConfigError(f"neither {live.name} nor {example.name} present in {self.config_dir}")
+                raise ConfigError(f"neither {live.name} nor {example.name} present "
+                                  f"(live {self.config_dir}, examples {self.examples_dir})")
+            self.config_dir.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(example, live)
         return live
 
@@ -140,7 +159,7 @@ class ConfigService:
         <name>.json. ensure_live never refreshes an existing live file, so this
         surfaces stale live config after new modules are added."""
         live = self.config_dir / f"{name}.json"
-        example = self.config_dir / f"{name}.example.json"
+        example = self.examples_dir / f"{name}.example.json"
         if not live.exists() or not example.exists():
             return []
 
@@ -160,7 +179,7 @@ class ConfigService:
                 return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
             except (json.JSONDecodeError, OSError):
                 return {}
-        return read(self.config_dir / f"{name}.json"), read(self.config_dir / f"{name}.example.json")
+        return read(self.config_dir / f"{name}.json"), read(self.examples_dir / f"{name}.example.json")
 
     @staticmethod
     def _roles(app: dict) -> dict:
