@@ -5,6 +5,29 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.9.0 — 2026-08-30
+
+Remote debugging + updates + single-origin launcher. MINOR — new features, additive
+contracts (no module `contract_version` bump).
+
+- **Remote debugging** (`docs/REMOTE_DEBUG.md`): the Debug Server sidecar gains a rolling
+  JSONL sink, a 30 s failure snapshot buffer, analog/digital logging discipline, an explicit
+  `bind_host` + static token (rejects `0.0.0.0`), and live per-subsystem diag level control;
+  the repo-root `tmf-debug` CLI (`pull`/`watch`/`digest`/`why`); Settings → Remote debugging
+  toggle, supervised by `station.py`.
+- **Updates** (`docs/UPDATES.md`): an un-brickable launcher (swap journal + startup
+  reconciliation, backups + `last_known_good`, DB snapshot, 2-strike auto-recovery);
+  notify-only `check` + idempotent `download`; `apply` refused mid-run (409); `rollback` +
+  `status`; the AMC 402 gate; a hashed artifact zip in `build_release.py`; `release.yml` +
+  `upstream-sync.yml` app templates.
+- **Single-origin**: the backend serves the built SPA (`core/services/spa.py`); `station.py`
+  one-click launcher (broker + backend + pywebview, graceful shutdown).
+- **UI**: nav declutter (`UserMenu`), a waveform app logo + favicon, Settings
+  Updates/Remote-debugging/License(AMC) cards.
+- **Fixes**: the runs module subscribes `diag/#` (Diagnostics event tail now shows Python
+  diag); core diagnostics gains `critical` + a per-subsystem level gate.
+- **Keystation** (separate repo): a typed `amc` lease field (backward-compatible signing).
+
 ## v1.8.5 — 2026-08-11
 
 Fix: the finish-reconcile fetched too early and missed the tail. PATCH.
