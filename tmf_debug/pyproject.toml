@@ -1,0 +1,28 @@
+[project]
+name = "tmf-debug"
+version = "0.1.0"
+description = "Remote debug client for the TMF Debug Server sidecar (REMOTE_DEBUG.md) — pull captures, condense them into a Claude-Code-readable digest, tail live, change log levels."
+requires-python = ">=3.11"
+# Runs on a developer's LAPTOP. Deliberately depends on NOTHING from backend/ —
+# only an HTTP client and a WebSocket client. Installs with: pipx install ./tmf_debug
+dependencies = [
+    "httpx>=0.27",
+    "websockets>=12",
+]
+
+[project.scripts]
+tmf-debug = "tmf_debug.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tmf_debug*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

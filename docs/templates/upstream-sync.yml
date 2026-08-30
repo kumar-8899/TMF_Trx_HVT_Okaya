@@ -1,0 +1,76 @@
+# APP-REPO framework drift-detection workflow (UPDATES.md §10.4). Copy to
+# `.github/workflows/upstream-sync.yml` in a forked application repo.
+#
+# Its PURPOSE is drift detection, NOT updating. Weekly, it merges the newest framework
+# tag WITHIN THE SAME MAJOR and opens a PR — never auto-merges. Two useful outcomes:
+#   • green PR  → clean merge + tests pass; a human merges whenever they choose, or ignores it.
+#   • conflict  → someone edited a framework-owned path (TEMPLATE.md §1 forbids it); you learn
+#                 THIS week instead of in two years when the fork has become unmergeable.
+# A MAJOR bump is a deliberate manual migration, never a robot's PR.
+#
+# Requires `upstream` to be reachable (the framework repo) and a token that can open PRs.
+
+name: upstream-sync
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays 04:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Merge the newest same-MAJOR framework tag
+        id: merge
+        shell: bash
+        run: |
+          git remote add upstream "${{ vars.FRAMEWORK_REMOTE }}" 2>/dev/null || true
+          git fetch upstream --tags
+          cur="$(python -c 'import sys; sys.path.insert(0,"backend"); import core; print(core.__version__)')"
+          major="${cur%%.*}"
+          # newest upstream tag vMAJOR.* (semver sort), excluding anything <= current
+          target="$(git tag -l "v${major}.*" | sort -V | tail -1)"
+          echo "current=$cur target=$target"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          if [ -z "$target" ] || [ "$target" = "v$cur" ]; then
+            echo "up to date within v${major}.x"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git config user.name  "upstream-sync"
+          git config user.email "bot@users.noreply.github.com"
+          git checkout -b "framework-${target}" || git checkout "framework-${target}"
+          git merge --no-edit "$target" || true    # conflicts are a SIGNAL — keep them in the PR
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Reconcile config + test (best-effort; failures still surface in the PR)
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        continue-on-error: true
+        run: |
+          python -m pip install -e "backend[dev]" || true
+          (cd backend && python -m tools.config_doctor --apply) || true
+          (cd backend && python -m pytest -q) || true
+          (cd frontend && npm ci && npx vitest run && npm run build) || true
+
+      - name: Open PR (never auto-merge)
+        if: steps.merge.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: "framework-${{ steps.merge.outputs.target }}"
+          title: "Framework ${{ steps.merge.outputs.target }}"
+          body: |
+            Automated framework sync to **${{ steps.merge.outputs.target }}** (same MAJOR).
+            - Green + clean → merge when you choose.
+            - Conflicts → a framework-owned path was edited downstream (TEMPLATE.md §1). Fix the drift.
+            A MAJOR upgrade is a deliberate manual migration — not this PR.

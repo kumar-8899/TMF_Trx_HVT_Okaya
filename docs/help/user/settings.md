@@ -17,12 +17,29 @@ These are start-up settings. Press **Save** to write them, then **Relaunch to
 apply** to restart the station with the new configuration. The banner shows
 "restart required" until you relaunch.
 
+## Remote debugging
+A **flight recorder** that quietly records what the station does, so a fault — even
+one overnight with nobody watching — can be diagnosed afterwards.
+
+- **Enable the flight recorder** — turns it on. It runs as a separate helper (so it
+  keeps recording even while the app itself restarts) and shows **running**/**stopped**
+  plus how much it has recorded today.
+- **Continuous recording to disk** — keeps a rolling log and a 30-second detailed
+  snapshot around each failure.
+- **Access from** — leave at **127.0.0.1** (this machine only) unless a developer needs
+  to connect from their laptop; then enter this PC's network address and set an **access
+  token** (required for anything but this machine).
+
+These are start-up settings: press **Save**, then **Relaunch to apply**. When it is off,
+nothing extra runs. A developer collects a recording with the `tmf-debug` tool.
+
 ## Exiting the station
-The **power icon** in the top bar (super_admin) exits the station **safely**: it
-drives every instrument to its safe state, stops the controller, and closes the
-app without restarting it. Relaunch it from the desktop shortcut (or `dev.ps1`) to
-bring it back. Use this rather than closing the window, so nothing is left
-energised.
+Open the **user menu** (your avatar, top-right) and choose **Exit station**
+(super_admin). It exits **safely**: drives every instrument to its safe state, stops
+the controller, and closes the app without restarting it. Relaunch it from the
+desktop shortcut (or `dev.ps1` / `python station.py`) to bring it back. Closing the
+app window does the same safe shutdown — but use **Exit station** so nothing is left
+energised if the window is only minimised.
 
 ## Data management
 Select what to permanently delete, then **Reset selected**:

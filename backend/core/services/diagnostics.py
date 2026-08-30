@@ -20,7 +20,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-LEVELS = ("debug", "info", "warning", "error")
+# 5 levels, aligned across the diag bus, the logs module (LEVEL_ORDER), and the Debug
+# Server (which already assumes `critical`). REMOTE_DEBUG.md §3.5 / §6 level control.
+LEVELS = ("debug", "info", "warning", "error", "critical")
+_LEVEL_INDEX = {lv: i for i, lv in enumerate(LEVELS)}
 Sink = Callable[[dict], None]
 
 
@@ -73,12 +76,18 @@ class Diagnostics:
         station: str,
         source_version: str,
         sinks: list[Sink] | None = None,
+        default_level: str = "debug",
     ) -> None:
         self.station = station
         self.source_version = source_version
         self.sinks: list[Sink] = sinks if sinks is not None else [stdout_sink]
         self._seq = 0
         self._started = False
+        # Per-subsystem minimum level. Default "debug" = emit everything (today's
+        # behavior); a deployment can raise the floor and then a live control
+        # (REMOTE_DEBUG.md §3.5) can bump one subsystem back down to see more.
+        self._default_min = _LEVEL_INDEX.get(default_level, 0)
+        self._overrides: dict[str, int] = {}
 
     def start(self) -> None:
         self._started = True
@@ -88,6 +97,21 @@ class Diagnostics:
 
     def add_sink(self, sink: Sink) -> None:
         self.sinks.append(sink)
+
+    # --- live per-subsystem level control (REMOTE_DEBUG.md §3.5) ------------
+
+    def set_level(self, subsystem: str, level: str) -> None:
+        if level not in _LEVEL_INDEX:
+            raise ValueError(f"unknown level {level!r}; one of {LEVELS}")
+        self._overrides[subsystem] = _LEVEL_INDEX[level]
+
+    def get_levels(self) -> dict[str, str]:
+        floor = LEVELS[self._default_min]
+        return {"default": floor, "overrides": {s: LEVELS[i] for s, i in self._overrides.items()}}
+
+    def _passes(self, level: str, subsystem: str) -> bool:
+        floor = self._overrides.get(subsystem, self._default_min)
+        return _LEVEL_INDEX.get(level, 0) >= floor
 
     # --- emit --------------------------------------------------------------
 
@@ -99,6 +123,10 @@ class Diagnostics:
         context: dict[str, Any],
         exception: dict | None = None,
     ) -> dict:
+        # Check the level FIRST and return before building the event / touching sinks
+        # when it is filtered out (REMOTE_DEBUG.md §3.5 / §7.1 — no wasted allocation).
+        if not self._passes(level, subsystem):
+            return {}
         self._seq += 1
         event = {
             "seq": self._seq,
@@ -129,6 +157,9 @@ class Diagnostics:
 
     def error(self, subsystem: str, message: str, **context: Any) -> dict:
         return self._emit("error", subsystem, message, context)
+
+    def critical(self, subsystem: str, message: str, **context: Any) -> dict:
+        return self._emit("critical", subsystem, message, context)
 
     def exception(
         self,

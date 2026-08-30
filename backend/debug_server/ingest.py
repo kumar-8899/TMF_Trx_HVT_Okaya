@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 import uuid
 
 from debug_server import __version__
 from debug_server.analysis import Liveness, Pairer, group_traces, validate
-from debug_server.capture import STATUS, VALUE, CapturedRecord, Ring
+from debug_server.capture import EVENT, STATUS, VALUE, CapturedRecord, Ring
+
+
+_RUN_START = "run-started"
+_RUN_END = ("run-finished", "run-aborted")
 
 
 class Ingestor:
-    def __init__(self, station: str, *, capacity: int = 50_000, orphan_timeout_s: float = 5.0) -> None:
+    def __init__(self, station: str, *, capacity: int = 50_000, orphan_timeout_s: float = 5.0,
+                 rolling=None, snapshot=None) -> None:
         self.station = station
         self.ring = Ring(capacity)
         self.pairer = Pairer(orphan_timeout_s)
@@ -28,6 +32,12 @@ class Ingestor:
         self._captures: dict[str, dict] = {}
         self._last_retained: dict[str, str] = {}   # topic -> last payload (dedupe)
         self.coalesced = 0                          # suppressed retained repeats
+        self.rolling = rolling                      # RollingSink | None (PR-C)
+        self.snapshot = snapshot                    # SnapshotBuffer | None (PR-E)
+        self.discipline = None                      # LogDiscipline | None (PR-D)
+        self._active = False                        # a run is in progress
+        self.app_version: str | None = None
+        self.framework_version: str | None = None
 
     # --- pipeline ----------------------------------------------------------
 
@@ -49,8 +59,35 @@ class Ingestor:
         self.ring.add(rec)
         self.pairer.observe(rec)
         self.liveness.observe(rec)
+        self._track_run(rec)
+        if self.snapshot is not None:
+            self.snapshot.observe(rec)            # 30 s values-only buffer (PR-E)
+        # To disk: the discipline gates value/# + suppresses repeats (keeps disk bounded);
+        # with no discipline, records go raw to the rolling sink. Either path is
+        # non-blocking (drop-and-count) — never disk I/O on this call (§5).
+        if self.discipline is not None:
+            self.discipline.feed(rec.to_dict(), active=self._active)
+        elif self.rolling is not None:
+            self.rolling.enqueue(rec.to_dict())
         self._fan_out(rec)
         return rec
+
+    def _track_run(self, rec: CapturedRecord) -> None:
+        """Toggle run-active state (rolling compression is deferred during a run) and
+        learn the app/framework versions from a run-started event for /debug/health."""
+        if rec.kind != EVENT:
+            return
+        if rec.type == _RUN_START:
+            body = rec.payload.get("payload", {}) if isinstance(rec.payload, dict) else {}
+            self.app_version = body.get("app_version") or self.app_version
+            self.framework_version = body.get("source_version") or self.framework_version
+            self._active = True
+            if self.rolling is not None:
+                self.rolling.set_active_run(True)
+        elif rec.type in _RUN_END:
+            self._active = False
+            if self.rolling is not None:
+                self.rolling.set_active_run(False)
 
     def _fan_out(self, rec: CapturedRecord) -> None:
         dead = []
@@ -73,10 +110,16 @@ class Ingestor:
     # --- derived views -----------------------------------------------------
 
     def health(self) -> dict:
-        return {"buffer_used": len(self.ring), "buffer_capacity": self.ring.capacity,
-                "dropped": self.ring.dropped, "coalesced": self.coalesced,
-                "subscribers": len(self._subs),
-                "broker_connected": self.broker_connected, "station": self.station}
+        h = {"buffer_used": len(self.ring), "buffer_capacity": self.ring.capacity,
+             "dropped": self.ring.dropped, "coalesced": self.coalesced,
+             "subscribers": len(self._subs),
+             "broker_connected": self.broker_connected, "station": self.station,
+             "app_version": self.app_version, "framework_version": self.framework_version,
+             "suppressed": self.discipline.suppressed if self.discipline else 0,
+             "snapshots_suppressed": self.snapshot.suppressed if self.snapshot else 0}
+        if self.rolling is not None:
+            h.update(self.rolling.metrics())
+        return h
 
     def traces(self) -> list[dict]:
         return group_traces(self.ring.all())

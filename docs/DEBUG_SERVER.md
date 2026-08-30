@@ -5,6 +5,17 @@ This document is a **locked design contract**, peer to `PRINCIPLES.md`,
 not against memory. Read `PRINCIPLES.md`, `LOGGING.md`, and
 `DATA_TRANSFER.md` first; this doc sits on top of all three.
 
+> **Extended by [REMOTE_DEBUG.md](REMOTE_DEBUG.md) (as-built).** The DS1–DS6 sidecar
+> below is an in-memory, loopback, developer-launched tool. REMOTE_DEBUG.md turns it
+> into a **bench↔laptop flight recorder**: an explicit `bind_host` + static `token`
+> (never `0.0.0.0`), a continuous **rolling JSONL sink** + **30 s snapshot buffer** on
+> disk (so evidence survives an *unattended* fault), analog/digital **logging
+> discipline**, live per-subsystem **level control** (`POST /debug/level` → the core's
+> `/diag/level`), and the **`tmf-debug`** laptop CLI (`pull` / `digest` / `why`). It is
+> supervised by `station.py` only when `app.json` `debug.enabled` is set (Settings →
+> Remote debugging), and keeps its **independent lifecycle** — it must outlive a core
+> crash. Where this doc says "in-memory only" / "dev-only", read REMOTE_DEBUG.md.
+
 The Debug Server is the **go-to runtime debugging tool** for the framework.
 It gives a developer at the bench one correlated, cross-language view of
 everything happening on a station's MQTT bus — Python modules, the LabVIEW

@@ -45,3 +45,6 @@ backend/data/launcher.log
 
 # local dev signing keys (never commit)
 .secrets/
+
+# tmf-debug captures + digests pulled from benches (REMOTE_DEBUG.md §8)
+.debug/

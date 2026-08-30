@@ -40,7 +40,11 @@ class DefaultRuns:
         self._active: dict[str, str] = {}  # station -> active run_id (MULTI_STATION.md §4.1)
         self._run_locks: dict[str, asyncio.Lock] = {}  # serialize current-state writes per run
         self.router = build_router(self)
-        self.mqtt_handlers = [("event/#", self._on_event), ("diag", self._on_diag)]
+        # Python diag is published to `diag/<subsystem>` (BusDiagSink); an exact `diag`
+        # subscription misses those sub-topics, so subscribe both — otherwise the
+        # Diagnostics page Event tail never shows Python events (only LabVIEW's exact `diag`).
+        self.mqtt_handlers = [("event/#", self._on_event),
+                              ("diag", self._on_diag), ("diag/#", self._on_diag)]
 
     @classmethod
     def construct(cls, core: CoreServices, config: dict) -> "DefaultRuns":

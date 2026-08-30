@@ -27,8 +27,9 @@ from core.services.bridge import MultiStationBridge
 from core.services.interlock import InterlockPort
 from core.services.config import DEFAULT_CONFIG_DIR, ConfigService
 from core.services.db import Database
-from core.services.diagnostics import BusDiagSink, Diagnostics
+from core.services.diagnostics import LEVELS, BusDiagSink, Diagnostics
 from core.services.licensing_keystation import build_licensing
+from core.services.spa import install_spa, resolve_frontend_dist
 from core.services.web import install_web
 
 DEFAULT_DB_PATH = Path(DEFAULT_CONFIG_DIR).parent / "data" / "tmf.sqlite"
@@ -177,6 +178,9 @@ def create_app(
         app.state.modules = result
 
         diag.info("core", "core services up", station=station, version=__version__)
+        fe = getattr(app.state, "frontend_dist", None)
+        if fe is not None:
+            diag.info("core", "serving bundled UI from this edge (single-origin)", dir=str(fe))
         try:
             yield
         finally:
@@ -197,6 +201,14 @@ def create_app(
 
     app = FastAPI(title="TMF Backend", version=__version__, lifespan=lifespan)
     web = install_web(app)
+
+    # Single-origin production: when a built SPA is present, serve it from this edge
+    # so the one-click launcher only opens http://127.0.0.1:8000. A pure-Vite dev
+    # checkout has no bundle → API-only, unchanged (core/services/spa.py).
+    frontend_dist = resolve_frontend_dist()
+    app.state.frontend_dist = frontend_dist
+    if frontend_dist is not None:
+        install_spa(app, frontend_dist)
 
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -340,6 +352,87 @@ def create_app(
         app.state.diag.info("core", "station config updated", patch=patch)
         return {"ok": True, **_station_config_payload()}
 
+    # ---- live diagnostics verbosity (REMOTE_DEBUG.md §3.5) -----------------
+    # The Debug Server sidecar relays here over HTTP (never the cmd/ tree). Setting a
+    # subsystem's level gates emission at the source, above the logs module's
+    # persistence filter — effective immediately, not persisted across restart.
+    @app.get("/diag/level", dependencies=_SETTINGS)
+    async def get_diag_level() -> dict:
+        return app.state.diag.get_levels()
+
+    @app.put("/diag/level", dependencies=_SETTINGS)
+    async def set_diag_level(body: dict) -> dict:
+        subsystem = (body or {}).get("subsystem")
+        level = (body or {}).get("level")
+        if not subsystem or level not in LEVELS:
+            raise HTTPException(status_code=422,
+                                detail=f"subsystem required and level one of {list(LEVELS)}")
+        app.state.diag.set_level(subsystem, level)
+        app.state.diag.info("core", "diag level set", target=subsystem, level=level)
+        return {"applied": {subsystem: level}, **app.state.diag.get_levels()}
+
+    # ---- remote debugging on/off (Settings → Remote debugging) -------------
+    # The flight-recorder sidecar is supervised by station.py when app.json debug.enabled
+    # is true; toggling here writes app.json and is applied on the next relaunch. The
+    # token is write-only (never returned). Live status is a best-effort probe of the
+    # sidecar's own /debug/health.
+    _LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+    async def _probe_debug(dbg: dict) -> dict:
+        host = dbg.get("bind_host") or "127.0.0.1"
+        port = int(dbg.get("port") or 8001)
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=1.5) as c:
+                r = await c.get(f"http://{host}:{port}/debug/health")
+            return {"running": r.status_code == 200, "health": r.json() if r.status_code == 200 else None}
+        except Exception:  # noqa: BLE001 — sidecar not up / unreachable is normal
+            return {"running": False, "health": None}
+
+    def _debug_payload(dbg: dict, status: dict, restart: bool = False) -> dict:
+        host = dbg.get("bind_host") or "127.0.0.1"
+        return {
+            "enabled": bool(dbg.get("enabled")),
+            "bind_host": host,
+            "port": int(dbg.get("port") or 8001),
+            "remote": host not in _LOOPBACK,
+            "has_token": bool(dbg.get("token")),
+            "rolling_enabled": bool((dbg.get("rolling") or {}).get("enabled", True)),
+            "restart_required": restart,
+            **status,
+        }
+
+    @app.get("/system/debug-config", dependencies=_SETTINGS)
+    async def get_debug_config() -> dict:
+        dbg = dict(app.state.app_config.get("debug") or {})
+        return _debug_payload(dbg, await _probe_debug(dbg))
+
+    @app.put("/system/debug-config", dependencies=_SETTINGS)
+    async def set_debug_config(body: dict) -> dict:
+        dbg = dict(app.state.app_config.get("debug") or {})
+        if "enabled" in body:
+            dbg["enabled"] = bool(body["enabled"])
+        if "bind_host" in body:
+            dbg["bind_host"] = (body["bind_host"] or "127.0.0.1").strip()
+        if "token" in body:                       # write-only; "" clears it
+            dbg["token"] = body["token"] or None
+        if "rolling_enabled" in body:
+            roll = dict(dbg.get("rolling") or {})
+            roll["enabled"] = bool(body["rolling_enabled"])
+            dbg["rolling"] = roll
+        # mirror the sidecar's own start-up guard so the UI can't save an unsafe combo
+        host = dbg.get("bind_host") or "127.0.0.1"
+        if host == "0.0.0.0":  # noqa: S104 — the value we forbid
+            raise HTTPException(status_code=422, detail="bind_host must be an explicit interface, not 0.0.0.0")
+        if host not in _LOOPBACK and not dbg.get("token"):
+            raise HTTPException(status_code=422, detail="a token is required to expose remote debugging on a non-loopback address")
+        try:
+            app.state.app_config = app.state.config.update_app({"debug": dbg})
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"config update failed: {exc}") from exc
+        app.state.diag.info("core", "debug config updated", enabled=dbg.get("enabled"), remote=host not in _LOOPBACK)
+        return {"ok": True, **_debug_payload(dbg, await _probe_debug(dbg), restart=True)}
+
     @app.post("/system/relaunch", dependencies=_SETTINGS)
     async def system_relaunch() -> dict:
         """Relaunch the station to apply a config change (exit 42 → the launcher restarts).
@@ -440,21 +533,40 @@ def create_app(
                 "offers": await app.state.updates.list_offers(),
                 "source": app.state.update_source.get("github_repo")}
 
-    @app.post("/update/check", dependencies=_LIC)
-    async def update_check() -> dict:
-        """Pull + ingest the latest signed .ksupdate from the configured GitHub repo."""
+    def _update_repo_token() -> tuple[str, str | None, str]:
         src = app.state.update_source
         repo = src.get("github_repo")
         if not repo:
             raise HTTPException(status_code=400, detail="no updates.github_repo configured")
         token = src.get("github_token") or os.environ.get("TMF_UPDATE_TOKEN")
+        return repo, token, src.get("channel", "stable")
+
+    @app.post("/update/check", dependencies=_LIC)
+    async def update_check() -> dict:
+        """Discovery — NOTIFY ONLY. Polls GitHub, downloads nothing (UPDATES.md item 5)."""
+        repo, token, channel = _update_repo_token()
+        return await app.state.updates.check(repo, token, channel=channel)
+
+    @app.post("/update/download", dependencies=_LIC)
+    async def update_download() -> dict:
+        """Fetch the latest .ksupdate, verify + offer (item 6). Idempotent on bundle hash."""
+        from core.services.updates import AmcRequired
+        repo, token, channel = _update_repo_token()
         try:
-            return await app.state.updates.check_github(repo, token)
+            return await app.state.updates.download(repo, token, channel=channel)
+        except AmcRequired as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc   # UPDATES.md §8.5
         except Exception as exc:  # noqa: BLE001 — network / no-release / verify failure
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.post("/update/apply/{release_id}", dependencies=_LIC)
     async def update_apply(release_id: str) -> dict:
+        # Never swap a binary mid-test (UPDATES.md item 8): refuse while any run is active.
+        runs = getattr(app.state, "modules", None)
+        runs = runs.active.get("runs") if runs is not None else None
+        if runs is not None and getattr(runs, "_active", None):
+            raise HTTPException(status_code=409,
+                                detail=f"a run is active ({runs._active}) — cannot apply an update mid-test")
         try:
             return await app.state.updates.apply(release_id)
         except KeyError as exc:
@@ -478,6 +590,27 @@ def create_app(
         threading.Timer(0.6, lambda: os._exit(42)).start()
         return {"ok": True, "relaunching": marker.get("version"),
                 "note": "station is relaunching to apply the update"}
+
+    @app.get("/update/status", dependencies=_LIC)
+    async def update_status() -> dict:
+        return await app.state.updates.status()
+
+    @app.post("/update/rollback", dependencies=_LIC)
+    async def update_rollback(body: dict) -> dict:
+        """Roll back to last_known_good (default) or a specific backup id. Refused mid-run."""
+        runs = getattr(app.state, "modules", None)
+        runs = runs.active.get("runs") if runs is not None else None
+        if runs is not None and getattr(runs, "_active", None):
+            raise HTTPException(status_code=409, detail="a run is active — cannot roll back mid-test")
+        import threading
+        target = (body or {}).get("target", "last_known_good")
+        try:
+            marker = await app.state.updates.rollback(target)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        threading.Timer(0.6, lambda: os._exit(42)).start()
+        return {"ok": True, "rolling_back": marker.get("rollback"),
+                "note": "station is relaunching to roll back"}
 
     return app
 

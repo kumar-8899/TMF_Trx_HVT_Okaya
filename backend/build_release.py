@@ -138,6 +138,22 @@ def manifest(track: str = "framework", product: str = "super_test_app",
     print(f"RELEASE.json: {track} {product} v{version}{pin}, {len(entries)} files hashed")
 
 
+def package_artifact(product: str) -> None:
+    """Zip the compiled `run.dist` (the launcher's swap unit) and stamp its SHA-256 into
+    RELEASE.json as `full_artifact_hash` — the hash the station verifies a downloaded
+    artifact against before staging it (UPDATES.md _materialize; §3 GitHub-release asset).
+    Runs AFTER manifest() so the zip isn't hashed into the per-file table."""
+    rel_path = OUT / "RELEASE.json"
+    rel = json.loads(rel_path.read_text(encoding="utf-8"))
+    base = OUT / f"{product}-{rel['version']}"
+    archive = Path(shutil.make_archive(str(base), "zip", root_dir=str(DIST)))
+    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    rel["full_artifact_hash"] = sha
+    rel["artifact"] = archive.name
+    rel_path.write_text(json.dumps(rel, indent=2), encoding="utf-8")
+    print(f"artifact: {archive.name} ({archive.stat().st_size // 1024} KB, sha {sha[:12]}…)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-frontend", action="store_true")
@@ -165,6 +181,7 @@ def main() -> int:
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
     manifest(args.track, args.product, args.pinned_fw_version)
+    package_artifact(args.product)
     print("\nrelease at:", OUT)
     return 0
 

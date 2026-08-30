@@ -1,9 +1,14 @@
 # FRONTEND — the operator web UI
 
 The React app under `frontend/`. It is a **pure client of Python** (REST +
-WebSocket on `127.0.0.1:8000`, proxied by Vite in dev); it never talks to the
-MQTT broker. This doc is the map of the UI: stack, theme, shared components,
-screens, auth, and streaming.
+WebSocket on `127.0.0.1:8000`); it never talks to the MQTT broker. This doc is the
+map of the UI: stack, theme, shared components, screens, auth, and streaming.
+
+**How it is served.** In dev, Vite (`:5173`) serves the SPA with HMR and proxies the
+API to `:8000`. In a shipped station there is no Vite — the **backend serves the
+built bundle** on the same `:8000` edge (single origin), so relative API/WS URLs just
+work. See [RUNNING.md](RUNNING.md) (`core/services/spa.py`, the `Accept`-header
+SPA/API split) and `python station.py` for the one-click launch.
 
 ## Stack
 
@@ -21,7 +26,7 @@ frontend/src/
                       { key, component } to replace Runs / Recipes / recipe editor /
                       recipe detail / Maintenance; framework ships overrides/ empty
   theme/              theme.ts (tokens), ColorMode.tsx (light/dark provider+toggle)
-  components/         Layout, SessionPanel, BrandMark, ui.tsx, Sparkline, RecipeForm, StepEditor
+  components/         Layout (AppBar + drawer), UserMenu, UpdateChip, BrandMark, ui.tsx, Sparkline, RecipeForm, StepEditor
   screens/            Login, ChangePassword, Dashboard, Daq, Runs, Recipes,
                       RecipeDetail, RecipeEditor, Reports, Users, ComingSoon
   auth/               AuthContext, permissions.ts, RequirePermission
@@ -64,7 +69,25 @@ The visual vocabulary every screen reuses:
   Both fall back to a built-in palette when rendered outside the ThemeProvider
   (so unit tests need no theme).
 - `EmptyState`, `ConfirmDialog`.
-- `BrandMark` (teal/green app glyph), `Sparkline` (dependency-free SVG trend).
+- `BrandMark` (the app logo — an oscilloscope waveform on a navy tile; also the SVG
+  favicon in `index.html`), `Sparkline` (dependency-free SVG trend).
+
+## Shell — AppBar & drawer ([`components/Layout.tsx`](../frontend/src/components/Layout.tsx))
+
+- **AppBar**, grouped left→right: `BrandMark` + app name (+ a fork's client logo,
+  issue #7) · Exeliq logo (right) · then, separated by thin dividers,
+  **station-readiness lamp** │ **help / full-screen / light-dark** icons │ **`UserMenu`**.
+- **`UserMenu`** — the avatar opens a dropdown with the signed-in identity, **Log out**,
+  and (super_admin) **Exit station** (the graceful `POST /system/shutdown`). This folds
+  what were separate session + power-icon controls into one, to keep the bar uncluttered.
+- **Drawer** — the nav is grouped into collapsible sections (Dashboard, Runs top-level;
+  then Operations / Health / Config / Administration; Help), permission/role-filtered.
+  **`UpdateChip`** ("Relaunch to update") is pinned at the **foot of the drawer**, shown
+  only when a signed update is staged.
+- **Run lock (#6.5)** — while a run is active the AppBar controls collapse to a
+  "TEST IN PROGRESS" label and the brand is inert, so only Abort is reachable.
+- **Full-screen (#6.4)** — an AppBar toggle; `station.py --fullscreen` does the same at
+  the window level.
 
 ## Auth & permissions
 
@@ -106,7 +129,7 @@ framework. The framework ships `overrides/` empty. See TEMPLATE.md §1.3.
 | Analytics | `/analytics` | premium dashboard (Recharts): filters (range/model/operator/**shift**) + KPI band + tabs — Quality (FPY p-chart, pass/fail), Failures (Pareto + cumulative, parameter Pareto, by-model, **by-shift**), Cycle time (histogram, I-MR). Day-counts group by **business day** when shifts are enabled. Fed by `GET /reports/analytics/dashboard` |
 | Users | `/users` | table with role **dropdowns** + state chips; New-user modal; super_admin hidden from non-super_admins; **Permissions** button (AUTH.MANAGE_ROLES) |
 | Permissions | `/permissions` | AUTH.MANAGE_ROLES (super_admin); **role × permission matrix** with allow/disallow checkboxes, grouped by domain; super_admin column read-only; Save (per-role PUT) — applies at users' next login |
-| Settings | `/settings` | super_admin only; **Data management** (per-item reset toggles → Reset selected); **Report database** (MySQL/SQL Server provider + connection + Test connection + Save — the pro DB report store) |
+| Settings | `/settings` | super_admin only; **Data management** (per-item reset toggles → Reset selected); **Report database** (MySQL/SQL Server provider + connection + Test connection + Save — the pro DB report store); **Remote debugging** (flight-recorder on/off + bind/token + live status → `app.json` `debug.enabled`, applied on relaunch — REMOTE_DEBUG.md) |
 | Help | `/help` + AppBar **?** panel | HELP.VIEW; in-app docs from the `help` module. AppBar **?** (or `F1`) opens a **context-aware** slide-over for the current screen; `/help` is the full page (sidebar tree + search + markdown). super_admin gets a **User/Developer** toggle (dev docs gated HELP.DEV). |
 | Config (cascaded nav group, `CONFIG.VIEW`) | `/config/*` | **Instruments** (`/config/instruments`) — **owner-aware** form engine: pick **Python-owned** (library picker → fields from the library's `connection_params` in the index + `simulated`) or **LabVIEW-owned** (transport picker → fields from `GET /config/transports`); id/label/model, editable resource + preview, **Test connection** (LabVIEW probe / live instance state), family/capabilities; CRUD gated `CONFIG.EDIT`; read-only libraries + live-instances panel. Python instances feed the variable engine (apply on restart). **Shift** (`/config/shift`) — enabled toggle + editable shift list (label + start, 24h contiguous; current-shift chip). **MES** (`/config/mes`). **Barcode** — placeholder |
 | Health | `/health` | HEALTH.VIEW; **Production Readiness** banner (Ready / Warnings / Blocked), **Operator/Technician/Engineer** view toggle, checks grouped by **business function** (Core Software / Production Systems / Test Equipment / External Systems) with impact + what-to-do + known-issue remedy on failure; per-check & suite Re-test, live progress (WS), **Scheduled runs** (startup/shutdown/30-min/daily), **Trend analysis** (MTBF, fail rate, repeated, flaky), history |
@@ -133,7 +156,9 @@ npm run dev          # Vite on :5173 (proxy → :8000)
 npx vitest run       # unit tests (27)
 npm run build        # tsc + production bundle
 ```
-Or the whole stack at once from the repo root: `./dev.ps1`.
+Or the whole stack at once from the repo root: `./dev.ps1` (Vite + HMR), or
+`python station.py` (backend serves the built bundle in a native window — it rebuilds
+a stale bundle first). See [RUNNING.md](RUNNING.md).
 
 Test conventions: `test/fetchMock.ts` maps `"METHOD /path" → {status, body}`;
 components render without a ThemeProvider (status helpers self-fallback). Keep the

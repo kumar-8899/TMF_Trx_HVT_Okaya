@@ -19,9 +19,25 @@ is auditable and survives restart.
 
 from __future__ import annotations
 
+import hashlib
 import time
 
 _OFFER = "update_offer"
+
+
+class AmcRequired(Exception):
+    """Download blocked because the AMC does not cover this build (UPDATES.md §8 → 402)."""
+
+
+def _asset_bytes(asset: dict, token: str | None) -> bytes:
+    """Download one GitHub Release asset's bytes (private-repo needs the API url +
+    octet-stream Accept)."""
+    import urllib.request
+    dl = {"User-Agent": "tmf-station", "Accept": "application/octet-stream"}
+    url = asset["url"] if token else asset["browser_download_url"]
+    if token:
+        dl["Authorization"] = f"Bearer {token}"
+    return urllib.request.urlopen(urllib.request.Request(url, headers=dl), timeout=180).read()
 
 
 def _semver(v: str | None) -> tuple:
@@ -96,42 +112,133 @@ class UpdateService:
                         applicable=verdict["applicable"])
         return rec
 
-    async def check_github(self, repo: str, token: str | None = None) -> dict:
-        """Pull the latest GitHub Release's `.ksupdate` asset and ingest it (verify +
-        offer). Closes the CI→station loop. Blocking HTTP runs off the event loop."""
+    # ---- GitHub discovery (notify) + download (fetch) ---------------------
+
+    @staticmethod
+    def _gh_release(repo: str, token: str | None, *, channel: str = "stable") -> dict:
+        """Latest GitHub Release JSON. `stable` uses /releases/latest (excludes
+        prereleases); `beta` takes the newest entry regardless of the prerelease flag."""
+        import json as _json
+        import urllib.request
+        h = {"User-Agent": "tmf-station", "Accept": "application/vnd.github+json"}
+        if token:
+            h["Authorization"] = f"Bearer {token}"
+
+        def _get(path):
+            return _json.loads(urllib.request.urlopen(
+                urllib.request.Request(f"https://api.github.com/repos/{repo}{path}", headers=h),
+                timeout=20).read())
+
+        if channel == "beta":
+            rels = _get("/releases")
+            return rels[0] if rels else {}
+        return _get("/releases/latest")
+
+    async def check(self, repo: str, token: str | None = None, *, channel: str = "stable") -> dict:
+        """Discovery — NOTIFY ONLY (UPDATES.md item 5). Polls GitHub, downloads nothing.
+        Returns the available release's metadata (or null). Idempotent, network-tolerant."""
+        import asyncio
+        try:
+            rel = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: self._gh_release(repo, token, channel=channel))
+        except Exception as exc:  # noqa: BLE001 — no network still boots + runs (UPDATES.md §3.1)
+            self._diag.warning("updates", "update check failed (no network?)", repo=repo, error=str(exc))
+            return {"checked_at": time.time(), "current": self.current(), "available": None,
+                    "error": str(exc)}
+        asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".ksupdate")), None)
+        available = None
+        if asset is not None:
+            available = {"tag": rel.get("tag_name"), "published_at": rel.get("published_at"),
+                         "notes": rel.get("body"), "asset_name": asset["name"],
+                         "asset_bytes": asset.get("size"), "prerelease": rel.get("prerelease")}
+        self._diag.info("updates", "update check", repo=repo, available=bool(available))
+        return {"checked_at": time.time(), "current": self.current(), "available": available}
+
+    async def download(self, repo: str, token: str | None = None, *, channel: str = "stable") -> dict:
+        """Fetch the latest `.ksupdate`, verify + offer (item 6). **Idempotent on the
+        bundle SHA-256**: a bundle already ingested returns the existing offer and does
+        NOT advance the anti-rollback tripwire a second time."""
         import asyncio
         from pathlib import Path
 
-        def _fetch() -> tuple[str, bytes, str]:
-            import json as _json
-            import urllib.request
-            base = {"User-Agent": "tmf-station", "Accept": "application/vnd.github+json"}
-            if token:
-                base["Authorization"] = f"Bearer {token}"
-            api = f"https://api.github.com/repos/{repo}/releases/latest"
-            rel = _json.loads(urllib.request.urlopen(
-                urllib.request.Request(api, headers=base), timeout=20).read())
+        def _fetch() -> tuple[dict, str, bytes]:
+            rel = self._gh_release(repo, token, channel=channel)
             asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".ksupdate")), None)
             if asset is None:
-                raise RuntimeError(f"no .ksupdate asset in {repo} latest release {rel.get('tag_name')}")
-            # private-repo asset download needs the API url + octet-stream
-            dl = {"User-Agent": "tmf-station", "Accept": "application/octet-stream"}
-            url = asset["browser_download_url"]
-            if token:
-                dl["Authorization"] = f"Bearer {token}"
-                url = asset["url"]
-            data = urllib.request.urlopen(
-                urllib.request.Request(url, headers=dl), timeout=120).read()
-            return asset["name"], data, rel.get("tag_name", "?")
+                raise RuntimeError(f"no .ksupdate asset in {repo} {rel.get('tag_name')}")
+            return rel, asset["name"], _asset_bytes(asset, token)
 
-        name, data, tag = await asyncio.get_running_loop().run_in_executor(None, _fetch)
+        rel, name, data = await asyncio.get_running_loop().run_in_executor(None, _fetch)
+        tag = rel.get("tag_name", "?")
+        sha = hashlib.sha256(data).hexdigest()
+        prior = next((o for o in await self.list_offers() if o.get("bundle_sha256") == sha), None)
+        if prior is not None:
+            self._diag.info("updates", "download idempotent — bundle already ingested",
+                            repo=repo, sha=sha[:12], release_id=prior.get("release_id"))
+            return {"source": repo, "release": tag, "idempotent": True, **prior}
+
         dest = Path(self._data_dir or ".") / "updates"
         dest.mkdir(parents=True, exist_ok=True)
         path = dest / name
         path.write_bytes(data)
-        self._diag.info("updates", "pulled update from github", repo=repo, release=tag, file=name)
-        rec = await self.ingest(str(path))
-        return {"source": repo, "release": tag, **rec}
+        try:
+            rec = await self.ingest(str(path))           # verify + tripwire advance (once)
+        except Exception as exc:  # noqa: BLE001 — VERIFY_FAILED is terminal (UPDATES.md §0)
+            bad = {"release_id": f"badsig-{sha[:12]}", "status": "verify_failed",
+                   "bundle_sha256": sha, "error": str(exc), "ingested_ts": time.time()}
+            await self._db.repo.put(_OFFER, bad, id=bad["release_id"], summary="verify failed")
+            self._diag.error("updates", "update verify FAILED (terminal)", repo=repo, error=str(exc))
+            raise
+        rec["bundle_sha256"] = sha
+        # AMC gate (UPDATES.md §8): may this station install a build with THIS
+        # build_timestamp? Keystation-only; the stub provider has no gate (dev allows).
+        reason = getattr(self._lic, "amc_gate", lambda _ts: None)(rec.get("build_timestamp"))
+        if reason:
+            rec["status"] = "amc_blocked"
+            rec["amc_reason"] = reason
+            await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
+                                    summary=f"{rec['track']} {rec['version']} (AMC required)")
+            self._diag.warning("updates", "download blocked by AMC", release_id=rec["release_id"],
+                               reason=reason)
+            raise AmcRequired(reason)
+        # Materialize the real artifact (a separate .zip Release asset) → a staged
+        # run.dist the launcher can swap. Verify sha == full_artifact_hash first.
+        rec["staged_dir"] = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: self._materialize(rel, rec, token))
+        rec["status"] = "downloaded"
+        await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
+                                summary=f"{rec['track']} {rec['version']} (downloaded)")
+        return {"source": repo, "release": tag, "idempotent": False, **rec}
+
+    def _materialize(self, rel: dict, offer: dict, token: str | None) -> str | None:
+        """Fetch the artifact zip, verify sha256 == full_artifact_hash, unpack to a staged
+        run.dist. Returns the staged path, or None when there's no zip asset (dev / a
+        trust-only release) — the launcher then no-ops, consistent with today."""
+        import io
+        import shutil
+        import zipfile
+        from pathlib import Path
+        zip_asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".zip")), None)
+        if zip_asset is None:
+            self._diag.warning("updates", "no artifact zip asset — offer not stageable",
+                               release_id=offer.get("release_id"))
+            return None
+        data = _asset_bytes(zip_asset, token)
+        sha = hashlib.sha256(data).hexdigest()
+        want = offer.get("full_artifact_hash")
+        if want and sha != want:
+            raise RuntimeError(f"artifact hash mismatch: got {sha[:12]}… want {want[:12]}…")
+        staged = Path(self._data_dir or ".") / "updates" / "staged" / "run.dist"
+        if staged.exists():
+            shutil.rmtree(staged)
+        staged.mkdir(parents=True)
+        zipfile.ZipFile(io.BytesIO(data)).extractall(staged)
+        self._diag.info("updates", "artifact staged", release_id=offer.get("release_id"), dir=str(staged))
+        return str(staged)
+
+    # back-compat alias
+    async def check_github(self, repo: str, token: str | None = None) -> dict:
+        return await self.download(repo, token)
 
     async def list_offers(self) -> list[dict]:
         rows = await self._db.repo.query(_OFFER)
@@ -189,3 +296,56 @@ class UpdateService:
 
     def current(self) -> dict:
         return {"version": self._version, "abi": self._abi}
+
+    # ---- rollback + status (UPDATES.md items 7, 9) ------------------------
+
+    def _read_backups(self) -> tuple[list[dict], str | None]:
+        """Backup metadata sidecars + the last-known-good id (written by launcher.py)."""
+        import json
+        from pathlib import Path
+        if self._data_dir is None:
+            return [], None
+        root = Path(self._data_dir)
+        lkg = None
+        try:
+            lkg = json.loads((root / "last_known_good.json").read_text(encoding="utf-8")).get("backup_id")
+        except (OSError, json.JSONDecodeError):
+            pass
+        out = []
+        for meta in sorted((root / "backups").glob("bak-*/meta.json"), reverse=True):
+            try:
+                m = json.loads(meta.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            m["last_known_good"] = (m.get("backup_id") == lkg)
+            out.append(m)
+        return out, lkg
+
+    async def rollback(self, target: str = "last_known_good") -> dict:
+        """Write a rollback marker; the caller exits 42 and the launcher swaps the backup
+        (binary + DB snapshot) back in. Reverting to a LOCAL backup does NOT re-ingest, so
+        it **bypasses the anti-rollback tripwire** — that artifact was verified when first
+        installed (UPDATES.md §5.4)."""
+        import json
+        from pathlib import Path
+        backups, lkg = self._read_backups()
+        want = lkg if target == "last_known_good" else target
+        if not want or (target != "last_known_good" and want not in {b.get("backup_id") for b in backups}):
+            raise KeyError(f"no rollback target '{target}'")
+        marker = {"rollback": want, "requested_ts": time.time()}
+        if self._data_dir is not None:
+            d = Path(self._data_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "relaunch.json").write_text(json.dumps(marker, indent=2), encoding="utf-8")
+        self._diag.warning("updates", "rollback requested", target=want)
+        return marker
+
+    async def status(self) -> dict:
+        backups, lkg = self._read_backups()
+        offers = await self.list_offers()
+        return {"current": self.current(),
+                "state": offers[0]["status"] if offers else "none",
+                "last_known_good": lkg,
+                "backups": [{"id": b.get("backup_id"), "version": b.get("version"),
+                             "installed_at": b.get("installed_at"),
+                             "last_known_good": b.get("last_known_good", False)} for b in backups]}

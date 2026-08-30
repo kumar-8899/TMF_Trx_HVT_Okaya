@@ -1,0 +1,91 @@
+# APP-REPO release workflow (UPDATES.md §10.3). Copy to `.github/workflows/release.yml`
+# in a forked application repo. The FRAMEWORK repo keeps only ci.yml — it never builds,
+# signs, or publishes (a framework release is a git tag; RELEASE_HOWTO.md).
+#
+# On a `v*` tag: guard tag==version → test → Nuitka build (+ artifact zip + hash) →
+# sign the .ksupdate → publish a GitHub Release whose body is that version's CHANGELOG
+# section, carrying EXACTLY ONE .ksupdate plus the artifact .zip the station verifies.
+#
+# Required repo secrets (from the root ceremony; never on a laptop):
+#   KS_INTERMEDIATE_SEED   hex 32-byte Ed25519 seed of the rotatable intermediate key
+#   KS_INTERMEDIATE_CERT   the root-signed intermediate cert (JSON)
+# Required repo variables:
+#   KS_PRODUCT_SLUG        this app's Keystation app-track product slug
+#   KS_PINNED_FW_VERSION   the framework version this app forked (TEMPLATE.md two-tier)
+
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write        # create the Release
+
+jobs:
+  release:
+    runs-on: windows-latest   # Nuitka builds the Windows station binary
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tag must match core.__version__
+        shell: bash
+        run: |
+          v="$(python -c 'import sys; sys.path.insert(0,"backend"); import core; print(core.__version__)')"
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != v$v"; exit 1; }
+
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install -e "backend[dev,release]"
+          (cd frontend && npm ci)
+
+      - name: Test (fast — is the code correct?)
+        shell: bash
+        run: |
+          (cd backend && python -m pytest -q)
+          (cd frontend && npx vitest run && npm run build)
+
+      - name: Build (Nuitka) + package artifact + hash
+        shell: bash
+        run: |
+          python backend/build_release.py --track app \
+            --product "${{ vars.KS_PRODUCT_SLUG }}" \
+            --pinned-fw-version "${{ vars.KS_PINNED_FW_VERSION }}"
+
+      - name: Sign the .ksupdate
+        shell: bash
+        env:
+          KS_INTERMEDIATE_SEED: ${{ secrets.KS_INTERMEDIATE_SEED }}
+          KS_INTERMEDIATE_CERT: ${{ secrets.KS_INTERMEDIATE_CERT }}
+          KS_TRACK: app
+          KS_PINNED_FW_VERSION: ${{ vars.KS_PINNED_FW_VERSION }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          python tools/ks_release_signer/sign_update.py \
+            release-build/RELEASE.json \
+            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate"
+
+      - name: Release notes from CHANGELOG
+        shell: bash
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v ver="$v" '
+            $0 ~ "^## " {inblk = ($2 == "v"ver || $2 == ver)}
+            inblk {print}
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md || echo "Release $v" > release-notes.md
+
+      - name: Publish Release (.ksupdate + artifact zip)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" --notes-file release-notes.md \
+            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate" \
+            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.zip"

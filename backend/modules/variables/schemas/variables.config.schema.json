@@ -59,6 +59,20 @@
               "min": { "type": "number" },
               "max": { "type": "number" }
             }
+          },
+          "range": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Expected read range — the denominator for the Debug Server's deadband-% analog logging, and the source of threshold-crossing records (REMOTE_DEBUG.md §4.2). Distinct from `clamp`, which bounds writes.",
+            "properties": {
+              "min": { "type": "number" },
+              "max": { "type": "number" }
+            }
+          },
+          "deadband": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-variable absolute deadband for change-logging (REMOTE_DEBUG.md §4.2). Reserved from day one; left unset in phase 1, when the global debug.analog.default_deadband_pct applies."
           }
         }
       }

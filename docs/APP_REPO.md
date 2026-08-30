@@ -57,3 +57,18 @@ git fetch upstream --tags && git merge vX.Y.Z    # clean iff only app-owned path
 ```
 
 See RELEASE_HOWTO.md (framework tags) and SECURE_DISTRIBUTION.md (§5–6, the pipeline).
+
+## Releases & updates (UPDATES.md)
+
+An app repo ships two workflows the framework does not (framework repo = `ci.yml` only):
+
+- **`.github/workflows/release.yml`** (from `docs/templates/release.yml`) — on a `v*` tag:
+  tag-matches-version guard → tests → `build_release.py` (Nuitka + a hashed artifact `.zip` +
+  `full_artifact_hash` in `RELEASE.json`) → sign the `.ksupdate` → publish a Release with the
+  CHANGELOG section as the body and **two assets**: `<slug>-<version>.ksupdate` (trust) +
+  `<slug>-<version>.zip` (the run.dist the station verifies and swaps).
+- **`.github/workflows/upstream-sync.yml`** (from `docs/templates/upstream-sync.yml`) — weekly
+  same-MAJOR framework merge → PR, never auto-merged (drift detection).
+
+The station side (Settings → Updates) is notify-only: **Check → Download → Install → Relaunch**,
+with rollback to last-known-good and a bounded auto-recovery in the launcher. See UPDATES.md.

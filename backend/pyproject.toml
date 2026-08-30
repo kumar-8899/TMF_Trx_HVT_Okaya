@@ -24,6 +24,10 @@ report-db = [
 release = [
     "nuitka>=4.1",
 ]
+# Native desktop window for the one-click launcher (station.py). WebView2 on Win11.
+desktop = [
+    "pywebview>=5.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

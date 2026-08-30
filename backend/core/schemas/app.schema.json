@@ -66,6 +66,72 @@
         "github_token": { "type": "string", "description": "Read token for a private repo (or set TMF_UPDATE_TOKEN env). Omit for public." }
       }
     },
+    "debug": {
+      "type": "object",
+      "description": "Debug Server sidecar — remote debugging & logging discipline (REMOTE_DEBUG.md §6). Presence of this block makes station.py supervise the sidecar with the station; absent = the sidecar is a manual, loopback-only dev tool.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Master on/off, toggled from Settings → Remote debugging. When true, station.py supervises the sidecar with the station; false/absent = off. Applied on relaunch." },
+        "bind_host": { "type": "string", "description": "Explicit interface the sidecar binds. Default 127.0.0.1 (loopback). NEVER 0.0.0.0 (rejected at startup). A non-loopback value requires `token`." },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "The sidecar's own REST+WS port (default 8001)." },
+        "token": { "type": ["string", "null"], "description": "Opaque static bearer, validated by the sidecar itself with no core call (works when the core is down). REQUIRED for any non-loopback bind_host." },
+        "broker_host": { "type": "string" },
+        "broker_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "core_url": { "type": "string", "description": "Core base URL for /auth/me and the /diag/level relay (default http://127.0.0.1:8000)." },
+        "ring_capacity": { "type": "integer", "minimum": 1, "description": "In-memory lossless window size (default 50000)." },
+        "orphan_timeout_s": { "type": "number", "minimum": 0, "description": "Request→reply deadline before a command is 'stuck' (default 5)." },
+        "rolling": {
+          "type": "object", "additionalProperties": false,
+          "description": "Continuous rolling JSONL sink to disk (survives unattended faults).",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "dir": { "type": "string" },
+            "max_file_mb": { "type": "integer", "minimum": 1 },
+            "max_total_mb": { "type": "integer", "minimum": 1 },
+            "compress_rotated": { "type": "boolean" },
+            "retention_days": { "type": ["integer", "null"], "minimum": 1, "description": "Additional cap; the size cap is authoritative. Default null." }
+          }
+        },
+        "snapshot": {
+          "type": "object", "additionalProperties": false,
+          "description": "30 s pre-trigger buffer of variable VALUES ONLY, flushed on failure. Raw stream/# is never buffered.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "pre_seconds": { "type": "integer", "minimum": 1 },
+            "post_seconds": { "type": "integer", "minimum": 0 },
+            "max_per_hour": { "type": "integer", "minimum": 1 },
+            "include_streams": { "type": "boolean", "description": "MUST stay false — raw stream/# is never captured." }
+          }
+        },
+        "analog": {
+          "type": "object", "additionalProperties": false,
+          "description": "Analog logging discipline — never per-sample.",
+          "properties": {
+            "default_deadband_pct": { "type": "number", "minimum": 0, "description": "% of a variable's expected range; per-variable override lives in the variable map." },
+            "summary_interval_run_s": { "type": "number", "minimum": 0 },
+            "summary_interval_idle_s": { "type": "number", "minimum": 0 }
+          }
+        },
+        "digital": {
+          "type": "object", "additionalProperties": false,
+          "description": "Digital logging discipline — edges only.",
+          "properties": {
+            "heartbeat_s": { "type": "number", "minimum": 0 },
+            "chatter_threshold": { "type": "integer", "minimum": 1 },
+            "chatter_window_ms": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "description": "Global suppressors + the drop-and-count queue bound.",
+          "properties": {
+            "queue_size": { "type": "integer", "minimum": 1 },
+            "repeat_collapse": { "type": "boolean" },
+            "per_type_rate_per_s": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
     "modules": {
       "type": "array",
       "items": {

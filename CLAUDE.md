@@ -14,6 +14,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Whole stack: mosquitto (:1883) + backend (:8000) + Vite (:5173) + opens login page
 powershell -ExecutionPolicy Bypass -File .\dev.ps1
 
+# One-click: backend serves the built SPA on :8000 in a native pywebview window (docs/RUNNING.md)
+python station.py                        # --dev (Vite+HMR) | --browser | --fullscreen | --no-window
+
 # Backend
 cd backend
 python -m pip install -e ".[dev]"
@@ -22,7 +25,7 @@ pytest modules/recipe -q                 # one module's tests
 pytest tests/test_core_db.py::test_name  # single test
 python run.py                            # serve http://127.0.0.1:8000 (GET /healthz, /readyz)
 python launcher.py                       # run.py wrapper: exit 42 → restart ("Relaunch to apply")
-python run_debug_server.py               # dev sidecar: MQTT timeline UI on :8001
+python run_debug_server.py               # debug sidecar: MQTT timeline UI on :8001 (REMOTE_DEBUG.md)
 python -m tools.config_doctor            # dry-run config drift (add --apply to reconcile)
 ruff check .                             # lint (line-length 100, py311)
 
@@ -67,6 +70,7 @@ Controller  ◄── MQTT only (tmf/{station}/…) ──►  Python backend  �
 - **Recipes are controller-native** (v1.3.0): steps are `{id, type, params}` against the controller's step-type catalog (8 core types + app step-type packages). The legacy 16-type path exists internally but is not surfaced.
 - **Screen overrides** (`frontend/src/app/registry.ts`): forks customize Runs/Recipes/recipe-editor/recipe-detail/Maintenance by dropping `*.tsx` into `frontend/src/app/overrides/` (shipped empty here) — never by editing framework `screens/*`.
 - **Data is JSON with JSON Schema** and a `schema_version` header; `*.example.json` ships, live file is gitignored. Persisted records carry the RAG envelope (id, type, ts, station, source_version, human-readable summary), append-only where possible.
+- **Remote debugging** (`docs/REMOTE_DEBUG.md`): the Debug Server sidecar can record a bench to disk (rolling JSONL + 30 s failure snapshots) and be pulled to a laptop with the repo-root **`tmf-debug`** CLI. Captures + condensed `digest.json` land in **`.debug/`** at the repo root (gitignored) — that is where to look for a bench capture: `tmf-debug why --host <bench> --last-run` writes both there, and `first_fault` in the digest is the highest-value field. On/off is Settings → Remote debugging (`app.json` `debug.enabled`), supervised by `station.py`.
 - **Fork ownership boundary** (`docs/TEMPLATE.md` §1): app-owned paths are `app/<name>/` (step-type packages, variable maps, recipes, controller.json), `backend/modules/<app>_*/`, `instrument_libs/`, `frontend/src/app/overrides/`, `labview/App/`, and live config. Everything else is framework-owned — a fork needing a framework change gets it via a framework release, never a downstream patch. When editing this repo you are editing the framework: keep that boundary mergeable.
 
 ### Skills

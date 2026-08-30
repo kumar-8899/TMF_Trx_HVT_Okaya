@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { api } from "../api/client";
 import { ConfirmDialog, PageHeader, Section } from "../components/ui";
+import { DebugConfig } from "./config/DebugConfig";
 import { LicenseConfig } from "./config/LicenseConfig";
 import { ReportDbConfig } from "./config/ReportDbConfig";
 import { StationConfig } from "./config/StationConfig";
@@ -76,6 +77,8 @@ export function Settings() {
         <UpdatesConfig />
 
         <ReportDbConfig />
+
+        <DebugConfig />
 
         {/* MES interlock moved to Config → MES. Future settings sections go here. */}
       </Stack>

@@ -168,8 +168,32 @@ class KeystationLicensing:
         return {"provider": "keystation", "available": True,
                 "state": s.state, "bootstrap": s.bootstrap,
                 "tripwire_fired": s.tripwire_fired, "key_tier": s.key_tier,
-                "has_lease": s.has_lease,
+                "has_lease": s.has_lease, "amc": self.amc_status(),
                 "licensed": s.bootstrap == "ACTIVE" and s.state in _VALID_STATES}
+
+    # ---- AMC (UPDATES.md §8) — a separate, time-limited right to receive updates -----
+    def amc_status(self) -> dict | None:
+        """The lease's AMC window {starts, expires} (unix), or None if no AMC."""
+        ks = self._sdk()
+        if ks is None or not hasattr(ks, "amc"):
+            return None
+        try:
+            return ks.amc()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def amc_gate(self, build_timestamp: int | None) -> str | None:
+        """None = update allowed. A string = the block reason. Compares the build's
+        signed build_timestamp to amc.expires (never the PC clock). An expired AMC only
+        blocks the Updates page — never a run, module, or operator (UPDATES.md §8.6)."""
+        amc = self.amc_status()
+        if amc is None:
+            return "updates require an active AMC (Annual Maintenance Contract)"
+        if build_timestamp is not None and int(build_timestamp) > int(amc["expires"]):
+            import datetime
+            ended = datetime.datetime.utcfromtimestamp(int(amc["expires"])).strftime("%d %b %Y")
+            return f"this update was released after your AMC ended on {ended}"
+        return None
 
     def make_request(self, product_id: str, runtime: str = "python_framework") -> dict:
         """Airgap step 1: emit a device-signed `.ksreq` activation request."""

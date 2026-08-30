@@ -109,9 +109,13 @@ dev.ps1     one-shot launcher: mosquitto + backend + frontend + browser
 
 ```pwsh
 powershell -ExecutionPolicy Bypass -File .\dev.ps1   # broker + backend + frontend + login page
+python station.py                                    # one-click: backend serves the built UI in a native window
 ```
 Backend `:8000`, Vite `:5173`, Mosquitto `:1883`. Dev login `admin` / `admin`
-(super_admin; a DEV credential — provision properly for production).
+(super_admin; a DEV credential — provision properly for production). In a shipped
+station there is no Vite: the **Python edge also serves the built SPA** (single origin),
+and `station.py` is the one-process launcher (broker + backend + desktop window, with a
+graceful shutdown). See [RUNNING.md](RUNNING.md).
 
 ## Testing
 

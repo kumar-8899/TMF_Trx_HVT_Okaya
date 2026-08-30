@@ -6,7 +6,7 @@ import {
   ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TroubleshootOutlined, TuneOutlined,
 } from "@mui/icons-material";
 import {
-  AppBar, Box, Collapse, Drawer, IconButton, List, ListItemButton, ListItemIcon,
+  AppBar, Box, Collapse, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon,
   ListItemText, Stack, Toolbar, Tooltip, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
@@ -18,11 +18,10 @@ import { useBranding } from "../hooks/useBranding";
 import { useRunActivity } from "./RunActivity";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
-import { ExitButton } from "./ExitButton";
 import { HelpPanel } from "./help/HelpPanel";
 import { StatusDot } from "./ui";
-import { SessionPanel } from "./SessionPanel";
 import { UpdateChip } from "./UpdateChip";
+import { UserMenu } from "./UserMenu";
 
 const DRAWER_WIDTH = 232;
 
@@ -92,6 +91,14 @@ function useReadyz() {
     return () => { alive = false; clearInterval(id); };
   }, []);
   return state;
+}
+
+/** Thin vertical separator that groups the AppBar controls into clusters. */
+function NavDivider() {
+  return (
+    <Divider orientation="vertical" flexItem
+      sx={{ my: 1.25, mx: 0.5, borderColor: "rgba(255,255,255,0.18)", display: { xs: "none", sm: "block" } }} />
+  );
 }
 
 function LinkStatus() {
@@ -208,8 +215,8 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
             </Typography>
           ) : (
             <>
-              <UpdateChip />
               <LinkStatus />
+              <NavDivider />
               {showHelp && (
                 <Tooltip title="Help (F1)">
                   <IconButton onClick={() => setHelpOpen(true)} size="small" aria-label="open help"
@@ -230,8 +237,8 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
                   {mode === "dark" ? <LightMode fontSize="small" /> : <DarkMode fontSize="small" />}
                 </IconButton>
               </Tooltip>
-              <SessionPanel />
-              <ExitButton />
+              <NavDivider />
+              <UserMenu />
             </>
           )}
         </Toolbar>
@@ -240,14 +247,18 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
         <Drawer
           variant="permanent"
           sx={{ width: DRAWER_WIDTH, flexShrink: 0,
-            [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: "border-box" } }}
+            [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: "border-box",
+              display: "flex", flexDirection: "column" } }}
         >
           <Toolbar />
-          <List sx={{ py: 1 }}>
+          <List sx={{ py: 1, flexGrow: 1, overflowY: "auto" }}>
             {items.map((n) => n.children
               ? <NavGroup key={n.label} n={n} can={can} role={principal?.role} />
               : <NavLeaf key={n.to} n={n} />)}
           </List>
+          {/* Relaunch-to-update lives at the foot of the menu — only rendered when an
+              update is staged, and never mid-run. */}
+          {!runActive && <UpdateChip drawer />}
         </Drawer>
       )}
       <Box component="main" sx={{ flexGrow: 1, p: 3, bgcolor: "background.default" }}>

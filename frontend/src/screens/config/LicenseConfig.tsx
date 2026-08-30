@@ -72,6 +72,21 @@ export function LicenseConfig() {
               <Typography sx={{ fontFamily: MONO_STACK }}>{st?.key_tier ?? "—"}</Typography>
             </Box>
             {st?.tripwire_fired && <StatusChip label="tripwire" kind="fail" />}
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">AMC (updates)</Typography>
+              {(() => {
+                const amc = st?.amc;
+                if (!amc) return <Typography variant="body2" color="text.secondary">none — updates require an AMC</Typography>;
+                const end = new Date(amc.expires * 1000);
+                const active = amc.expires * 1000 >= Date.now();
+                return (
+                  <Typography variant="body2">
+                    {active ? "valid until " : "expired on "}<b>{end.toLocaleDateString()}</b>
+                    {!active && <Typography component="span" variant="caption" color="text.secondary"> — software continues to run normally</Typography>}
+                  </Typography>
+                );
+              })()}
+            </Box>
           </>
         )}
         {!keystation && st?.detail && (

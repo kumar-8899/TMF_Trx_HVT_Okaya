@@ -118,3 +118,200 @@ async def test_ingest_bad_signature_raises():
     with pytest.raises(RuntimeError):
         await svc.ingest("tampered.ksupdate")
     await db.close()
+
+
+# --- Phase 2: discovery (notify) + download (fetch, idempotent) -------------
+
+class _Resp:
+    def __init__(self, b):
+        self._b = b
+
+    def read(self):
+        return self._b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _gh(assets=True):
+    a = [{"name": "app-1.2.0.ksupdate", "url": "http://x/api", "browser_download_url": "http://x/dl",
+          "size": 42}] if assets else []
+    return {"tag_name": "v1.2.0", "published_at": "t0", "body": "notes", "prerelease": False, "assets": a}
+
+
+async def test_check_is_notify_only(monkeypatch):
+    svc, db = await _svc(_manifest(version="1.2.0"))
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh()))
+    r = await svc.check("owner/repo")
+    assert r["available"]["asset_name"] == "app-1.2.0.ksupdate"
+    assert r["available"]["tag"] == "v1.2.0"
+    assert await svc.list_offers() == []          # NOTHING downloaded/ingested
+    await db.close()
+
+
+async def test_check_none_when_no_asset(monkeypatch):
+    svc, db = await _svc(_manifest())
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh(assets=False)))
+    assert (await svc.check("owner/repo"))["available"] is None
+    await db.close()
+
+
+class _CountLic:
+    def __init__(self, manifest):
+        self._m = manifest
+        self.calls = 0
+
+    def ingest_manifest(self, path):
+        self.calls += 1
+        if self._m is None:
+            raise RuntimeError("bad signature")
+        return dict(self._m)
+
+
+async def _svc_lic(lic, *, version="1.0.0", tmp=None):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, lic, diag, current_version=version, data_dir=tmp)
+    return svc, db
+
+
+async def test_download_idempotent_no_double_tripwire(monkeypatch, tmp_path):
+    import urllib.request
+    lic = _CountLic(_manifest(version="1.2.0"))
+    svc, db = await _svc_lic(lic, tmp=tmp_path)
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh()))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(b"same-bundle-bytes"))
+    r1 = await svc.download("owner/repo")
+    assert r1["idempotent"] is False and r1["status"] == "downloaded"
+    r2 = await svc.download("owner/repo")           # same bytes → idempotent
+    assert r2["idempotent"] is True
+    assert lic.calls == 1                            # tripwire advanced exactly ONCE
+    assert len(await svc.list_offers()) == 1
+    await db.close()
+
+
+async def test_download_verify_failed_is_terminal(monkeypatch, tmp_path):
+    import urllib.request
+    svc, db = await _svc_lic(_CountLic(None), tmp=tmp_path)   # licensing raises
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh()))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(b"tampered"))
+    with pytest.raises(RuntimeError):
+        await svc.download("owner/repo")
+    offers = await svc.list_offers()
+    assert any(o["status"] == "verify_failed" for o in offers)
+    await db.close()
+
+
+# --- Phase 3: rollback + status --------------------------------------------
+
+def _seed_backup(tmp_path, bid, version, *, lkg=False):
+    import json
+    d = tmp_path / "backups" / bid
+    d.mkdir(parents=True)
+    (d / "meta.json").write_text(json.dumps(
+        {"backup_id": bid, "version": version, "installed_at": 1.0}), encoding="utf-8")
+    if lkg:
+        (tmp_path / "last_known_good.json").write_text(json.dumps({"backup_id": bid}), encoding="utf-8")
+
+
+async def test_status_lists_backups_and_lkg(tmp_path):
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    _seed_backup(tmp_path, "bak-1", "1.0.0", lkg=True)
+    _seed_backup(tmp_path, "bak-2", "1.1.0")
+    st = await svc.status()
+    assert st["last_known_good"] == "bak-1"
+    by = {b["id"]: b for b in st["backups"]}
+    assert by["bak-1"]["last_known_good"] is True and by["bak-2"]["last_known_good"] is False
+    await db.close()
+
+
+async def test_rollback_writes_marker(tmp_path):
+    import json
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    _seed_backup(tmp_path, "bak-1", "1.0.0", lkg=True)
+    marker = await svc.rollback("last_known_good")
+    assert marker["rollback"] == "bak-1"
+    assert json.loads((tmp_path / "relaunch.json").read_text())["rollback"] == "bak-1"
+    await db.close()
+
+
+async def test_rollback_unknown_target_raises(tmp_path):
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    with pytest.raises(KeyError):
+        await svc.rollback("bak-nope")
+    await db.close()
+
+
+# --- Phase 4: AMC gate (build_timestamp vs amc.expires) --------------------
+
+class _AmcLic:
+    """Licensing provider with an AMC window ending at `expires` (unix)."""
+
+    def __init__(self, manifest, expires):
+        self._m = manifest
+        self.expires = expires
+
+    def ingest_manifest(self, path):
+        return dict(self._m)
+
+    def amc_gate(self, build_timestamp):
+        if build_timestamp is not None and int(build_timestamp) > self.expires:
+            return "this update was released after your AMC ended"
+        return None
+
+
+async def test_download_blocked_when_build_after_amc(monkeypatch, tmp_path):
+    import urllib.request
+    from core.services.updates import AmcRequired
+    # manifest build_timestamp = 1_700_000_000; AMC ended earlier → blocked (402)
+    svc, db = await _svc_lic(_AmcLic(_manifest(version="1.2.0"), expires=1_600_000_000), tmp=tmp_path)
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh()))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(b"bundle"))
+    with pytest.raises(AmcRequired):
+        await svc.download("owner/repo")
+    assert any(o["status"] == "amc_blocked" for o in await svc.list_offers())
+    await db.close()
+
+
+async def test_download_allowed_within_amc(monkeypatch, tmp_path):
+    import urllib.request
+    svc, db = await _svc_lic(_AmcLic(_manifest(version="1.2.0"), expires=1_800_000_000), tmp=tmp_path)
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh()))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(b"bundle"))
+    r = await svc.download("owner/repo")
+    assert r["status"] == "downloaded"                 # build within AMC → allowed
+    await db.close()
+
+
+# --- Phase 5: _materialize (artifact zip → staged run.dist) ----------------
+
+async def test_materialize_unpacks_and_verifies_hash(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    import zipfile
+    from pathlib import Path
+
+    from core.services import updates as U
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("run.exe", "BINARY")
+        z.writestr("RELEASE.json", '{"version":"1.2.0"}')
+    data = buf.getvalue()
+    sha = hashlib.sha256(data).hexdigest()
+    monkeypatch.setattr(U, "_asset_bytes", lambda asset, token: data)
+
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    rel = {"assets": [{"name": "app-1.2.0.zip", "url": "http://x/z", "browser_download_url": "http://x/z"}]}
+    staged = svc._materialize(rel, {"release_id": "r", "full_artifact_hash": sha}, None)
+    assert (Path(staged) / "run.exe").read_text() == "BINARY"     # unpacked
+    with pytest.raises(RuntimeError):                              # hash mismatch rejected
+        svc._materialize(rel, {"release_id": "r2", "full_artifact_hash": "deadbeef"}, None)
+    await db.close()

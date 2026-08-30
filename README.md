@@ -36,6 +36,12 @@ Whole stack (broker + backend + frontend + opens the login page):
 powershell -ExecutionPolicy Bypass -File .\dev.ps1
 ```
 
+One-click, production-feel (backend serves the built UI on one origin, in a native
+window — see [docs/RUNNING.md](docs/RUNNING.md)):
+```pwsh
+python station.py            # add --dev for Vite+HMR, --browser, or --fullscreen
+```
+
 Backend only:
 ```pwsh
 cd backend
