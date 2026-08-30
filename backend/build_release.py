@@ -114,12 +114,29 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
         print("WARNING: keystation_core.dll not found - ship it separately")
 
 
-def manifest(track: str = "framework", product: str = "super_test_app",
-             pinned_fw_version: str | None = None) -> None:
+def _framework_version() -> str:
     import re
     init = (BACKEND / "core" / "__init__.py").read_text(encoding="utf-8")
     m = re.search(r'^__version__\s*=\s*"([^"]+)"', init, re.M)
-    version = m.group(1) if m else "0.0.0"
+    return m.group(1) if m else "0.0.0"
+
+
+def _app_version(product: str, override: str | None) -> str | None:
+    """An app's OWN version (independent semver, starts 1.0.0) — from --app-version or the
+    app-owned `app/<product>/VERSION` file. The framework version is provenance, not this."""
+    if override:
+        return override.strip()
+    vf = REPO / "app" / product / "VERSION"
+    if vf.is_file():
+        return (vf.read_text(encoding="utf-8").strip() or None)
+    return None
+
+
+def manifest(track: str = "framework", product: str = "super_test_app",
+             pinned_fw_version: str | None = None, app_version: str | None = None) -> None:
+    fw = _framework_version()
+    # An APP versions independently (its VERSION); a FRAMEWORK build uses core.__version__.
+    version = app_version if (track == "app" and app_version) else fw
     entries = {}
     for f in sorted(OUT.rglob("*")):
         if f.is_file() and f.name != "RELEASE.json":
@@ -127,15 +144,15 @@ def manifest(track: str = "framework", product: str = "super_test_app",
                 f.read_bytes()).hexdigest()
     rel = {
         "product": product, "track": track, "runtime": "python_framework",
-        "version": version, "built_at": int(time.time()),
+        "version": version, "framework_version": fw, "built_at": int(time.time()),
         "files": len(entries), "sha256": entries,
     }
     if track == "app":
-        # an app build pins the framework version it forked (TEMPLATE.md two-tier).
-        rel["pinned_fw_version"] = pinned_fw_version
+        # the framework version this app is built upon (provenance; TEMPLATE.md two-tier).
+        rel["pinned_fw_version"] = pinned_fw_version or fw
     (OUT / "RELEASE.json").write_text(json.dumps(rel, indent=2), encoding="utf-8")
-    pin = f", pins fw {pinned_fw_version}" if track == "app" else ""
-    print(f"RELEASE.json: {track} {product} v{version}{pin}, {len(entries)} files hashed")
+    prov = f" (framework {fw})" if track == "app" else ""
+    print(f"RELEASE.json: {track} {product} v{version}{prov}, {len(entries)} files hashed")
 
 
 def package_artifact(product: str) -> None:
@@ -163,16 +180,21 @@ def main() -> int:
     ap.add_argument("--product", default="super_test_app",
                     help="Keystation product slug (app repos pass their app-track slug)")
     ap.add_argument("--pinned-fw-version", default=None,
-                    help="framework version an app build pins (required with --track app)")
+                    help="framework version an app build was built upon (defaults to the "
+                         "framework's core.__version__)")
+    ap.add_argument("--app-version", default=None,
+                    help="the app's OWN version (defaults to app/<product>/VERSION); app track only")
     ap.add_argument("--manifest-only", action="store_true",
                     help="re-hash an existing release-build (no recompile)")
     args = ap.parse_args()
 
-    if args.track == "app" and not args.pinned_fw_version:
-        ap.error("--track app requires --pinned-fw-version")
+    app_ver = _app_version(args.product, args.app_version) if args.track == "app" else None
+    if args.track == "app" and not app_ver:
+        ap.error(f"--track app needs the app version — create app/{args.product}/VERSION "
+                 "(e.g. 1.0.0) or pass --app-version")
 
     if args.manifest_only:
-        manifest(args.track, args.product, args.pinned_fw_version)
+        manifest(args.track, args.product, args.pinned_fw_version, app_ver)
         return 0
 
     if OUT.exists():
@@ -180,7 +202,7 @@ def main() -> int:
     build_backend(args.jobs)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
-    manifest(args.track, args.product, args.pinned_fw_version)
+    manifest(args.track, args.product, args.pinned_fw_version, app_ver)
     package_artifact(args.product)
     print("\nrelease at:", OUT)
     return 0

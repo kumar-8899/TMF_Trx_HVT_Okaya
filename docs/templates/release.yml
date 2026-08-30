@@ -11,7 +11,8 @@
 #   KS_INTERMEDIATE_CERT   the root-signed intermediate cert (JSON)
 # Required repo variables:
 #   KS_PRODUCT_SLUG        this app's Keystation app-track product slug
-#   KS_PINNED_FW_VERSION   the framework version this app forked (TEMPLATE.md two-tier)
+# The app version comes from app/<slug>/VERSION (independent semver, starts 1.0.0); the
+# framework version it was built upon is recorded automatically (RELEASE.json.pinned_fw_version).
 
 name: release
 on:
@@ -31,11 +32,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Tag must match core.__version__
+      - name: Tag must match the APP version (app/<slug>/VERSION)
         shell: bash
         run: |
-          v="$(python -c 'import sys; sys.path.insert(0,"backend"); import core; print(core.__version__)')"
-          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != v$v"; exit 1; }
+          v="$(cat "app/${{ vars.KS_PRODUCT_SLUG }}/VERSION" | tr -d '[:space:]')"
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != app v$v"; exit 1; }
+          echo "app version $v (framework $(python -c 'import sys;sys.path.insert(0,"backend");import core;print(core.__version__)'))"
 
       - name: Install
         shell: bash
@@ -52,9 +54,9 @@ jobs:
       - name: Build (Nuitka) + package artifact + hash
         shell: bash
         run: |
-          python backend/build_release.py --track app \
-            --product "${{ vars.KS_PRODUCT_SLUG }}" \
-            --pinned-fw-version "${{ vars.KS_PINNED_FW_VERSION }}"
+          # app version comes from app/<slug>/VERSION; the framework version it was built
+          # upon is recorded automatically as pinned_fw_version in RELEASE.json.
+          python backend/build_release.py --track app --product "${{ vars.KS_PRODUCT_SLUG }}"
 
       - name: Sign the .ksupdate
         shell: bash

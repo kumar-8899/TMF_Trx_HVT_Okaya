@@ -5,6 +5,19 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.9.1 — 2026-08-30
+
+App-independent versioning. PATCH.
+
+- An application now carries its OWN semver in the app-owned `app/<name>/VERSION` (starts
+  1.0.0), independent of `core.__version__` (the framework version). `build_release.py
+  --track app` uses it as the release version and records the framework version built upon
+  as `pinned_fw_version`/`framework_version` in RELEASE.json.
+- `core.app_version()` surfaces it at runtime (RELEASE.json when frozen, `app/*/VERSION` in
+  source); `/branding` + `/update/offers` expose `app_version`; update applicability compares
+  app-to-app (framework compatibility stays the `pinned_fw_version` check).
+- release.yml template tag-guard now checks the app VERSION; new-test-app scaffolds VERSION.
+
 ## v1.9.0 — 2026-08-30
 
 Remote debugging + updates + single-origin launcher. MINOR — new features, additive

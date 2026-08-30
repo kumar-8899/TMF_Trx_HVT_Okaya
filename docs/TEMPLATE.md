@@ -163,6 +163,13 @@ your `<app>_*` modules against the new `contract_version` before merging.
 - Release = update version + `CHANGELOG.md`, tag `v<version>`, push tag.
   Sub-distributions version independently: `tmf-instrumentlib` (= `base_version`,
   INSTRUMENT_LIBRARY §9).
+- **An application versions independently of the framework.** `core.__version__` is the
+  *framework* version; an app carries its **own** semver in the app-owned `app/<name>/VERSION`
+  (starts `1.0.0`, bumped per app change). `build_release.py --track app` uses that as the
+  release version and records the framework version built upon as `pinned_fw_version` in
+  `RELEASE.json` (and the `.ksupdate` manifest). The operator sees the app version; the
+  framework number is provenance. App-track updates compare app-version-to-app-version;
+  framework compatibility is the `pinned_fw_version` check, not the incrementing number.
 
 ## 5. LabVIEW split (planned boundary)
 

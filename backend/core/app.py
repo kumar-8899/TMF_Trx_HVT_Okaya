@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
-from core import __version__
+from core import __version__, app_version
 from core.services.security import require_role
 from core.framework.contract import Core
 from core.framework.gate import ActivationResult, activate_modules
@@ -163,6 +163,7 @@ def create_app(
 
         from core.services.updates import UpdateService
         app.state.updates = UpdateService(db, licensing, diag, current_version=__version__,
+                                          current_app_version=app_version(),
                                           data_dir=DEFAULT_DB_PATH.parent)
         app.state.update_source = app_cfg.get("updates", {})   # {github_repo, github_token?}
         discover()
@@ -228,7 +229,8 @@ def create_app(
                "product": "Test & Measurement Framework",
                "tagline": "Authorised access only. All sessions are encrypted.",
                "logo_client": "", "logo_exeliq": "",
-               "version": __version__}
+               "version": __version__, "framework_version": __version__,
+               "app_version": app_version()}
         out.update(cfg.get("branding", {}) or {})
         # Controller kind rides along so the UI can adapt (e.g. the Instruments page
         # hides the LabVIEW-owned transport path on a Python-controller app).

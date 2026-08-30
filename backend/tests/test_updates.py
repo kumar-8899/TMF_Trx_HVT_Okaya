@@ -72,6 +72,22 @@ async def test_resolve_app_track_applicable():
     await db.close()
 
 
+async def test_resolve_compares_by_track_two_tier():
+    # framework 1.9.0, app 1.0.0 (independent). An app-track 1.0.1 is applicable (newer than
+    # the APP), even though 1.0.1 < the framework version; framework-track compares framework.
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(_manifest()), diag,
+                        current_version="1.9.0", current_app_version="1.0.0")
+    assert svc.resolve(_manifest(track="app", version="1.0.1"))["applicable"] is True
+    assert svc.resolve(_manifest(track="app", version="1.0.0"))["applicable"] is False
+    assert svc.resolve(_manifest(track="framework", version="1.9.1"))["applicable"] is True
+    assert svc.resolve(_manifest(track="framework", version="1.9.0"))["applicable"] is False
+    assert svc.current()["app_version"] == "1.0.0"
+    await db.close()
+
+
 async def test_resolve_core_track_not_station_applicable():
     svc, db = await _svc(_manifest(track="core"))
     assert svc.resolve(_manifest(track="core"))["applicable"] is False

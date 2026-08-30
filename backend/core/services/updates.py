@@ -53,11 +53,12 @@ class UpdateService:
     `current_abi` is the core ABI the framework was built against (-1 = unknown)."""
 
     def __init__(self, db, licensing, diag, *, current_version: str, current_abi: int = -1,
-                 data_dir=None):
+                 data_dir=None, current_app_version: str | None = None):
         self._db = db
         self._lic = licensing
         self._diag = diag
-        self._version = current_version
+        self._version = current_version              # framework version (core.__version__)
+        self._app_version = current_app_version       # this app's own version (None on framework)
         self._abi = current_abi
         self._data_dir = data_dir   # where the launcher reads relaunch.json
 
@@ -71,9 +72,12 @@ class UpdateService:
             return {"applicable": False, "reason": f"track '{track}' is not station-applicable here"}
         if not manifest.get("verified", False):
             return {"applicable": False, "reason": "manifest signature not verified (untrusted provider)"}
-        if _semver(offered) <= _semver(self._version):
+        # Compare like with like: an app-track update against the app's own version, a
+        # framework-track update against the framework version (TEMPLATE.md two-tier).
+        baseline = self._app_version if (track == "app" and self._app_version) else self._version
+        if _semver(offered) <= _semver(baseline):
             return {"applicable": False,
-                    "reason": f"offered {offered} not newer than installed {self._version}"}
+                    "reason": f"offered {offered} not newer than installed {baseline}"}
         need_abi = manifest.get("min_abi_required", -1)
         if self._abi >= 0 and need_abi is not None and need_abi > self._abi:
             return {"applicable": False,
@@ -295,7 +299,7 @@ class UpdateService:
         return marker
 
     def current(self) -> dict:
-        return {"version": self._version, "abi": self._abi}
+        return {"version": self._version, "app_version": self._app_version, "abi": self._abi}
 
     # ---- rollback + status (UPDATES.md items 7, 9) ------------------------
 

@@ -70,7 +70,8 @@ export function UpdatesConfig() {
       {msg && <Alert severity="info" sx={{ mb: 1.5 }} onClose={() => setMsg(null)}>{msg}</Alert>}
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Installed framework: <b style={{ fontFamily: MONO_STACK }}>{current?.version ?? "—"}</b>
+        Installed: <b style={{ fontFamily: MONO_STACK }}>{current?.app_version ? `App ${current.app_version}` : `framework ${current?.version ?? "—"}`}</b>
+        {current?.app_version && <> · framework {current.version}</>}
         {current?.abi >= 0 && <> · core ABI {current.abi}</>}
       </Typography>
 
