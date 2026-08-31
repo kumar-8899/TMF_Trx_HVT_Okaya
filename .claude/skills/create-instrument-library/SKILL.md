@@ -1,0 +1,90 @@
+---
+name: create-instrument-library
+description: Author a new Python instrument library into the Instrument_Library repo (a local clone at $TMF_INSTRUMENT_LIBRARY) against a capability interface + the vendor manual, then gate it with the framework conformance suite. Use when the user wants to add, create, author, scaffold, generate, or write an instrument library / driver for a specific instrument model — power supply, electronic load, DMM/multimeter, temperature controller, DAQ-adjacent source, multiplexer, or DSO/oscilloscope. Follows INSTRUMENT_LIBRARY.md §2–§5 and §8.
+---
+
+# Create an instrument library
+
+Generate one explicit Python class per instrument model, implementing one or more
+capability interfaces (a composite/multi-function instrument mixes in several over one
+connection) and riding `InstrumentBase`. The class is thin (device specifics only); all
+cross-cutting behaviour is in the base. Not green on conformance ⇒ not in
+the index ⇒ it does not exist. Read `reference/capabilities.md` and
+`reference/library_template.py` before generating.
+
+Repo: **`$TMF_INSTRUMENT_LIBRARY`** — a local clone of the `Instrument_Library` repo (ask the
+user for its path/URL if the env var is unset). Core contract: `docs/INSTRUMENT_LIBRARY.md` in
+the framework repo.
+
+## 1. Gather inputs (ask the user)
+
+Ask for these; use `AskUserQuestion` for the enumerable ones (capability, transport),
+free text for the rest. Confirm before generating.
+
+| Input | Notes |
+|---|---|
+| `library_id` | snake_case, unique (e.g. `chroma_63600`). Fails loudly if duplicate. |
+| `vendor`, `model` | e.g. Chroma / 63600. |
+| `capabilities` | a **list** of one or more of: `power_source`, `electronic_load`, `analog_input`, `digital_input`, `digital_output`, `temperature`, `resistance`, `frequency`, `multiplexer` (non-scalar), `dso` (non-scalar). A composite instrument names several. |
+| `transports` | e.g. `visa_lan`, `visa_usb`. VISA ships in `instrument_libs/transports/visa.py`. **Any other bus (Modbus/CAN/serial) needs a transport added under `transports/` first.** |
+| `connection_params` | schema for the declaration, e.g. `{"resource": {"type":"string"}, "timeout_ms": {"type":"int","default":5000}}`. |
+| `EXPECTED_IDN` | substring re-verified on reconnect (e.g. `63600`). |
+| command strings | the SCPI/register command for **each** method of the capability (from the vendor manual). If the user says "standard SCPI", use the conventional SCPI set and flag it for manual review. |
+| sim responses | plausible read replies + the IDN string, so sim + conformance pass. |
+| `library_version` | e.g. `1.0.0`. |
+| `manual_reference` | e.g. "Chroma 63600 Programming Manual v2.3". |
+| `generated_by` | e.g. `claude-code/<yyyy-mm>`. |
+
+If the capability is non-scalar (`multiplexer`/`dso`), remind the user it is reached
+via `capability.request` only and MUST NOT be bound in the variable map.
+
+## 2. Generate the library file
+
+Path: `instrument_libs/<capability>/<library_id>.py`. Base it on
+`reference/library_template.py`. It MUST:
+- implement **every** method of **each declared** capability (see `reference/capabilities.md`);
+- keep **all** command strings in a class-level `CMD` dict at the top (the 5-minute
+  manual diff, §4.3) — the only allowed class-level mutable-type value;
+- build the transport in `__init__`: `simulated` → `SimTransport(responses=…)`, else the
+  real transport from `params`;
+- parse every read to its type and raise `GarbageResponse` on an implausible/unparseable
+  value (never return a wrong number, §4.4);
+- set `EXPECTED_IDN` and implement `identify()`;
+- implement `safe_state()` and `emergency_disable()` (must cut outputs);
+- import nothing from another library, never touch the bridge, never emit diagnostics.
+
+## 3. Register it
+
+In `instrument_libs/<capability>/__init__.py` apply `@instrument_library(...)` with full
+provenance (all fields from step 1). Ensure `instrument_libs/__init__.py` imports the
+sub-package so the decorator fires. Create the sub-package `__init__.py` if the
+capability folder is new.
+
+## 4. Gate it (conformance — the existence condition)
+
+Run in the repo and fix until green:
+```
+cd "$TMF_INSTRUMENT_LIBRARY"
+python -m pytest -q       # the §8 battery over every registered library, in sim
+python ci.py              # regenerates index.json (only if all green)
+```
+The battery checks: interface completeness, no class mutable state, lock, sim mode, the
+five fault primitives, safe/emergency, declaration completeness.
+
+## 5. Report + commit
+
+Summarise the new library + its index entry. Offer to commit in the library repo:
+```
+git -C "$TMF_INSTRUMENT_LIBRARY" add -A
+git -C "$TMF_INSTRUMENT_LIBRARY" commit -m "add <vendor> <model> (<capability>) library"
+```
+(commits with the developer's own git identity — no hardcoded author.)
+
+## Guardrails
+- One or more capabilities per library (composite instruments mix in several over one
+  connection); non-scalar capabilities never in the variable map.
+- `index.json` is generated by `ci.py`, never hand-edited.
+- If a required transport doesn't exist yet, create it under `transports/` (subclass
+  `instrumentlib.transport.Transport`, off-loop for blocking I/O) before the library.
+- The framework core is the pinned `tmf-instrumentlib` package; do not modify it from
+  here — libraries are external subjects.

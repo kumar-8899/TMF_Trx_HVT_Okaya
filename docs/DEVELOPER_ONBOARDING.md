@@ -18,18 +18,38 @@ Ask the maintainer for collaborator access to:
 Configure git auth (HTTPS credential manager or SSH) so you can clone **private** repos —
 Claude Code's `/plugin marketplace add` needs the same auth to fetch the framework.
 
-## 2. Install the skills (one time)
+## 2. Get the skills
 
-The framework repo is a Claude Code **marketplace**. In Claude Code:
+Four skills: `new-test-app`, `test-step-authoring`, `add-bench-test`, `create-instrument-library`.
+Pick the method for how you run Claude Code:
 
+**A. Claude Code interface / agent mode (most devs).** Skills load as **project skills** from
+`.claude/skills/` in the repo you open. Just **clone and open the framework repo** — the four
+skills are committed there, so they're available automatically (and every fork made with
+`new-test-app` inherits them). No `/plugin`, no plugin.json.
+
+```
+git clone https://github.com/kumar-8899/Super_Test_App.git
+# open this folder in the Claude Code interface — skills are ready
+```
+
+To have them in **every** repo/session, copy them once to your global skills dir:
+```powershell
+Copy-Item -Recurse -Force .\.claude\skills\* "$env:USERPROFILE\.claude\skills\"
+```
+
+**B. Terminal `claude` CLI (only if you use it).** The framework repo is also a Claude Code
+**marketplace**:
 ```
 /plugin marketplace add kumar-8899/Super_Test_App
 /plugin install tmf-tools
 ```
+`/plugin` is a slash command at the `claude` prompt (not PowerShell); it is **not** available in
+the interface/agent mode — use method A there. Update later with `/plugin marketplace update`.
 
-This installs four skills **globally**, so they work anywhere (including before you've cloned
-anything): `new-test-app`, `test-step-authoring`, `add-bench-test`, `create-instrument-library`.
-Pull newer skill versions later with `/plugin marketplace update`.
+> The same four skills live in two places in the repo — `.claude/skills/` (method A) and
+> `plugins/tmf-tools/skills/` (the plugin, method B). Keep them in sync when editing a skill.
+> `plugin.json` (`plugins/tmf-tools/.claude-plugin/plugin.json`) only matters for method B.
 
 ## 3. Environment
 
