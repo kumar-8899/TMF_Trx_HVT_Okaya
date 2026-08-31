@@ -75,7 +75,7 @@ Controller  ◄── MQTT only (tmf/{station}/…) ──►  Python backend  �
 
 ### Skills
 
-Project skills `create-instrument-library` and `test-step-authoring` (in `.claude/skills/`) plus the global `new-test-app` and `add-bench-test` cover driver authoring, controller step types, and forking apps — use them for those tasks instead of hand-rolling.
+The framework repo **is** a Claude Code marketplace (`.claude-plugin/marketplace.json`). Install the `tmf-tools` plugin — `/plugin marketplace add kumar-8899/Super_Test_App` then `/plugin install tmf-tools` — to get all four skills (versioned with the framework): `new-test-app` (fork a new app), `test-step-authoring` (author controller step types), `add-bench-test` (add a test to an existing app), and `create-instrument-library` (author a driver). Skills are env-driven (`$FRAMEWORK_REMOTE`, `$TMF_INSTRUMENT_LIBRARY`) so they run on any machine. Use them for those tasks instead of hand-rolling; see `docs/DEVELOPER_ONBOARDING.md`.
 
 ## Testing conventions
 

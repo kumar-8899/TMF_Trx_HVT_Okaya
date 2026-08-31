@@ -6,7 +6,7 @@ MAJOR = a module contract_version or locked-contract breaking change;
 MINOR = new modules/features; PATCH = fixes.
 """
 
-__version__ = "1.9.2"
+__version__ = "1.9.3"
 
 
 def app_version() -> str | None:
@@ -19,7 +19,12 @@ def app_version() -> str | None:
     import json
     from pathlib import Path
     here = Path(__file__).resolve()               # backend/core/__init__.py (or run.dist/core/…)
-    for rel in (here.parents[2] / "RELEASE.json", here.parents[3] / "RELEASE.json"):
+    # Frozen: RELEASE.json rides INSIDE the swap unit (run.dist = parents[1]) so an update
+    # that swaps run.dist also swaps the version manifest — otherwise app_version would keep
+    # reading a stale deploy-root copy the swap never touched. parents[2]/[3] stay as the
+    # human-facing deploy-root fallback build_release + launcher keep in sync.
+    for rel in (here.parents[1] / "RELEASE.json", here.parents[2] / "RELEASE.json",
+                here.parents[3] / "RELEASE.json"):
         try:
             data = json.loads(rel.read_text(encoding="utf-8"))
             if data.get("track") == "app" and data.get("version"):

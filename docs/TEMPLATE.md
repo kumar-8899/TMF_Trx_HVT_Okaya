@@ -127,9 +127,17 @@ against `LABVIEW_BRIDGE.md`. For a **Python-controller** app also:
   recipe(s), `controller.json`.
 - **Wire** `app.json` → `"controller": { "kind": "python", "config_file": "app/<name>/controller.json" }`.
 
-Prefer the **`new-test-app` skill** (global Claude Code skill) — it does the clone, remotes,
-driver copy, app payload scaffold, config wiring, install, and a sim verification, gathering
-the bench details conversationally. `tools/new_app.ps1` is the older mechanical scaffolder.
+Prefer the **`new-test-app` skill** — it does the clone, remotes, driver copy, app payload
+scaffold, config wiring, install, and a sim verification, gathering the bench details
+conversationally. Install it from the framework's own Claude Code **marketplace**
+(`/plugin marketplace add kumar-8899/Super_Test_App` → `/plugin install tmf-tools`); it and the
+other skills are machine-independent via `$FRAMEWORK_REMOTE` (the `<framework-remote>` above) and
+`$TMF_INSTRUMENT_LIBRARY` (the central `Instrument_Library` clone). Full walkthrough:
+`docs/DEVELOPER_ONBOARDING.md`. `tools/new_app.ps1` is the older mechanical scaffolder.
+
+> **Current phase:** apps run in **dev mode** (stub licensing) and track the framework by
+> **git merge** (§3); Keystation licensing + signed in-app updates are deferred. Moving to a
+> company GitHub org later is just a change of `$FRAMEWORK_REMOTE` / remote URLs.
 
 ---
 

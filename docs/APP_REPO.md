@@ -1,5 +1,13 @@
 # Building a customer application repo
 
+> **Current phase (personal-GitHub, licensing deferred).** The recommended way to scaffold an app
+> is the **`new-test-app`** skill (install the `tmf-tools` plugin — see `docs/DEVELOPER_ONBOARDING.md`),
+> not the legacy `tools/new_app.*` generator. Framework remote = `$FRAMEWORK_REMOTE`
+> (`https://github.com/kumar-8899/Super_Test_App.git`). Apps run in **dev mode** (stub licensing) and
+> track the framework via **git merge** (below). The signing / Keystation / `release.yml` steps in
+> this doc are the **eventual** pipeline — deferred until the licensing phase. Org move later = a
+> remote-URL change only.
+
 The two-tier model (TEMPLATE.md): **you** maintain one framework (this repo, source +
 tags); **Exeliq devs** build customer applications, each a **separate repo forked from a
 framework tag** and licensed per customer. This is the app-repo side.

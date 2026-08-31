@@ -1,6 +1,6 @@
 ---
 name: create-instrument-library
-description: Author a new Python instrument library into the Instrument_Library repo (D:\Experiment\Instrument_Library) against a capability interface + the vendor manual, then gate it with the framework conformance suite. Use when the user wants to add, create, author, scaffold, generate, or write an instrument library / driver for a specific instrument model — power supply, electronic load, DMM/multimeter, temperature controller, DAQ-adjacent source, multiplexer, or DSO/oscilloscope. Follows INSTRUMENT_LIBRARY.md §2–§5 and §8.
+description: Author a new Python instrument library into the Instrument_Library repo (a local clone at $TMF_INSTRUMENT_LIBRARY) against a capability interface + the vendor manual, then gate it with the framework conformance suite. Use when the user wants to add, create, author, scaffold, generate, or write an instrument library / driver for a specific instrument model — power supply, electronic load, DMM/multimeter, temperature controller, DAQ-adjacent source, multiplexer, or DSO/oscilloscope. Follows INSTRUMENT_LIBRARY.md §2–§5 and §8.
 ---
 
 # Create an instrument library
@@ -12,8 +12,9 @@ cross-cutting behaviour is in the base. Not green on conformance ⇒ not in
 the index ⇒ it does not exist. Read `reference/capabilities.md` and
 `reference/library_template.py` before generating.
 
-Repo: **D:\Experiment\Instrument_Library**. Core contract:
-`D:\Experiment\Super_Test_App\docs\INSTRUMENT_LIBRARY.md`.
+Repo: **`$TMF_INSTRUMENT_LIBRARY`** — a local clone of the `Instrument_Library` repo (ask the
+user for its path/URL if the env var is unset). Core contract: `docs/INSTRUMENT_LIBRARY.md` in
+the framework repo.
 
 ## 1. Gather inputs (ask the user)
 
@@ -63,7 +64,7 @@ capability folder is new.
 
 Run in the repo and fix until green:
 ```
-cd /d/Experiment/Instrument_Library
+cd "$TMF_INSTRUMENT_LIBRARY"
 python -m pytest -q       # the §8 battery over every registered library, in sim
 python ci.py              # regenerates index.json (only if all green)
 ```
@@ -74,9 +75,10 @@ five fault primitives, safe/emergency, declaration completeness.
 
 Summarise the new library + its index entry. Offer to commit in the library repo:
 ```
-git -C /d/Experiment/Instrument_Library add -A
-git -C /d/Experiment/Instrument_Library -c user.name="kumar-8899" -c user.email="kumarashu.8899@gmail.com" commit -m "add <vendor> <model> (<capability>) library"
+git -C "$TMF_INSTRUMENT_LIBRARY" add -A
+git -C "$TMF_INSTRUMENT_LIBRARY" commit -m "add <vendor> <model> (<capability>) library"
 ```
+(commits with the developer's own git identity — no hardcoded author.)
 
 ## Guardrails
 - One or more capabilities per library (composite instruments mix in several over one

@@ -5,6 +5,26 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.9.3 — 2026-08-31
+
+Update-swap correctness, a windowed frozen launcher, and device-independent developer setup. MINOR.
+
+- **`launcher.py` now ships inside `run.dist`** (`build_release.py` copies it into the swap unit),
+  so a frozen station actually has its update supervisor — before this, `run.exe` alone had nothing
+  to catch exit-42 and apply a staged update.
+- **`RELEASE.json` rides inside `run.dist`** (the swap unit) and `core.app_version()` reads it there
+  first; the launcher mirrors it to the deploy root after a swap. Fixes a bug where installing a new
+  version left the station still reporting the old one (the version manifest wasn't part of the
+  swapped artifact). Verified end-to-end: install 1.0.0→1.0.1 and rollback both change the reported
+  version.
+- **`run_station.py`** — a windowed entry for the frozen deploy (pywebview window + supervised
+  backend + broker autostart), baked into the release at the deploy root by `build_release.py`.
+- **The framework repo is now a Claude Code marketplace** (`.claude-plugin/marketplace.json` +
+  `plugins/tmf-tools/`): the four dev skills (`new-test-app`, `add-bench-test`, `test-step-authoring`,
+  `create-instrument-library`) install via `/plugin`, versioned with the framework, and are
+  de-localized to `$FRAMEWORK_REMOTE` / `$TMF_INSTRUMENT_LIBRARY` so they run on any machine. New
+  `docs/DEVELOPER_ONBOARDING.md` + `docs/templates/APP_SETUP.md`; two-remote (own-repo) app model.
+
 ## v1.9.2 — 2026-08-30
 
 Frozen-layout: persistent state lives outside the swappable run.dist. PATCH.

@@ -8,7 +8,8 @@ Keystation's `python_framework` FRAMEWORK track distributes. PyInstaller
 Output layout (SECURE_DISTRIBUTION.md §5):
 
     release-build/
-      run.dist/            compiled backend (run.exe + native libs)
+      run.dist/            compiled backend (run.exe + native libs) = the swap unit
+        launcher.py        update supervisor (catches exit-42, applies the staged run.dist)
         modules/**         manifest.json / schemas / step_types / known_issues (data)
         core/schemas/*     app/license schema JSON (data)
         config/*.example.json
@@ -92,6 +93,11 @@ def copy_data() -> None:
             shutil.copy2(src, dest)
             n += 1
     print(f"data files: {n}")
+    # The update supervisor ships INSIDE the swap unit (run.dist): the launcher catches the
+    # backend's exit-42 and applies the staged run.dist. Hashed by manifest() + zipped by
+    # package_artifact(), so every swapped-in build carries its own launcher (UPDATES.md §1).
+    shutil.copy2(BACKEND / "launcher.py", DIST / "launcher.py")
+    print("launcher: launcher.py -> run.dist/launcher.py")
 
 
 def copy_docs_frontend_dll(skip_frontend: bool) -> None:
@@ -102,6 +108,12 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
         if not fe.exists():
             _run(["npm", "run", "build"], cwd=REPO / "frontend")
         shutil.copytree(fe, OUT / "frontend", dirs_exist_ok=True)
+    # Windowed entry for the frozen deploy — sits at the deploy root (NOT inside run.dist,
+    # so a swap never replaces it); supervises run.dist/launcher.py + opens a pywebview window.
+    win_entry = REPO / "run_station.py"
+    if win_entry.is_file():
+        shutil.copy2(win_entry, OUT / "run_station.py")
+        print("windowed entry: run_station.py -> deploy root")
     for candidate in (
         BACKEND / "keystation_core.dll",
         Path("D:/Experiment/Build License Track/core/target/release/keystation_core.dll"),
@@ -203,6 +215,11 @@ def main() -> int:
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
+    # RELEASE.json must ride INSIDE run.dist (the swap unit) so an applied update swaps the
+    # version manifest too; app_version() reads run.dist/RELEASE.json first (core.__init__).
+    # Copied AFTER manifest() (which excludes RELEASE.json from its hash table by name) and
+    # BEFORE package_artifact() (so the zipped swap unit carries it).
+    shutil.copy2(OUT / "RELEASE.json", DIST / "RELEASE.json")
     package_artifact(args.product)
     print("\nrelease at:", OUT)
     return 0

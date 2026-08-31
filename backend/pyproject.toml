@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.9.2"
+version = "1.9.3"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [

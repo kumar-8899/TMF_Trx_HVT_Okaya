@@ -355,6 +355,16 @@ def main() -> int:
         else:
             swapped = swap.apply_staged(marker)
             MARKER.unlink(missing_ok=True)
+            if swapped:
+                # RELEASE.json rides inside run.dist; mirror the swapped-in copy to the
+                # deploy root so humans/tools inspecting <deploy>/RELEASE.json see the new
+                # version too (app_version already reads run.dist/RELEASE.json first).
+                rel = LIVE / "RELEASE.json"
+                if rel.is_file():
+                    try:
+                        shutil.copy2(rel, STATE_ROOT / "RELEASE.json")
+                    except OSError as exc:
+                        log(f"deploy-root RELEASE.json sync skipped: {exc}")
             log(f"relaunching for {marker.get('version', '?')} (swapped={swapped})")
 
 

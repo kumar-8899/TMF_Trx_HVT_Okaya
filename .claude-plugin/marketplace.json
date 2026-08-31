@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "tmf",
+  "description": "Super_Test_App Test & Measurement framework — developer tooling marketplace.",
+  "owner": {
+    "name": "Exeliq",
+    "email": "kumarashu.8899@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "tmf-tools",
+      "source": "./plugins/tmf-tools",
+      "displayName": "TMF Tools",
+      "description": "Skills for building on the Super_Test_App framework: fork a new app, author controller step types, add a bench test, and create instrument-library drivers.",
+      "version": "1.9.3",
+      "author": { "name": "Exeliq" },
+      "keywords": ["test-and-measurement", "framework", "fork", "instrument-library", "step-types"],
+      "category": "development"
+    }
+  ]
+}
