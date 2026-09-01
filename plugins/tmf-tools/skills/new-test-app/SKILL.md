@@ -57,17 +57,26 @@ A missing answer produces an app that looks right and behaves wrong — stop and
 # $FRAMEWORK_REMOTE defaults to https://github.com/kumar-8899/Super_Test_App.git
 git clone --branch <TAG> $env:FRAMEWORK_REMOTE <app-dir>   # e.g. App_<Name>
 cd <app-dir>
-git switch -c main
-git remote rename origin upstream                # framework = upstream (read-only, for updates)
-git remote add origin <app-repo-remote>          # the app's OWN repo — each app is a separate repo
+git remote rename origin upstream                # framework = upstream (READ-ONLY, for updates)
+git remote set-url --push upstream DISABLE       # framework is read-only; never push to it
+git remote add origin <app-remote>               # the app's OWN repo (create it first — see below)
+git switch -c main && git push -u origin main
 copy backend\config\app.example.json backend\config\app.json
 copy backend\config\license.example.json backend\config\license.json
 ```
 
-**Two-remote model (required):** `upstream` = the framework (you fetch tags to update),
-`origin` = the app's own repo (where the app team commits + releases). Create the app repo first
-(e.g. `gh repo create <org>/App_<Name> --private`) and pass its URL as `<app-repo-remote>`. A
-throwaway local trial may skip `origin`, but a real customer app must have its own.
+The `set-url --push upstream DISABLE` line is not optional: it makes any push to the framework
+remote fail (bogus URL), so app commits can never land in the framework — even from a Git GUI, and
+even if `origin` is somehow missing. A Git GUI derives a repo's identity from its remote, so a fork
+whose only remote is the framework shows up **as** the framework and will offer to push your app's
+commits straight to it.
+
+**`origin` is required for a real app** — the app's own repo is where the team commits and releases:
+- **With `gh`:** create + wire + push in one step —
+  `gh repo create <org>/App_<Name> --private --source . --remote origin --push`
+- **Without `gh`:** ask the user for the app repo URL, then `git remote add origin <url>` and push.
+- **Local-only (no `origin`):** a deliberate fallback ONLY, and never silent — warn loudly (Phase 6)
+  that the fork must be published to its own repo before it is opened in any Git GUI.
 
 Edit `backend/config/app.json` (app-owned): `branding` (name/product/tagline/short),
 `stations`, and `controller`:
@@ -199,9 +208,19 @@ items (configure the instrument instances on the Instruments page; author real l
 placeholders were used; real-hardware transport swap). Commit the app payload on the fork's
 `main`.
 
+**If the fork was left without an `origin`** (local-only fallback), end the hand-off with a
+blocking warning:
+
+> ⚠️ **No `origin` set.** Before opening this in GitHub Desktop / any Git GUI, publish it to its
+> own repo (`git remote add origin <url>` then push, or GitHub Desktop → **Publish repository**) —
+> otherwise the GUI identifies it as the framework repo and offers to push your app's commits to it.
+> (The framework remote is push-disabled, so such a push fails safe — but the fork should still own
+> its `origin` before any GUI touches it.)
+
 ## Checklist
 
-- [ ] Forked from a **release tag**, remotes wired (`upstream`=framework, `origin`=app)
+- [ ] Forked from a **release tag**; remotes wired: `upstream`=framework (push-disabled via
+      `set-url --push … DISABLE`), `origin`=app repo (**required**, not optional)
 - [ ] Only app-owned paths touched (TEMPLATE.md §1)
 - [ ] Drivers **copied** into the fork's `instrument_libs/` — no runtime reference to central
 - [ ] `instrument_libs/` (drivers) not confused with `backend/instrumentlib/` (base)

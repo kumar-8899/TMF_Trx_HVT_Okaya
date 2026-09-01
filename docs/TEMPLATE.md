@@ -104,8 +104,9 @@ client and run-stream hooks. See `frontend/src/app/overrides/README.md`.
 git clone <framework-remote> App_<Customer>
 cd App_<Customer>
 git checkout v1.0.0                      # a RELEASE TAG, never main
-git remote rename origin upstream        # framework stays as 'upstream'
-git remote add origin <app-remote>       # the application's own repo
+git remote rename origin upstream        # framework stays as 'upstream' (READ-ONLY)
+git remote set-url --push upstream DISABLE   # framework is read-only; never push app commits to it
+git remote add origin <app-remote>       # the application's own repo (REQUIRED — see below)
 git switch -c main && git push -u origin main
 
 cd backend
@@ -116,6 +117,12 @@ cd ..\frontend ; npm install
 .\dev.ps1                                # broker + backend + frontend
 # login admin/admin (DEV credential) -> change it; set branding in app.json
 ```
+
+`origin` is **required**, not optional: a Git GUI derives a repo's identity from its remote, so a
+fork whose only remote is the framework shows up **as** the framework and offers to push the app's
+commits straight to it. The `set-url --push … DISABLE` line makes any such push fail safe, and every
+real app must own an `origin` before it is opened in a GUI. (`gh` one-liner:
+`gh repo create <org>/App_<Customer> --private --source . --remote origin --push`.)
 
 Then per application: set `station` + `branding` + the `controller` block, enable/disable
 modules + license, define roles/permissions, and build the LabVIEW app layer (if any)

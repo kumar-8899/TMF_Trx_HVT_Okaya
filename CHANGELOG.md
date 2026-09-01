@@ -5,6 +5,22 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.9.5 — 2026-09-01
+
+Fork-remote safety: framework remote is push-disabled and `origin` is required. PATCH.
+
+- **`new-test-app` now push-disables the framework remote** — after `git remote rename origin
+  upstream` it runs `git remote set-url --push upstream DISABLE`, so app commits can never be pushed
+  to the framework repo, even from a Git GUI and even if `origin` is missing. A Git GUI derives a
+  repo's identity from its remote, so a fork whose only remote is the framework showed up **as** the
+  framework and offered to push the app's commits straight into it (hit on a real customer fork).
+- **`origin` is now a required, first-class step**, not an optional "local trial" skip: create it
+  with `gh repo create <org>/App_<Name> --private --source . --remote origin --push` (or prompt for
+  the URL). Local-only forks are allowed only as a deliberate fallback with a loud Phase-6 warning to
+  publish before opening in any Git GUI.
+- Mirrored across both `new-test-app` skill copies (`.claude/skills/` + `plugins/tmf-tools/`),
+  `docs/TEMPLATE.md` §2, `docs/APP_REPO.md`, and `docs/templates/APP_SETUP.md`.
+
 ## v1.9.4 — 2026-09-01
 
 Report DB auto-create + drivers installed by default; interface skills. PATCH.

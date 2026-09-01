@@ -21,8 +21,15 @@ framework (source + git tags)  ──fork a tag──►  App_<Customer> (editab
 
 **Interactive (recommended)** — from the framework repo, run and answer the prompts
 (framework tag, customer, product slug, app repo, output dir). It clones the framework
-at the tag, wires remotes (framework = `upstream`, app = `origin`), and generates the
+at the tag, wires remotes (framework = `upstream`, **push-disabled** via
+`git remote set-url --push upstream DISABLE`; app = `origin`, **required**), and generates the
 app-owned files:
+
+> **Why `origin` is required + `upstream` push-disabled:** a Git GUI derives a repo's identity from
+> its remote. A fork whose only remote is the framework appears **as** the framework and offers to
+> push the app's commits straight to it. Disabling push to `upstream` makes that fail safe; owning an
+> `origin` before the fork is opened in any GUI removes the trap entirely.
+
 ```
 tools\new_app.bat            (or: powershell -ExecutionPolicy Bypass -File tools\new_app.ps1)
 ```
