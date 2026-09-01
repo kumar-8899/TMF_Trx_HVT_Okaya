@@ -5,6 +5,29 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.10.0 — 2026-09-02
+
+`build_release.py --track app` produces a complete, runnable frozen app. MINOR.
+
+- **The app-track build is now self-contained + runnable.** Alongside the compiled backend it
+  compiles the **Python controller** (`run.dist/controller.dist/controller.exe`) and bundles the
+  app **definition** (`app/<slug>/` controller.json + maps + specs) and copied `instrument_libs/`,
+  all INSIDE `run.dist` (so an update swap carries the whole thing). The app's `step_type_packages`
+  + `instrument_libs` are **compiled into both exes** (`--include-package(-data)`, discovered from
+  `app/<slug>/controller.json`) so they load by name in the frozen build. A frozen app now runs its
+  OWN test sequence — before, it booted only the framework UI shell and started no controller.
+- **Site config is never bundled.** No `recipes/`, no instrument instances (IP/COM/port), no
+  report/DB credentials — those stay in the external state (`STATE_ROOT/config` + DB), set on the
+  bench. `--app-config` (default `backend/config/app.release.json`) ships a non-secret
+  `config/app.example.json` (credentials stripped) so the app boots with its own branding + controller.
+- **Fix (was silently broken):** the controller supervisor detected frozen builds via `sys.frozen`,
+  which **Nuitka does not set** — so the bundled controller was never started under a Nuitka build.
+  Now detects Nuitka (`__compiled__`); frozen `config_file` + `controller.dist` paths resolve
+  against `run.dist`. The variables module registers `instrument_libs` via `find_spec` when it is
+  compiled in (file absent).
+- Docs: `SECURE_DISTRIBUTION.md` §5 (full layout), `RUNNING.md` (running a frozen app),
+  `TEMPLATE.md` §4 (two-tier release + an app-build acceptance step).
+
 ## v1.9.5 — 2026-09-01
 
 Fork-remote safety: framework remote is push-disabled and `origin` is required. PATCH.

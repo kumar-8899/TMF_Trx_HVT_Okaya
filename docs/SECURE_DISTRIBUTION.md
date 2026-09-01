@@ -98,10 +98,29 @@ mints a dev lease — verified green on this workstation.
   protection; decompilation ≈ reverse-engineering a C binary). PyInstaller
   (`tmf-sidecar.spec`) remains for dev-only bundles (it only zips `.pyc`s — no protection).
 - Build (run in the app repo): `python build_release.py --track app --product <slug>
-  --pinned-fw-version X.Y.Z` → `release-build/` = `run.dist/` (compiled backend + bundled
-  manifests/schemas) + `docs/` + `frontend/` (built SPA) + `keystation_core.dll`
-  + `RELEASE.json` (version + SHA-256 of every file). `--track framework` exists for
-  framework self-test only.
+  [--app-config <path>]` → a **complete, runnable** `release-build/`:
+  - `run.dist/` (the swap unit) = compiled backend (`run.exe`) + `launcher.py` + bundled
+    manifests/schemas, AND — for `--track app` — everything the app needs, INSIDE run.dist so an
+    update swap carries it all:
+    - `controller.dist/controller.exe` — the Python controller, Nuitka-compiled, with the app's
+      `step_type_packages` + `instrument_libs` **compiled in** (they load by name via config, so
+      no dir paths are needed frozen; `--include-package(-data)` for each, discovered from
+      `app/<slug>/controller.json`).
+    - `app/<slug>/` — the app DEFINITION (controller.json, maps/, specs/). **No `recipes/`, no
+      instrument instances, no credentials** — those are site config set on the bench, held in the
+      external state (`STATE_ROOT/config` + DB) and untouched by a swap.
+    - `instrument_libs/` — the copied drivers (provenance; imports use the compiled-in copy).
+    - `config/app.example.json` — promoted from the app-owned, non-secret `backend/config/
+      app.release.json` (or `--app-config`); credentials are stripped. This is what `ensure_live`
+      copies to the external live config on first boot, so the frozen app boots with the app's own
+      branding + controller block, not the framework shell.
+  - plus `docs/` + `frontend/` (built SPA) + `run_station.py` + `keystation_core.dll` +
+    `RELEASE.json` (version + framework_version + pinned_fw_version + SHA-256 of every file +
+    `full_artifact_hash`).
+  `--track framework` builds the backend-only shell (framework self-test).
+- **A frozen app runs its OWN test sequence**, not just the UI: the supervisor finds
+  `run.dist/controller.dist/controller.exe`, starts it, and it imports the app's step-type package
+  by name (compiled in) — verified by the app-build acceptance step (TEMPLATE.md §4).
 - The app repo's `release.yml` (a template ships in P-b2) runs: tests → Nuitka →
   zip+hash → sign the app `.ksupdate` → publish the app's GitHub Release.
 - Registration as a **signed** Keystation framework release (manifest + signed

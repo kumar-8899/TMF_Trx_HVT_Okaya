@@ -13,12 +13,19 @@ Output layout (SECURE_DISTRIBUTION.md §5):
         modules/**         manifest.json / schemas / step_types / known_issues (data)
         core/schemas/*     app/license schema JSON (data)
         config/*.example.json
+        --- app track (--track app) also bundles, INSIDE run.dist so a swap carries it all: ---
+        controller.dist/   compiled Python controller (controller.exe + app step packages)
+        app/<product>/     app DEFINITION: controller.json, maps/, specs/ (NO recipes/creds)
+        instrument_libs/   copied drivers (provenance; imports use the compiled-in copy)
       docs/                in-app help markdown (help catalog resolves ../docs)
       frontend/            built SPA (serve statically at the station)
       keystation_core.dll  native licensing core (app.json licensing.core_lib)
       RELEASE.json         version + SHA-256 manifest of the above
 
-Usage:  python build_release.py [--skip-frontend] [--jobs N]
+Usage:  python build_release.py [--track framework|app] [--product <name>]
+                                 [--app-config <path>] [--skip-frontend] [--jobs N]
+App track compiles a SECOND exe (the controller) with the app's step-type packages +
+instrument_libs (import-by-name), so a frozen app runs its OWN test sequence — not just the shell.
 The signed Keystation framework-release registration (manifest + build_timestamp)
 happens in CI / on the issuer, not here — this script only produces + hashes.
 """
@@ -50,12 +57,44 @@ DATA_PATTERNS = (
 )
 
 
-def _run(cmd: list[str], cwd: Path) -> None:
+def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
     print("+", " ".join(str(c) for c in cmd), flush=True)
-    subprocess.run(cmd, cwd=cwd, check=True)
+    subprocess.run(cmd, cwd=cwd, check=True, env=env)
 
 
-def build_backend(jobs: int) -> None:
+def _app_build_env(product: str) -> dict:
+    """Nuitka resolves `--include-package` against sys.path, so put the app's package roots on
+    PYTHONPATH: the repo root (for `instrument_libs`), `app/<product>` (for `<name>_steps`), and
+    `controller/` (the `controller` package the recipe catalog imports)."""
+    import os
+    roots = os.pathsep.join([str(REPO), str(REPO / "app" / product), str(REPO / "controller")])
+    env = dict(os.environ)
+    env["PYTHONPATH"] = roots + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    return env
+
+
+def _app_include_packages(product: str) -> list[str]:
+    """The app's dynamically-named packages to compile into the exes — read from
+    `app/<product>/controller.json` (`step_type_packages` + `library_packages`) plus the repo-root
+    `instrument_libs/` (copied drivers). They load by NAME at runtime (import_module), invisible to
+    static analysis, so each must be force-included."""
+    pkgs: list[str] = []
+    if (REPO / "instrument_libs" / "__init__.py").is_file():
+        pkgs.append("instrument_libs")
+    ctrl = REPO / "app" / product / "controller.json"
+    if ctrl.is_file():
+        try:
+            data = json.loads(ctrl.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+        for key in ("step_type_packages", "library_packages"):
+            for pkg in (data.get(key) or []):
+                if pkg not in pkgs:
+                    pkgs.append(pkg)
+    return pkgs
+
+
+def build_backend(jobs: int, track: str = "framework", product: str = "super_test_app") -> None:
     import importlib.util
     cmd = [
         sys.executable, "-m", "nuitka",
@@ -80,8 +119,51 @@ def build_backend(jobs: int) -> None:
             cmd.append(f"--include-package={opt}")
         else:
             print(f"note: '{opt}' not installed - not bundled (added at deployment)")
+    env = None
+    if track == "app":
+        # The recipe module builds its catalog via `from controller.packages import …`
+        # (modules/recipe/catalog.py), so the CONTROLLER package must be compiled into the
+        # backend too — plus the app's step-type packages + drivers (import-by-name).
+        cmd.append("--include-package=controller")
+        for pkg in _app_include_packages(product):
+            cmd += [f"--include-package={pkg}", f"--include-package-data={pkg}"]
+        env = _app_build_env(product)
     cmd.append("run.py")
-    _run(cmd, cwd=BACKEND)
+    _run(cmd, cwd=BACKEND, env=env)
+
+
+def build_controller(jobs: int, product: str) -> None:
+    """Nuitka-compile the Python controller into `run.dist/controller.dist/controller.exe`, with the
+    app's step-type packages + `instrument_libs` compiled in (they load by name via config). The
+    supervisor's frozen branch (controller_supervisor._command) finds it at that path."""
+    ctrl_repo = REPO / "controller"
+    entry = ctrl_repo / "controller" / "__main__.py"
+    if not entry.is_file():
+        print("WARNING: controller package not found - controller.exe NOT built (app can't run tests)")
+        return
+    stage = OUT / "_controller_build"
+    cmd = [
+        sys.executable, "-m", "nuitka", "--standalone", "--assume-yes-for-downloads",
+        f"--jobs={jobs}", "--output-dir=" + str(stage),
+        "--include-package=controller",
+    ]
+    for pkg in _app_include_packages(product):
+        cmd += [f"--include-package={pkg}", f"--include-package-data={pkg}"]
+    cmd.append(str(entry))
+    _run(cmd, cwd=ctrl_repo, env=_app_build_env(product))
+    # Nuitka names the output after the entry file (__main__.dist / __main__.exe). Normalize to
+    # controller.dist/controller.exe and move it INTO run.dist (the swap unit).
+    built = stage / "__main__.dist"
+    exe = "controller.exe" if sys.platform == "win32" else "controller"
+    src_exe = built / ("__main__.exe" if sys.platform == "win32" else "__main__.bin")
+    if src_exe.exists():
+        src_exe.rename(built / exe)
+    dest = DIST / "controller.dist"
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.move(str(built), str(dest))
+    shutil.rmtree(stage, ignore_errors=True)
+    print(f"controller: controller.dist/{exe} -> run.dist/")
 
 
 def copy_data() -> None:
@@ -124,6 +206,77 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
             break
     else:
         print("WARNING: keystation_core.dll not found - ship it separately")
+
+
+def copy_app_payload(product: str) -> None:
+    """Bundle the app DEFINITION into run.dist — controller.json (template), variable maps, specs,
+    VERSION — plus the repo-root `instrument_libs/` (provenance; imports use the compiled-in copy).
+    NEVER bundles site-specific config: no `recipes/` (site data), no instrument instances (DB
+    records set on the Instruments page), no report/DB credentials (external live config)."""
+    app_src = REPO / "app" / product
+    if not app_src.is_dir():
+        print(f"WARNING: app/{product}/ not found - no app payload bundled (framework shell only)")
+        return
+    dest = DIST / "app" / product
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in ("controller.json", "VERSION"):
+        if (app_src / f).is_file():
+            shutil.copy2(app_src / f, dest / f)
+    for sub in ("maps", "specs"):                       # definition data the controller/UI read
+        if (app_src / sub).is_dir():
+            shutil.copytree(app_src / sub, dest / sub, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    il = REPO / "instrument_libs"
+    if (il / "__init__.py").is_file():
+        shutil.copytree(il, DIST / "instrument_libs", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    print(f"app payload: app/{product}/ (controller.json + maps + specs; NO recipes/creds) "
+          "+ instrument_libs/")
+
+
+def _sanitize_config(obj, _dropped: list):
+    """Strip site-secret connection credentials so a shipped app.example.json is safe: report/DB
+    connection fields (a dict declaring provider/database/odbc_driver) and any token/secret/api_key.
+    The auth `users` block (dev admin/admin seed — a dict with `role`) is KEPT, matching the
+    framework's own app.example.json convention; real users are set out-of-band in production."""
+    if isinstance(obj, dict):
+        is_db = bool(set(obj) & {"provider", "database", "odbc_driver"}) and "role" not in obj
+        out = {}
+        for k, v in obj.items():
+            if k.lower() in {"token", "secret", "api_key"} or (
+                    is_db and k.lower() in {"password", "user", "username", "host", "port", "database"}):
+                _dropped.append(k)
+                continue
+            out[k] = _sanitize_config(v, _dropped)
+        return out
+    if isinstance(obj, list):
+        return [_sanitize_config(v, _dropped) for v in obj]
+    return obj
+
+
+def promote_app_config(app_config: str | None) -> None:
+    """Ship the app's real branding + controller block + module STRUCTURE as the bundled
+    config/app.example.json (which ensure_live copies to external live on first boot). Source:
+    --app-config, else backend/config/app.release.json. Credentials are stripped; if none is
+    found the generic framework example ships and the frozen app boots only the shell."""
+    src = Path(app_config) if app_config else (BACKEND / "config" / "app.release.json")
+    if not src.is_file():
+        print(f"WARNING: no app release config ({src}) - shipping the generic framework example; "
+              "the frozen app boots the SHELL only. Provide backend/config/app.release.json "
+              "(non-secret branding + controller block) or pass --app-config.")
+        return
+    try:
+        data = json.loads(src.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"WARNING: {src.name} is not valid JSON ({exc}) - shipping the generic example")
+        return
+    dropped: list = []
+    clean = _sanitize_config(data, dropped)
+    dest = DIST / "config" / "app.example.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(clean, indent=2) + "\n", encoding="utf-8")
+    note = f" (stripped site secrets: {sorted(set(dropped))})" if dropped else ""
+    print(f"app config: {src.name} -> run.dist/config/app.example.json{note}")
 
 
 def _framework_version() -> str:
@@ -196,6 +349,9 @@ def main() -> int:
                          "framework's core.__version__)")
     ap.add_argument("--app-version", default=None,
                     help="the app's OWN version (defaults to app/<product>/VERSION); app track only")
+    ap.add_argument("--app-config", default=None,
+                    help="non-secret app config shipped as config/app.example.json (app track; "
+                         "defaults to backend/config/app.release.json)")
     ap.add_argument("--manifest-only", action="store_true",
                     help="re-hash an existing release-build (no recompile)")
     args = ap.parse_args()
@@ -211,9 +367,15 @@ def main() -> int:
 
     if OUT.exists():
         shutil.rmtree(OUT)
-    build_backend(args.jobs)
+    build_backend(args.jobs, args.track, args.product)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
+    if args.track == "app":
+        # A runnable app = backend + the Python controller + the app definition + drivers, all
+        # inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION.md §5).
+        build_controller(args.jobs, args.product)
+        copy_app_payload(args.product)
+        promote_app_config(args.app_config)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
     # RELEASE.json must ride INSIDE run.dist (the swap unit) so an applied update swaps the
     # version manifest too; app_version() reads run.dist/RELEASE.json first (core.__init__).

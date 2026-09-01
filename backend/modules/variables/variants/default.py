@@ -9,6 +9,7 @@ capabilities are NOT here — they go through `capability.request` (§2.2, arriv
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -64,9 +65,12 @@ class DefaultVariables:
         packages = list(self.config.get("library_packages", []))
         repo_root = Path(__file__).resolve().parents[4]        # …/backend/modules/variables/variants
         app_libs = repo_root / "instrument_libs"
-        if (app_libs / "__init__.py").is_file():
+        if (app_libs / "__init__.py").is_file():               # source: add the repo root to sys.path
             if str(repo_root) not in paths:
                 paths.append(str(repo_root))
+            if "instrument_libs" not in packages:
+                packages.append("instrument_libs")
+        elif importlib.util.find_spec("instrument_libs") is not None:   # frozen: compiled into the exe
             if "instrument_libs" not in packages:
                 packages.append("instrument_libs")
         for p in paths:

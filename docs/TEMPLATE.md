@@ -185,6 +185,21 @@ your `<app>_*` modules against the new `contract_version` before merging.
   `RELEASE.json` (and the `.ksupdate` manifest). The operator sees the app version; the
   framework number is provenance. App-track updates compare app-version-to-app-version;
   framework compatibility is the `pinned_fw_version` check, not the incrementing number.
+- **`build_release.py --track app` produces a COMPLETE, runnable artifact** (SECURE_DISTRIBUTION
+  §5): the compiled backend AND the compiled Python controller (`controller.dist/controller.exe`)
+  with the app's step-type packages + `instrument_libs` compiled in, plus the app definition
+  (controller.json/maps/specs) and promoted `app.release.json` — all inside `run.dist`. A frozen
+  app runs its OWN test sequence, not just the framework UI.
+
+### App-build acceptance (run before tagging an app release)
+
+A build that boots the shell but can't run an app step type is a FAIL. After
+`build_release.py --track app --product <slug>`, from `release-build/`:
+1. Launch (`python run_station.py --no-window`), with a broker on :1883.
+2. Confirm the diag shows `python controller started` + `step-type package loaded: <slug>_steps`,
+   `/readyz` reports the station **online**, and `/recipes/step-types` lists the app's own step
+   type(s) with schema.
+3. `python app/<slug>/tools/run_sim.py` → `VERDICT: PASS` (the sequence in simulation).
 
 ## 5. LabVIEW split (planned boundary)
 

@@ -86,6 +86,30 @@ reconnects when the backend comes back.
 
 ---
 
+## Running a frozen app build (`release-build/`)
+
+`python build_release.py --track app --product <slug>` produces a self-contained
+`release-build/` (SECURE_DISTRIBUTION.md §5). Run it like a shipped station — from the
+`release-build/` root (the deploy root), NOT from inside `run.dist/`:
+
+```pwsh
+cd release-build
+python run_station.py            # native window (broker + supervised backend + controller)
+python run_station.py --no-window   # headless (serves the UI on :8000)
+python run.dist\launcher.py      # backend + controller only, no window
+```
+
+- `run_station.py`/`launcher.py` set `TMF_STATE_DIR` to the deploy root, so live config + DB +
+  backups land in `release-build/config` + `release-build/data` (outside the swappable `run.dist`).
+- On first boot `config/app.example.json` (promoted from the app's `app.release.json`) is copied to
+  the live config, so the app boots with its **own** branding + `controller.kind=python`.
+- The supervisor starts `run.dist/controller.dist/controller.exe`; it loads the app's step-type
+  package (compiled in) and brings the station online (`/readyz`). Configure instrument instances on
+  **Config → Instruments** (site config, held in the DB — not in the artifact), then restart to run
+  the app's sequence. Needs a Python on PATH (the launcher/window entry are not yet frozen).
+
+---
+
 ## Packaging note — the OS window icon
 
 The SVG favicon (`frontend/public/favicon.svg`) covers the **browser tab / WebView tab

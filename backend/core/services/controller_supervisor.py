@@ -21,6 +21,13 @@ import threading
 from pathlib import Path
 
 
+def _is_frozen() -> bool:
+    """True in a packaged build. PyInstaller sets ``sys.frozen``; **Nuitka does not** — it injects
+    a module-level ``__compiled__`` instead — so check both (this was why the frozen controller was
+    never started under a Nuitka build)."""
+    return bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+
+
 class ControllerSupervisor:
     def __init__(self, *, stations: list[str], broker_host: str, broker_port: int,
                  diag, data_dir: Path, repo_root: Path,
@@ -86,12 +93,16 @@ class ControllerSupervisor:
     # -- internals ----------------------------------------------------------
 
     def _command(self) -> tuple[list[str] | None, Path | None]:
-        if getattr(sys, "frozen", False):
-            exe = Path(sys.executable).resolve().parent / ("controller.exe" if sys.platform == "win32" else "controller")
-            if exe.exists():
-                return [str(exe)], exe.parent
+        if _is_frozen():
+            base = Path(sys.executable).resolve().parent            # run.dist
+            name = "controller.exe" if sys.platform == "win32" else "controller"
+            # build_release --track app puts it at run.dist/controller.dist/; keep the legacy
+            # "beside the exe" location as a fallback.
+            for exe in (base / "controller.dist" / name, base / name):
+                if exe.exists():
+                    return [str(exe)], exe.parent
             self._diag.warning("controller", "controller.kind=python but no bundled controller "
-                               "executable found beside the app — not started")
+                               "executable found (run.dist/controller.dist/) — not started")
             return None, None
         pkg_dir = self._repo_root / "controller"           # sibling of backend/ in the repo
         if not (pkg_dir / "controller" / "__main__.py").exists():
@@ -107,6 +118,12 @@ class ControllerSupervisor:
         # packages) when given; the app owns broker + simulation + the station list.
         if self._config_file:
             src = Path(self._config_file)
+            if not src.is_absolute():
+                # Frozen: the app payload lives at run.dist/app/<name>/ (build_release copies it
+                # there); source: app/<name>/ under the repo root.
+                base = (Path(sys.executable).resolve().parent
+                        if _is_frozen() else self._repo_root)
+                src = base / src
             try:
                 cfg = json.loads(src.read_text(encoding="utf-8"))
                 cfg_dir = src.resolve().parent
