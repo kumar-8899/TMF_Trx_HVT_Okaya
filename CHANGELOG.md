@@ -5,6 +5,21 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.9.4 — 2026-09-01
+
+Report DB auto-create + drivers installed by default; interface skills. PATCH.
+
+- **Report store auto-creates its database.** Configuring/testing a MySQL or SQL Server report
+  store now runs `CREATE DATABASE IF NOT EXISTS` (server-level) before the schema, so a fresh
+  server no longer fails with `1049 Unknown database`. Best-effort: a user without CREATE
+  privilege gets a clear message to create it (or be granted the right); the DB name is validated
+  to a safe identifier. `store.py` `build_server_url()` + `_ensure_database()`, called from
+  `test_connection` and `ensure_schema`.
+- **Report DB drivers install with the app.** `new-test-app` + `APP_SETUP.md` now run
+  `pip install -e ".[dev,report-db]"`, so `PyMySQL` + `pyodbc` are present out of the box.
+- **Skills also ship as project skills** (`.claude/skills/`) for the Claude Code interface/agent
+  mode (where `/plugin` is unavailable); simplified `DEVELOPER_ONBOARDING.md`.
+
 ## v1.9.3 — 2026-08-31
 
 Update-swap correctness, a windowed frozen launcher, and device-independent developer setup. MINOR.

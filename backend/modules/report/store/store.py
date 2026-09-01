@@ -56,6 +56,53 @@ def _make_engine(cfg: dict):
     return create_engine(url, **kw)
 
 
+def build_server_url(cfg: dict) -> URL:
+    """Like build_url but WITHOUT the target database — connects at server level so a missing
+    database can be created (SQL Server connects via `master`)."""
+    p = (cfg or {}).get("provider")
+    user, pw, host = cfg.get("user"), cfg.get("password"), cfg.get("host")
+    if p == "mysql":
+        return URL.create("mysql+pymysql", username=user, password=pw, host=host,
+                          port=int(cfg.get("port") or 3306))
+    if p == "sqlserver":
+        q = {"driver": cfg.get("odbc_driver") or "ODBC Driver 18 for SQL Server",
+             "TrustServerCertificate": "yes"}
+        return URL.create("mssql+pyodbc", username=user, password=pw, host=host,
+                          port=int(cfg.get("port") or 1433), database="master", query=q)
+    raise StoreError(f"cannot auto-create for provider '{p}'")
+
+
+def _ensure_database(cfg: dict) -> None:
+    """Create the target database if it doesn't exist (MySQL / SQL Server); SQLite makes its
+    own file. Idempotent. Needs a user with CREATE privilege — otherwise a clear error so the
+    operator can create it (or be granted the right). DDL can't be parameterized, so the name
+    is validated to a safe identifier first."""
+    import re
+    p = (cfg or {}).get("provider")
+    db = (cfg or {}).get("database")
+    if p not in ("mysql", "sqlserver") or not db:
+        return
+    if not re.fullmatch(r"[A-Za-z0-9_]+", db):
+        raise StoreError(f"invalid database name '{db}' (letters, digits, underscore only)")
+    eng = create_engine(build_server_url(cfg), future=True, isolation_level="AUTOCOMMIT")
+    try:
+        with eng.connect() as c:
+            if p == "mysql":
+                c.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db}` "
+                               "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
+            else:  # sqlserver
+                c.execute(text(f"IF DB_ID(N'{db}') IS NULL EXEC('CREATE DATABASE [{db}]')"))
+    except ModuleNotFoundError:
+        raise                                       # driver missing — reported upstream
+    except Exception as exc:  # noqa: BLE001
+        raise StoreError(
+            f"database '{db}' does not exist and could not be created automatically "
+            f"({str(exc).splitlines()[0][:200]}). Create it manually, or grant the configured "
+            "user CREATE privilege.") from exc
+    finally:
+        eng.dispose()
+
+
 class ReportStore:
     def __init__(self, diag=None):
         self.diag = diag
@@ -85,14 +132,18 @@ class ReportStore:
     async def test_connection(self, cfg: dict) -> dict:
         def _test():
             try:
+                _ensure_database(cfg)                     # create the DB if missing
                 eng = _make_engine(cfg)
+            except ModuleNotFoundError as exc:            # DBAPI driver missing
+                return {"ok": False, "status": "error",
+                        "detail": f"driver not installed: {exc}"}
             except StoreError as exc:
                 return {"ok": False, "status": "error", "detail": str(exc)}
             try:
                 with eng.begin() as c:
                     c.execute(text("SELECT 1"))
                     metadata.create_all(c)                # idempotent DDL
-                return {"ok": True, "status": "pass", "detail": "connected; schema ready"}
+                return {"ok": True, "status": "pass", "detail": "connected; database + schema ready"}
             except ModuleNotFoundError as exc:            # DBAPI driver missing
                 return {"ok": False, "status": "error",
                         "detail": f"driver not installed: {exc}"}
@@ -106,6 +157,7 @@ class ReportStore:
         if not self.configured:
             return
         def _c():
+            _ensure_database(self._cfg)                   # create the DB if missing
             with self._engine.begin() as c:
                 metadata.create_all(c)
         await self._run(_c)

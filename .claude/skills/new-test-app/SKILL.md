@@ -160,7 +160,7 @@ verify/run step, and before telling the user the app is ready.
 
 Backend deps + editable installs (run from `backend/`):
 ```pwsh
-cd backend ; pip install -e instrumentlib ; pip install -e .[dev] ; cd ..
+cd backend ; pip install -e instrumentlib ; pip install -e ".[dev,report-db]" ; cd ..
 ```
 
 **Frontend deps — ALWAYS run `npm install` inside `frontend/`** (the only `package.json`

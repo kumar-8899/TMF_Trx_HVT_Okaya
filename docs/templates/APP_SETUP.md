@@ -30,7 +30,7 @@ copy backend\config\license.example.json backend\config\license.json
 ## 3. Install + verify (no hardware)
 
 ```pwsh
-cd backend ; pip install -e instrumentlib ; pip install -e .[dev] ; cd ..
+cd backend ; pip install -e instrumentlib ; pip install -e ".[dev,report-db]" ; cd ..
 cd frontend ; npm install ; cd ..
 python app\<slug>\tools\run_sim.py        # every parameter judged, VERDICT: PASS
 python -m pytest app\<slug>\tests -q
