@@ -186,10 +186,12 @@ your `<app>_*` modules against the new `contract_version` before merging.
   framework number is provenance. App-track updates compare app-version-to-app-version;
   framework compatibility is the `pinned_fw_version` check, not the incrementing number.
 - **`build_release.py --track app` produces a COMPLETE, runnable artifact** (SECURE_DISTRIBUTION
-  §5): the compiled backend AND the compiled Python controller (`controller.dist/controller.exe`)
-  with the app's step-type packages + `instrument_libs` compiled in, plus the app definition
-  (controller.json/maps/specs) and promoted `app.release.json` — all inside `run.dist`. A frozen
-  app runs its OWN test sequence, not just the framework UI.
+  §5) from ONE compiled exe: `run.exe` also runs the controller (`run.exe --controller`) with the
+  app's step-type packages + `instrument_libs` compiled in, plus the app definition
+  (controller.json/maps/specs) and promoted `app.release.json` — all inside `run.dist`. A frozen app
+  runs its OWN test sequence, not just the framework UI. **MSVC is the tested compiler backend**
+  (an MSVC-less Windows machine falls back to Nuitka's zig, which mis-bundles the stdlib for the lean
+  controller path — the build gate below fails loudly if so).
 
 ### App-build acceptance (run before tagging an app release)
 

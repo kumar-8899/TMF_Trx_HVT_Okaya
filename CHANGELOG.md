@@ -5,6 +5,30 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.11.0 — 2026-09-03
+
+App builds work on MSVC-less builders: one exe, `run.exe` also runs the controller. MINOR.
+
+The v1.10.x app build compiled a SEPARATE controller.exe. On a Windows machine without MSVC, Nuitka
+falls back to its bundled **zig** backend, which reliably bundles the pure-Python stdlib only for
+LARGE import graphs — the lean controller graph deterministically produced a stdlib-less exe that
+crashed at startup (`Failed to import encodings`). No Nuitka flag fixes this reliably.
+
+- **One exe.** `run.py` now dual-dispatches: `run.exe --controller <config>` runs the controller
+  (`controller.__main__.main`) instead of uvicorn. The supervisor spawns that in a frozen build; the
+  separate `build_controller` step + `controller.dist/` are gone. The controller reuses `run.exe`'s
+  stdlib (its large graph always pulls it in), so it works on **every** backend incl. zig — no MSVC
+  required just to bundle the stdlib. Bonus: ~half the app-build time (one compile) and a smaller
+  artifact (~77 MB vs ~113 MB).
+- **Build gate**, unchanged in spirit: after the backend compile, `build_release` launches
+  `run.exe --controller` with the app's step packages + an unreachable broker and FAILS the build
+  unless it reaches `instruments:` with no crash. A controller that can't start never ships.
+- **`--mingw64` now errors clearly on Python 3.13+** (Nuitka rejects it and ignores an external
+  winlibs gcc) instead of a cryptic FATAL. MSVC + clcache stays the default; MSVC is the tested
+  backend (docs note the zig fallback is covered by the gate).
+- Verified end-to-end: single-exe app build, `run.exe --controller` comes up `online` (`/readyz`),
+  loads the app step package, no encodings/`getsource` crash.
+
 ## v1.10.2 — 2026-09-02
 
 Fix: the frozen controller.exe couldn't start (app couldn't run its test sequence). PATCH.

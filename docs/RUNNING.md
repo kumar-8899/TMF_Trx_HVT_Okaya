@@ -103,7 +103,8 @@ python run.dist\launcher.py      # backend + controller only, no window
   backups land in `release-build/config` + `release-build/data` (outside the swappable `run.dist`).
 - On first boot `config/app.example.json` (promoted from the app's `app.release.json`) is copied to
   the live config, so the app boots with its **own** branding + `controller.kind=python`.
-- The supervisor starts `run.dist/controller.dist/controller.exe`; it loads the app's step-type
+- The supervisor starts the controller as `run.exe --controller` (the backend exe doubles as the
+  controller — one compiled exe); it loads the app's step-type
   package (compiled in) and brings the station online (`/readyz`). Configure instrument instances on
   **Config → Instruments** (site config, held in the DB — not in the artifact), then restart to run
   the app's sequence. Needs a Python on PATH (the launcher/window entry are not yet frozen).

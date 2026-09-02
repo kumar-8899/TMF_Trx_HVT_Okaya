@@ -1,7 +1,7 @@
 {
   "name": "tmf-tools",
   "displayName": "TMF Tools",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "description": "Build on the Super_Test_App Test & Measurement framework: fork a new customer app, author controller step types, add a bench test, and create instrument-library drivers. Version tracks the framework release.",
   "author": { "name": "Exeliq" },
   "homepage": "https://github.com/kumar-8899/Super_Test_App",

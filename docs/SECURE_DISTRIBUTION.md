@@ -102,10 +102,13 @@ mints a dev lease — verified green on this workstation.
   - `run.dist/` (the swap unit) = compiled backend (`run.exe`) + `launcher.py` + bundled
     manifests/schemas, AND — for `--track app` — everything the app needs, INSIDE run.dist so an
     update swap carries it all:
-    - `controller.dist/controller.exe` — the Python controller, Nuitka-compiled, with the app's
-      `step_type_packages` + `instrument_libs` **compiled in** (they load by name via config, so
-      no dir paths are needed frozen; `--include-package(-data)` for each, discovered from
-      `app/<slug>/controller.json`).
+    - **`run.exe` also runs the controller** — `run.exe --controller <config>` (ONE compiled exe).
+      The app's `step_type_packages` + `instrument_libs` are **compiled into run.exe** (they load by
+      name via config; `--include-package(-data)` for each, discovered from `app/<slug>/controller.json`).
+      A lean, separately-compiled `controller.exe` fails to bundle the pure-Python stdlib on Nuitka's
+      **zig** backend (what an MSVC-less Windows builder gets); the backend's large graph always pulls
+      the stdlib in, so the controller reuses it. **MSVC is the tested backend** — install VS "Desktop
+      development with C++" (or the standalone Build Tools) for a reliable Windows app build.
     - `app/<slug>/` — the app DEFINITION (controller.json, maps/, specs/). **No `recipes/`, no
       instrument instances, no credentials** — those are site config set on the bench, held in the
       external state (`STATE_ROOT/config` + DB) and untouched by a swap.
@@ -118,9 +121,9 @@ mints a dev lease — verified green on this workstation.
     `RELEASE.json` (version + framework_version + pinned_fw_version + SHA-256 of every file +
     `full_artifact_hash`).
   `--track framework` builds the backend-only shell (framework self-test).
-- **A frozen app runs its OWN test sequence**, not just the UI: the supervisor finds
-  `run.dist/controller.dist/controller.exe`, starts it, and it imports the app's step-type package
-  by name (compiled in) — verified by the app-build acceptance step (TEMPLATE.md §4).
+- **A frozen app runs its OWN test sequence**, not just the UI: the supervisor spawns
+  `run.exe --controller <config>`, which imports the app's step-type package by name (compiled in) —
+  verified by the app-build acceptance step (a build-time gate; TEMPLATE.md §4).
 - The app repo's `release.yml` (a template ships in P-b2) runs: tests → Nuitka →
   zip+hash → sign the app `.ksupdate` → publish the app's GitHub Release.
 - Registration as a **signed** Keystation framework release (manifest + signed

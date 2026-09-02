@@ -94,16 +94,10 @@ class ControllerSupervisor:
 
     def _command(self) -> tuple[list[str] | None, Path | None]:
         if _is_frozen():
-            base = Path(sys.executable).resolve().parent            # run.dist
-            name = "controller.exe" if sys.platform == "win32" else "controller"
-            # build_release --track app puts it at run.dist/controller.dist/; keep the legacy
-            # "beside the exe" location as a fallback.
-            for exe in (base / "controller.dist" / name, base / name):
-                if exe.exists():
-                    return [str(exe)], exe.parent
-            self._diag.warning("controller", "controller.kind=python but no bundled controller "
-                               "executable found (run.dist/controller.dist/) — not started")
-            return None, None
+            # The frozen backend exe doubles as the controller: `run.exe --controller <config>`.
+            # ONE compiled exe, and the controller reuses run.exe's (large-graph) stdlib — a lean
+            # separate controller.exe fails to bundle the stdlib on Nuitka's zig backend.
+            return [sys.executable, "--controller"], Path(sys.executable).resolve().parent
         pkg_dir = self._repo_root / "controller"           # sibling of backend/ in the repo
         if not (pkg_dir / "controller" / "__main__.py").exists():
             self._diag.warning("controller", "controller.kind=python but the controller package "

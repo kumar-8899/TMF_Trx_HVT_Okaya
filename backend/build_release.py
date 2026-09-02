@@ -13,8 +13,8 @@ Output layout (SECURE_DISTRIBUTION.md §5):
         modules/**         manifest.json / schemas / step_types / known_issues (data)
         core/schemas/*     app/license schema JSON (data)
         config/*.example.json
-        --- app track (--track app) also bundles, INSIDE run.dist so a swap carries it all: ---
-        controller.dist/   compiled Python controller (controller.exe + app step packages)
+        --- app track (--track app): run.exe ALSO runs the controller (run.exe --controller),
+            and these bundle INSIDE run.dist so a swap carries it all: ---
         app/<product>/     app DEFINITION: controller.json, maps/, specs/ (NO recipes/creds)
         instrument_libs/   copied drivers (provenance; imports use the compiled-in copy)
       docs/                in-app help markdown (help catalog resolves ../docs)
@@ -24,10 +24,13 @@ Output layout (SECURE_DISTRIBUTION.md §5):
 
 Usage:  python build_release.py [--track framework|app] [--product <name>]
                                  [--app-config <path>] [--skip-frontend] [--jobs N] [--mingw64]
-App track compiles a SECOND exe (the controller) with the app's step-type packages +
-instrument_libs (import-by-name), so a frozen app runs its OWN test sequence — not just the shell.
+App track compiles ONE exe: run.exe also runs the controller (`run.exe --controller`) with the
+app's step-type packages + instrument_libs compiled in (import-by-name), so a frozen app runs its
+OWN test sequence — not just the shell. (One exe, because a lean separately-compiled controller.exe
+fails to bundle the stdlib on Nuitka's zig backend; run.exe's large graph always pulls it in.)
 Compiler backend defaults to MSVC (`cl`) + clcache — an object cache, so a WARM rebuild is fast
-(unchanged objects are cache hits). `--mingw64` opts into gcc + ccache (needs a working MinGW).
+(unchanged objects are cache hits). `--mingw64` opts into gcc + ccache (needs a working MinGW,
+unavailable on Python 3.13+).
 The signed Keystation framework-release registration (manifest + build_timestamp)
 happens in CI / on the issuer, not here — this script only produces + hashes.
 """
@@ -72,7 +75,13 @@ def _compiler_args(mingw: bool) -> list[str]:
     a broken Windows SDK header (`psdk_inc/intrin-impl.h`) on some setups and fails the C compile —
     install a known-good MinGW (e.g. winlibs gcc 13.x) and put it on PATH, or stay on the MSVC
     default. Both back ends cache objects; the default just works out of the box here."""
-    return ["--mingw64"] if mingw else []
+    if mingw:
+        if sys.version_info >= (3, 13):
+            raise SystemExit(
+                "--mingw64 is unsupported on Python 3.13+ (Nuitka rejects it, and refuses an "
+                "external winlibs gcc). Use the default MSVC backend, or build on Python <=3.12.")
+        return ["--mingw64"]
+    return []
 
 
 def _app_build_env(product: str) -> dict:
@@ -147,57 +156,18 @@ def build_backend(jobs: int, track: str = "framework", product: str = "super_tes
     _run(cmd, cwd=BACKEND, env=env)
 
 
-def build_controller(jobs: int, product: str, mingw: bool = False) -> None:
-    """Nuitka-compile the Python controller into `run.dist/controller.dist/controller.exe`, with the
-    app's step-type packages + `instrument_libs` compiled in (they load by name via config). The
-    supervisor's frozen branch (controller_supervisor._command) finds it at that path."""
-    ctrl_repo = REPO / "controller"
-    if not (ctrl_repo / "controller" / "__main__.py").is_file():
-        print("WARNING: controller package not found - controller.exe NOT built (app can't run tests)")
-        return
-    # Compile a plain SCRIPT (controller/run_controller.py), NOT the package __main__ — pointing
-    # Nuitka at a package's __main__.py makes it skip the pure-Python stdlib (encodings/threading),
-    # so the frozen controller.exe can't bootstrap Python. A script bundles the stdlib on every
-    # backend (MSVC/MinGW/zig), exactly like backend/run.py.
-    entry = ctrl_repo / "run_controller.py"
-    stage = OUT / "_controller_build"
-    cmd = [
-        sys.executable, "-m", "nuitka", "--standalone", "--assume-yes-for-downloads",
-        *_compiler_args(mingw),
-        f"--jobs={jobs}", "--output-dir=" + str(stage),
-        "--include-package=controller",
-    ]
-    for pkg in _app_include_packages(product):
-        cmd += [f"--include-package={pkg}", f"--include-package-data={pkg}"]
-    cmd.append(str(entry))
-    _run(cmd, cwd=ctrl_repo, env=_app_build_env(product))
-    # Nuitka names the output after the entry file (run_controller.dist / .exe). Normalize to
-    # controller.dist/controller.exe and move it INTO run.dist (the swap unit).
-    built = stage / "run_controller.dist"
-    exe = "controller.exe" if sys.platform == "win32" else "controller"
-    src_exe = built / ("run_controller.exe" if sys.platform == "win32" else "run_controller.bin")
-    if src_exe.exists():
-        src_exe.rename(built / exe)
-    dest = DIST / "controller.dist"
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.move(str(built), str(dest))
-    shutil.rmtree(stage, ignore_errors=True)
-    _verify_controller(dest, exe, product)
-    print(f"controller: controller.dist/{exe} -> run.dist/")
-
-
-def _verify_controller(controller_dist: Path, exe: str, product: str) -> None:
-    """GATE (not a file-exists check): the frozen controller.exe must survive its REAL startup — load
-    the app's step packages, run the conformance re-check, build the registry, and reach
-    `instruments:` — with no crash. This catches frozen-only failures a shallow bootstrap check
-    misses (stdlib not bundled → `Failed to import encodings`; `inspect.getsource` in the conformance
-    gate → `could not get source`). Launch with a real config (step packages + an unreachable broker
-    so it can't hang) and FAIL the whole build if the controller can't start — a frozen app that
-    boots the UI but can't run the controller is a FAIL."""
+def _verify_frozen_controller(product: str) -> None:
+    """GATE: the frozen backend exe MUST also run as the controller (`run.exe --controller`) — load
+    the app's step packages, pass the conformance re-check, build the registry, and reach
+    `instruments:` with no crash. Catches frozen-only failures (stdlib not bundled →
+    `Failed to import encodings`; `inspect.getsource` in the conformance gate → `could not get
+    source`). Launch with a real config + an unreachable broker so it can't hang, and FAIL the whole
+    build if the controller can't start — a frozen app that boots the UI but can't run the controller
+    is a FAIL. Runs for --track app right after the backend compile (fail fast, one exe)."""
     import tempfile
-    exe_path = controller_dist / exe
-    nfiles = sum(1 for p in controller_dist.rglob("*") if p.is_file())
+    exe = DIST / ("run.exe" if sys.platform == "win32" else "run.bin")
+    if not exe.exists():
+        exe = DIST / "run"
     steps = [p for p in _app_include_packages(product) if p != "instrument_libs"]
     cfg = {"schema_version": 1, "broker": {"host": "127.0.0.1", "port": 9},   # port 9 = discard
            "step_type_packages": steps, "stations": [{"station": "st1"}], "simulation": False}
@@ -205,28 +175,28 @@ def _verify_controller(controller_dist: Path, exe: str, product: str) -> None:
     (tmpdir / "verify.json").write_text(json.dumps(cfg), encoding="utf-8")
     combined = ""
     try:
-        r = subprocess.run([str(exe_path), str(tmpdir / "verify.json")],
-                           capture_output=True, text=True, timeout=25)
+        r = subprocess.run([str(exe), "--controller", str(tmpdir / "verify.json")],
+                           capture_output=True, text=True, timeout=40)
         combined = (r.stdout or "") + (r.stderr or "")
-    except subprocess.TimeoutExpired as exc:      # broker retry keeps it alive — fine, we have output
+    except subprocess.TimeoutExpired as exc:      # broker retry keeps it alive — output is enough
         combined = ((exc.stdout or "") + (exc.stderr or "")) if isinstance(exc.stdout, str) else ""
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     reached = "instruments:" in combined or "controller up" in combined
-    # A startup crash lands BEFORE `instruments:`; only inspect that region so a later broker
-    # connection error can't false-fail the gate.
-    head = combined.split("instruments:", 1)[0]
+    head = combined.split("instruments:", 1)[0]   # a startup crash lands BEFORE `instruments:`
     crash = any(m in head for m in (
         "Failed to import encodings", "No module named", "Fatal Python error", "Traceback",
         "could not get source"))
-    ok = reached and (not crash) and nfiles >= 80
-    print(f"controller verify: {nfiles} files; startup {'OK' if ok else 'FAILED'}")
+    ok = reached and not crash
+    print(f"controller verify (run.exe --controller): startup {'OK' if ok else 'FAILED'}")
     if not ok:
         raise SystemExit(
-            "BUILD FAILED: the frozen controller.exe cannot complete startup "
-            f"(files={nfiles}, crash={crash}, reached_startup={reached}).\n"
+            "BUILD FAILED: `run.exe --controller` cannot complete startup "
+            f"(crash={crash}, reached_startup={reached}).\n"
             f"  output tail: {combined[-700:]!r}\n"
-            "  A frozen app that boots the UI but can't run the controller is a FAIL.")
+            "  A frozen app that boots the UI but can't run the controller is a FAIL. On an "
+            "MSVC-less builder Nuitka may mis-bundle the stdlib for lean graphs — installing VS "
+            "'Desktop development with C++' (or standalone Build Tools) gives the tested backend.")
 
 
 def copy_data() -> None:
@@ -434,12 +404,15 @@ def main() -> int:
     if OUT.exists():
         shutil.rmtree(OUT)
     build_backend(args.jobs, args.track, args.product, args.mingw64)
+    if args.track == "app":
+        # run.exe doubles as the controller (`run.exe --controller`). Verify it can start as one
+        # BEFORE spending time on data/payload/zip — fail fast on a mis-bundled toolchain.
+        _verify_frozen_controller(args.product)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
     if args.track == "app":
-        # A runnable app = backend + the Python controller + the app definition + drivers, all
-        # inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION.md §5).
-        build_controller(args.jobs, args.product, args.mingw64)
+        # A runnable app = the backend exe (which also runs the controller) + the app definition +
+        # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
         copy_app_payload(args.product)
         promote_app_config(args.app_config)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
