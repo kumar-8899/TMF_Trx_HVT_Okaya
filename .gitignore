@@ -48,3 +48,6 @@ backend/data/launcher.log
 
 # tmf-debug captures + digests pulled from benches (REMOTE_DEBUG.md §8)
 .debug/
+
+# Nuitka crash report (build junk)
+nuitka-crash-report.xml
