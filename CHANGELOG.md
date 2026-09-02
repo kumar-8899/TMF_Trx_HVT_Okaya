@@ -5,6 +5,19 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.10.1 — 2026-09-02
+
+Build: explicit compiler backend — MSVC + clcache default, MinGW opt-in. PATCH.
+
+- `build_release.py` now selects the Nuitka compiler backend explicitly. **Default = MSVC (`cl`)
+  + clcache**, an object cache: a WARM rebuild is near-instant — verified **1610/1614 C-file cache
+  hits** (only changed files recompile). This is the "fast rebuild" path and needs no toolchain
+  install (it's what Nuitka already auto-picked, now pinned so it can't drift).
+- **`--mingw64`** opts into gcc + ccache for machines with a working MinGW. Nuitka's
+  auto-downloaded gcc 15.2.0 ships a broken Windows SDK header (`psdk_inc/intrin-impl.h`) that fails
+  the C compile on some setups, so it is opt-in (install a known-good MinGW, e.g. winlibs gcc 13.x).
+- No change to build output; the first build on a machine is still a cold (cache-miss) full compile.
+
 ## v1.10.0 — 2026-09-02
 
 `build_release.py --track app` produces a complete, runnable frozen app. MINOR.

@@ -23,9 +23,11 @@ Output layout (SECURE_DISTRIBUTION.md §5):
       RELEASE.json         version + SHA-256 manifest of the above
 
 Usage:  python build_release.py [--track framework|app] [--product <name>]
-                                 [--app-config <path>] [--skip-frontend] [--jobs N]
+                                 [--app-config <path>] [--skip-frontend] [--jobs N] [--mingw64]
 App track compiles a SECOND exe (the controller) with the app's step-type packages +
 instrument_libs (import-by-name), so a frozen app runs its OWN test sequence — not just the shell.
+Compiler backend defaults to MSVC (`cl`) + clcache — an object cache, so a WARM rebuild is fast
+(unchanged objects are cache hits). `--mingw64` opts into gcc + ccache (needs a working MinGW).
 The signed Keystation framework-release registration (manifest + build_timestamp)
 happens in CI / on the issuer, not here — this script only produces + hashes.
 """
@@ -62,6 +64,17 @@ def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
     subprocess.run(cmd, cwd=cwd, check=True, env=env)
 
 
+def _compiler_args(mingw: bool) -> list[str]:
+    """Compiler backend for Nuitka. Default (empty) lets Nuitka pick **MSVC (`cl`)** on Windows,
+    which it drives through **clcache** — an object cache, so a WARM rebuild is fast (unchanged
+    `.obj` are cache hits; only your changed app packages recompile). `--mingw64` opts into
+    **gcc + ccache** instead, which needs a WORKING MinGW: Nuitka's auto-downloaded gcc 15.2.0 ships
+    a broken Windows SDK header (`psdk_inc/intrin-impl.h`) on some setups and fails the C compile —
+    install a known-good MinGW (e.g. winlibs gcc 13.x) and put it on PATH, or stay on the MSVC
+    default. Both back ends cache objects; the default just works out of the box here."""
+    return ["--mingw64"] if mingw else []
+
+
 def _app_build_env(product: str) -> dict:
     """Nuitka resolves `--include-package` against sys.path, so put the app's package roots on
     PYTHONPATH: the repo root (for `instrument_libs`), `app/<product>` (for `<name>_steps`), and
@@ -94,12 +107,14 @@ def _app_include_packages(product: str) -> list[str]:
     return pkgs
 
 
-def build_backend(jobs: int, track: str = "framework", product: str = "super_test_app") -> None:
+def build_backend(jobs: int, track: str = "framework", product: str = "super_test_app",
+                  mingw: bool = False) -> None:
     import importlib.util
     cmd = [
         sys.executable, "-m", "nuitka",
         "--standalone",
         "--assume-yes-for-downloads",
+        *_compiler_args(mingw),
         f"--jobs={jobs}",
         "--output-dir=" + str(OUT),
         # dynamic discovery (core.framework.registry.discover) is invisible to
@@ -132,7 +147,7 @@ def build_backend(jobs: int, track: str = "framework", product: str = "super_tes
     _run(cmd, cwd=BACKEND, env=env)
 
 
-def build_controller(jobs: int, product: str) -> None:
+def build_controller(jobs: int, product: str, mingw: bool = False) -> None:
     """Nuitka-compile the Python controller into `run.dist/controller.dist/controller.exe`, with the
     app's step-type packages + `instrument_libs` compiled in (they load by name via config). The
     supervisor's frozen branch (controller_supervisor._command) finds it at that path."""
@@ -144,6 +159,7 @@ def build_controller(jobs: int, product: str) -> None:
     stage = OUT / "_controller_build"
     cmd = [
         sys.executable, "-m", "nuitka", "--standalone", "--assume-yes-for-downloads",
+        *_compiler_args(mingw),
         f"--jobs={jobs}", "--output-dir=" + str(stage),
         "--include-package=controller",
     ]
@@ -354,6 +370,9 @@ def main() -> int:
                          "defaults to backend/config/app.release.json)")
     ap.add_argument("--manifest-only", action="store_true",
                     help="re-hash an existing release-build (no recompile)")
+    ap.add_argument("--mingw64", action="store_true",
+                    help="use the MinGW64 + ccache backend instead of the default MSVC + clcache "
+                         "(needs a working MinGW on PATH — see _compiler_args)")
     args = ap.parse_args()
 
     app_ver = _app_version(args.product, args.app_version) if args.track == "app" else None
@@ -367,13 +386,13 @@ def main() -> int:
 
     if OUT.exists():
         shutil.rmtree(OUT)
-    build_backend(args.jobs, args.track, args.product)
+    build_backend(args.jobs, args.track, args.product, args.mingw64)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
     if args.track == "app":
         # A runnable app = backend + the Python controller + the app definition + drivers, all
         # inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION.md §5).
-        build_controller(args.jobs, args.product)
+        build_controller(args.jobs, args.product, args.mingw64)
         copy_app_payload(args.product)
         promote_app_config(args.app_config)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
