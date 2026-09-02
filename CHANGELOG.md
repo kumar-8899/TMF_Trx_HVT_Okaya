@@ -5,6 +5,30 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.10.2 — 2026-09-02
+
+Fix: the frozen controller.exe couldn't start (app couldn't run its test sequence). PATCH.
+
+Two frozen-only bugs in the v1.10.0 app-track build, both of which left a frozen app booting the UI
+shell but unable to run the controller (the exact FAIL v1.10.0 claimed to prevent; masked on this
+repo's MSVC backend, exposed on the zig backend an MSVC-less builder gets):
+
+- **stdlib not bundled → `Fatal Python error: Failed to import encodings`.** `build_controller`
+  pointed Nuitka at the package's `__main__.py`; Nuitka then skips the pure-Python stdlib. Now it
+  compiles a plain SCRIPT entry (`controller/run_controller.py`, mirroring `backend/run.py`), which
+  bundles the full stdlib on every backend (MSVC / MinGW / zig).
+- **`inspect.getsource` in the conformance re-check → `OSError: could not get source code`.** The
+  step-type gate re-run at controller startup inspected handler source, which a compiled build has
+  no access to. `conformance.check_handler` now skips the source rules when source is unavailable
+  (it is an authoring/CI gate that already ran before compilation).
+
+- **`build_controller` now GATES the build**: it launches the frozen `controller.exe` with the app's
+  step packages and an unreachable broker, and FAILS the whole build unless the controller completes
+  startup (loads its packages, passes the conformance re-check, reaches `instruments:`) with no
+  crash. A controller that can't start can never ship again — on any compiler.
+- Verified end-to-end: the frozen controller reaches `controller up … online`, `/readyz` online, no
+  encodings/`getsource` crash.
+
 ## v1.10.1 — 2026-09-02
 
 Build: explicit compiler backend — MSVC + clcache default, MinGW opt-in. PATCH.

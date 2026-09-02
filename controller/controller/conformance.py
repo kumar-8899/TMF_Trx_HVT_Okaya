@@ -68,7 +68,14 @@ def check_source(source: str, *, name: str = "handler") -> list[str]:
 
 
 def check_handler(cls) -> list[str]:
-    return check_source(inspect.getsource(cls), name=getattr(cls, "__name__", "handler"))
+    # Source-level rules (§7.3). In a FROZEN build the .py source isn't available
+    # (`inspect.getsource` → OSError), so skip it there: this is an authoring/CI gate that
+    # already ran before compilation — it must never crash a shipped controller at startup.
+    try:
+        src = inspect.getsource(cls)
+    except (OSError, TypeError):
+        return []
+    return check_source(src, name=getattr(cls, "__name__", "handler"))
 
 
 def _is_true(test) -> bool:

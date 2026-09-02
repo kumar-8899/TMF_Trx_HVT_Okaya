@@ -152,10 +152,14 @@ def build_controller(jobs: int, product: str, mingw: bool = False) -> None:
     app's step-type packages + `instrument_libs` compiled in (they load by name via config). The
     supervisor's frozen branch (controller_supervisor._command) finds it at that path."""
     ctrl_repo = REPO / "controller"
-    entry = ctrl_repo / "controller" / "__main__.py"
-    if not entry.is_file():
+    if not (ctrl_repo / "controller" / "__main__.py").is_file():
         print("WARNING: controller package not found - controller.exe NOT built (app can't run tests)")
         return
+    # Compile a plain SCRIPT (controller/run_controller.py), NOT the package __main__ — pointing
+    # Nuitka at a package's __main__.py makes it skip the pure-Python stdlib (encodings/threading),
+    # so the frozen controller.exe can't bootstrap Python. A script bundles the stdlib on every
+    # backend (MSVC/MinGW/zig), exactly like backend/run.py.
+    entry = ctrl_repo / "run_controller.py"
     stage = OUT / "_controller_build"
     cmd = [
         sys.executable, "-m", "nuitka", "--standalone", "--assume-yes-for-downloads",
@@ -167,11 +171,11 @@ def build_controller(jobs: int, product: str, mingw: bool = False) -> None:
         cmd += [f"--include-package={pkg}", f"--include-package-data={pkg}"]
     cmd.append(str(entry))
     _run(cmd, cwd=ctrl_repo, env=_app_build_env(product))
-    # Nuitka names the output after the entry file (__main__.dist / __main__.exe). Normalize to
+    # Nuitka names the output after the entry file (run_controller.dist / .exe). Normalize to
     # controller.dist/controller.exe and move it INTO run.dist (the swap unit).
-    built = stage / "__main__.dist"
+    built = stage / "run_controller.dist"
     exe = "controller.exe" if sys.platform == "win32" else "controller"
-    src_exe = built / ("__main__.exe" if sys.platform == "win32" else "__main__.bin")
+    src_exe = built / ("run_controller.exe" if sys.platform == "win32" else "run_controller.bin")
     if src_exe.exists():
         src_exe.rename(built / exe)
     dest = DIST / "controller.dist"
@@ -179,7 +183,50 @@ def build_controller(jobs: int, product: str, mingw: bool = False) -> None:
         shutil.rmtree(dest)
     shutil.move(str(built), str(dest))
     shutil.rmtree(stage, ignore_errors=True)
+    _verify_controller(dest, exe, product)
     print(f"controller: controller.dist/{exe} -> run.dist/")
+
+
+def _verify_controller(controller_dist: Path, exe: str, product: str) -> None:
+    """GATE (not a file-exists check): the frozen controller.exe must survive its REAL startup — load
+    the app's step packages, run the conformance re-check, build the registry, and reach
+    `instruments:` — with no crash. This catches frozen-only failures a shallow bootstrap check
+    misses (stdlib not bundled → `Failed to import encodings`; `inspect.getsource` in the conformance
+    gate → `could not get source`). Launch with a real config (step packages + an unreachable broker
+    so it can't hang) and FAIL the whole build if the controller can't start — a frozen app that
+    boots the UI but can't run the controller is a FAIL."""
+    import tempfile
+    exe_path = controller_dist / exe
+    nfiles = sum(1 for p in controller_dist.rglob("*") if p.is_file())
+    steps = [p for p in _app_include_packages(product) if p != "instrument_libs"]
+    cfg = {"schema_version": 1, "broker": {"host": "127.0.0.1", "port": 9},   # port 9 = discard
+           "step_type_packages": steps, "stations": [{"station": "st1"}], "simulation": False}
+    tmpdir = Path(tempfile.mkdtemp())
+    (tmpdir / "verify.json").write_text(json.dumps(cfg), encoding="utf-8")
+    combined = ""
+    try:
+        r = subprocess.run([str(exe_path), str(tmpdir / "verify.json")],
+                           capture_output=True, text=True, timeout=25)
+        combined = (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired as exc:      # broker retry keeps it alive — fine, we have output
+        combined = ((exc.stdout or "") + (exc.stderr or "")) if isinstance(exc.stdout, str) else ""
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    reached = "instruments:" in combined or "controller up" in combined
+    # A startup crash lands BEFORE `instruments:`; only inspect that region so a later broker
+    # connection error can't false-fail the gate.
+    head = combined.split("instruments:", 1)[0]
+    crash = any(m in head for m in (
+        "Failed to import encodings", "No module named", "Fatal Python error", "Traceback",
+        "could not get source"))
+    ok = reached and (not crash) and nfiles >= 80
+    print(f"controller verify: {nfiles} files; startup {'OK' if ok else 'FAILED'}")
+    if not ok:
+        raise SystemExit(
+            "BUILD FAILED: the frozen controller.exe cannot complete startup "
+            f"(files={nfiles}, crash={crash}, reached_startup={reached}).\n"
+            f"  output tail: {combined[-700:]!r}\n"
+            "  A frozen app that boots the UI but can't run the controller is a FAIL.")
 
 
 def copy_data() -> None:
