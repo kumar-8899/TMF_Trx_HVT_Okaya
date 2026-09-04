@@ -4,11 +4,14 @@
 #
 # On a `v*` tag: guard tag==version → test → Nuitka build (+ artifact zip + hash) →
 # sign the .ksupdate → publish a GitHub Release whose body is that version's CHANGELOG
-# section, carrying EXACTLY ONE .ksupdate plus the artifact .zip the station verifies.
+# section, carrying THREE assets: the .ksupdate (trust), the artifact .zip the station verifies +
+# swaps, and run_station.py (the windowed launcher install-station.ps1 places beside run.dist).
 #
-# Required repo secrets (from the root ceremony; never on a laptop):
-#   KS_INTERMEDIATE_SEED   hex 32-byte Ed25519 seed of the rotatable intermediate key
-#   KS_INTERMEDIATE_CERT   the root-signed intermediate cert (JSON)
+# Signing secrets are OPTIONAL for internal/pre-Keystation use: with none set, sign_update.py
+# DEV-signs an UNTRUSTED .ksupdate — a client installs it only where app.json
+# updates.allow_unverified=true (DEPLOY_STATION.md). Set them for a trusted, verified release:
+#   KS_INTERMEDIATE_SEED   hex 32-byte Ed25519 seed of the rotatable intermediate key (secret)
+#   KS_INTERMEDIATE_CERT   the root-signed intermediate cert (JSON) (secret)
 # Required repo variables:
 #   KS_PRODUCT_SLUG        this app's Keystation app-track product slug
 # The app version comes from app/<slug>/VERSION (independent semver, starts 1.0.0); the
@@ -90,4 +93,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" --notes-file release-notes.md \
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate" \
-            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.zip"
+            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.zip" \
+            "run_station.py"

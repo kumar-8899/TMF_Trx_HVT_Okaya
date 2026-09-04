@@ -87,3 +87,8 @@ An app repo ships two workflows the framework does not (framework repo = `ci.yml
 
 The station side (Settings → Updates) is notify-only: **Check → Download → Install → Relaunch**,
 with rollback to last-known-good and a bounded auto-recovery in the launcher. See UPDATES.md.
+
+**Client deployment + the end-to-end update flow** (first install via `deploy/install-station.ps1`;
+the `updates` config block; cutting a release; the read-token security note; dev-untrusted vs
+Keystation trust) is [DEPLOY_STATION.md](DEPLOY_STATION.md). `new-test-app` scaffolds `release.yml`
+and the `updates` block into each fork, so an app is deploy- + update-ready on day one.

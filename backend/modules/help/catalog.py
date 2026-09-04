@@ -12,8 +12,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-# repo_root/docs  (catalog.py = backend/modules/help/catalog.py)
-DOCS_ROOT = Path(__file__).resolve().parents[3] / "docs"
+def _resolve_docs_root() -> Path:
+    """Locate the `docs/` tree across source + frozen layouts. Frozen (v1.12.0+): docs ride INSIDE
+    run.dist (the swap unit), so an update refreshes the in-app help and the published .zip is
+    complete — prefer run.dist/docs over a legacy deploy-root copy a swap would leave stale."""
+    import os
+    import sys
+    env = os.environ.get("TMF_DOCS_DIR")
+    if env:
+        return Path(env)
+    here = Path(__file__).resolve()
+    exe_dir = Path(sys.executable).resolve().parent
+    for cand in (exe_dir / "docs",             # frozen: run.dist/docs (primary)
+                 here.parents[3] / "docs",      # source checkout: repo/docs
+                 exe_dir.parent / "docs"):      # legacy deploy-root
+        if (cand / "help").is_dir():
+            return cand.resolve()
+    return here.parents[3] / "docs"
+
+
+DOCS_ROOT = _resolve_docs_root()
 
 
 @dataclass(frozen=True)

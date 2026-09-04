@@ -41,9 +41,21 @@ def main() -> int:
     release_json, out_path = sys.argv[1], sys.argv[2]
     rel = json.loads(open(release_json, encoding="utf-8").read())
 
-    seed_hex = os.environ["KS_INTERMEDIATE_SEED"].strip()
-    cert = json.loads(os.environ["KS_INTERMEDIATE_CERT"])
-    key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed_hex))
+    seed_hex = os.environ.get("KS_INTERMEDIATE_SEED", "").strip()
+    if seed_hex:
+        cert = json.loads(os.environ["KS_INTERMEDIATE_CERT"])
+        key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed_hex))
+    else:
+        # DEV / pre-Keystation: no ceremony secrets available. Mint an EPHEMERAL self-signed key so
+        # the .ksupdate still exists + parses — the stub provider flags it verified:false and a
+        # client installs it only with `updates.allow_unverified: true` (DEPLOY_STATION.md). Set the
+        # real KS_INTERMEDIATE_SEED/CERT once Keystation is stood up and the same release becomes
+        # trusted (no other change). NEVER treat a dev-signed release as trusted.
+        print("WARNING: KS_INTERMEDIATE_SEED not set — DEV-signing an UNTRUSTED .ksupdate "
+              "(installs only where updates.allow_unverified=true; use Keystation secrets for trust).",
+              file=sys.stderr)
+        key = Ed25519PrivateKey.generate()
+        cert = {"key_version": 0, "dev": True}
 
     full_hash = rel["full_artifact_hash"] if "full_artifact_hash" in rel else \
         _hash_of(rel, release_json)

@@ -53,7 +53,8 @@ class UpdateService:
     `current_abi` is the core ABI the framework was built against (-1 = unknown)."""
 
     def __init__(self, db, licensing, diag, *, current_version: str, current_abi: int = -1,
-                 data_dir=None, current_app_version: str | None = None):
+                 data_dir=None, current_app_version: str | None = None,
+                 allow_unverified: bool = False):
         self._db = db
         self._lic = licensing
         self._diag = diag
@@ -61,6 +62,10 @@ class UpdateService:
         self._app_version = current_app_version       # this app's own version (None on framework)
         self._abi = current_abi
         self._data_dir = data_dir   # where the launcher reads relaunch.json
+        # Pre-Keystation / internal: install UNSIGNED (stub-provider) offers, still flagged
+        # untrusted. Config-gated (app.json updates.allow_unverified); default off so a real
+        # Keystation deployment only ever installs a verified manifest (UPDATES.md §trust).
+        self._allow_unverified = bool(allow_unverified)
 
     # ---- resolve (publish != deploy) --------------------------------------
 
@@ -70,7 +75,8 @@ class UpdateService:
         offered = manifest.get("version")
         if track not in ("framework", "app"):
             return {"applicable": False, "reason": f"track '{track}' is not station-applicable here"}
-        if not manifest.get("verified", False):
+        verified = bool(manifest.get("verified", False))
+        if not verified and not self._allow_unverified:
             return {"applicable": False, "reason": "manifest signature not verified (untrusted provider)"}
         # Compare like with like: an app-track update against the app's own version, a
         # framework-track update against the framework version (TEMPLATE.md two-tier).
@@ -84,9 +90,10 @@ class UpdateService:
                     "reason": f"needs core ABI ≥ {need_abi}; station core ABI is {self._abi} — "
                               "update the core DLL first"}
         crit = manifest.get("criticality")
-        return {"applicable": True,
+        untrusted = " · UNTRUSTED (unsigned; allow_unverified)" if not verified else ""
+        return {"applicable": True, "untrusted": not verified,
                 "reason": f"{track} {offered} > {self._version}"
-                          + (f" · {crit}" if crit else "")}
+                          + (f" · {crit}" if crit else "") + untrusted}
 
     # ---- ingest a .ksupdate -----------------------------------------------
 

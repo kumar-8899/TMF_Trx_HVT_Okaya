@@ -128,3 +128,4 @@ source run, the `.exe` icon in a frozen build. To brand the taskbar icon, give
 - [MULTI_STATION.md](MULTI_STATION.md) — relaunch, safe exit, `/system/*`.
 - [SECURE_DISTRIBUTION.md](SECURE_DISTRIBUTION.md) — the frozen release layout the
   bundle resolver targets.
+- [DEPLOY_STATION.md](DEPLOY_STATION.md) — installing on a client PC + shipping updates.

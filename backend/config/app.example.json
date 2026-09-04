@@ -9,6 +9,12 @@
     "tagline": "Authorised access only. All sessions are encrypted."
   },
   "license": "config/license.json",
+  "updates": {
+    "github_repo": "<owner>/<repo>",
+    "github_token": "",
+    "channel": "stable",
+    "allow_unverified": true
+  },
   "modules": [
     { "id": "daq",   "variant": "default" },
     {

@@ -46,10 +46,13 @@ def resolve_frontend_dist() -> Path | None:
     if env:
         candidates.append(Path(env))
     here = Path(__file__).resolve()
-    candidates.append(here.parents[3] / "frontend" / "dist")   # <repo>/frontend/dist
+    candidates.append(here.parents[3] / "frontend" / "dist")   # <repo>/frontend/dist (source)
     exe_dir = Path(sys.executable).resolve().parent            # frozen: .../run.dist
-    candidates.append(exe_dir.parent / "frontend")             # release-build/frontend
-    candidates.append(exe_dir / "frontend")
+    # Frozen: the SPA rides INSIDE run.dist (the swap unit), so an update refreshes it and the
+    # published .zip is a complete app. Prefer that over a legacy deploy-root copy, which a swap
+    # would leave stale (build_release copies frontend into run.dist as of v1.12.0).
+    candidates.append(exe_dir / "frontend")                    # run.dist/frontend  (primary, frozen)
+    candidates.append(exe_dir.parent / "frontend")             # release-build/frontend (legacy)
     for cand in candidates:
         try:
             if (cand / "index.html").is_file():

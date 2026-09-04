@@ -168,10 +168,12 @@ def create_app(
         app.state.license_runtime = _lic_cfg.get("runtime") or "python_framework"
 
         from core.services.updates import UpdateService
+        _updates_cfg = app_cfg.get("updates") or {}
         app.state.updates = UpdateService(db, licensing, diag, current_version=__version__,
                                           current_app_version=app_version(),
-                                          data_dir=DEFAULT_DB_PATH.parent)
-        app.state.update_source = app_cfg.get("updates", {})   # {github_repo, github_token?}
+                                          data_dir=DEFAULT_DB_PATH.parent,
+                                          allow_unverified=bool(_updates_cfg.get("allow_unverified")))
+        app.state.update_source = _updates_cfg   # {github_repo, github_token?, channel?, allow_unverified?}
         discover()
         result: ActivationResult = await activate_modules(
             core=core,

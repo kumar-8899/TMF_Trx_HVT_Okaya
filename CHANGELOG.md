@@ -5,6 +5,44 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.12.0 — 2026-09-04
+
+Client deployment + in-app updates are now an inherited, first-class capability, and the published
+artifact is a **complete** app. MINOR.
+
+The update runtime already existed (checker, journalled swap, rollback, signer); what was missing was
+the glue every fork needs to actually deploy and update a client — plus a gap where the shipped `.zip`
+was not self-contained.
+
+- **One-time station bootstrap.** New `deploy/install-station.ps1 -Product <slug> -Repo <owner>/<repo>
+  [-Token] [-Channel] [-InstallDir]` — idempotent: ensures system Python, installs the Mosquitto
+  broker (`winget EclipseFoundation.Mosquitto`), `pip install pywebview`, downloads the latest
+  app-track Release's `<slug>-<ver>.zip` via the **private-repo** asset API, verifies its sha256
+  against the `.ksupdate` manifest's `full_artifact_hash`, extracts to `<InstallDir>\run.dist`, drops
+  `run_station.py` beside it, and launches the station. GitHub Releases delivers *updates*; this
+  delivers the *first* install.
+- **Artifact completeness.** The build now copies `frontend/` **and** `docs/` **into `run.dist`**
+  (the swap unit that `package_artifact` zips), and the SPA + help resolvers prefer that location
+  (`spa.py`, `help/catalog.py`). Before this, the UI was served from the deploy root and docs from the
+  source tree — outside the zip — so an install-from-zip had no UI and an update never refreshed the
+  help. Now the `.zip` carries the UI, the in-app help, the app definition, and the drivers; one swap
+  refreshes all of it, **including a fork's custom screen overrides** (compiled into its own
+  `frontend/dist`). Verified on a frozen build: `GET /` serves the SPA from `run.dist\frontend`,
+  `/help/index` lists 54 pages read from `run.dist\docs`, and the published `.zip` contains both.
+- **Pre-wired update config.** `app.example.json` ships a commented-style `updates` block
+  (`github_repo`, `github_token:""`, `channel`, `allow_unverified`) and the schema now permits
+  `channel` + `allow_unverified` (the latter was already read by `app.py` — a latent schema gap).
+  `new-test-app` sets `updates.github_repo` to the fork's origin and scaffolds `release.yml`.
+- **Dev-untrusted updates, gated.** Pre-Keystation there is no signing ceremony, so `release.yml`
+  dev-signs the `.ksupdate` when no `KS_INTERMEDIATE_SEED`/`_CERT` secrets are set (manifest exists,
+  flagged `verified:false`), and a client installs an untrusted release **only** when
+  `updates.allow_unverified: true` (shown UNTRUSTED in the UI). Standing up Keystation = add the real
+  secrets + flip the switch to false; no other change.
+- **Docs + skill.** New `docs/DEPLOY_STATION.md` (first install → cut a release → update a client →
+  trust → read-token security), cross-linked from RUNNING/APP_REPO/SECURE_DISTRIBUTION; `release.yml`
+  aligned (three assets, optional secrets); both copies of the `new-test-app` skill wire the `updates`
+  block + `release.yml` so a fork is deploy- and update-ready on day one.
+
 ## v1.11.0 — 2026-09-03
 
 App builds work on MSVC-less builders: one exe, `run.exe` also runs the controller. MINOR.

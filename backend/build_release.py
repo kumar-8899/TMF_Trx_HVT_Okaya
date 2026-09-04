@@ -8,19 +8,22 @@ Keystation's `python_framework` FRAMEWORK track distributes. PyInstaller
 Output layout (SECURE_DISTRIBUTION.md §5):
 
     release-build/
-      run.dist/            compiled backend (run.exe + native libs) = the swap unit
+      run.dist/            compiled backend (run.exe + native libs) = the swap unit + the .zip
         launcher.py        update supervisor (catches exit-42, applies the staged run.dist)
         modules/**         manifest.json / schemas / step_types / known_issues (data)
         core/schemas/*     app/license schema JSON (data)
         config/*.example.json
+        frontend/          built SPA (served single-origin; resolve_frontend_dist prefers this)
+        docs/              in-app help markdown (help.catalog resolves this first)
         --- app track (--track app): run.exe ALSO runs the controller (run.exe --controller),
             and these bundle INSIDE run.dist so a swap carries it all: ---
         app/<product>/     app DEFINITION: controller.json, maps/, specs/ (NO recipes/creds)
         instrument_libs/   copied drivers (provenance; imports use the compiled-in copy)
-      docs/                in-app help markdown (help catalog resolves ../docs)
-      frontend/            built SPA (serve statically at the station)
+      run_station.py       windowed launcher (deploy root; published as its own release asset)
       keystation_core.dll  native licensing core (app.json licensing.core_lib)
       RELEASE.json         version + SHA-256 manifest of the above
+    Everything the running app SERVES (UI, help, app def, drivers) is inside run.dist, so the
+    published <slug>-<ver>.zip is a complete app AND an in-app update refreshes all of it.
 
 Usage:  python build_release.py [--track framework|app] [--product <name>]
                                  [--app-config <path>] [--skip-frontend] [--jobs N] [--mingw64]
@@ -216,15 +219,19 @@ def copy_data() -> None:
 
 
 def copy_docs_frontend_dll(skip_frontend: bool) -> None:
-    # in-app help: catalog.py resolves <dist parent>/docs
-    shutil.copytree(REPO / "docs", OUT / "docs", dirs_exist_ok=True)
+    # The SPA + in-app help ride INSIDE run.dist (the swap unit), so the published .zip is a
+    # COMPLETE app (a client install has the UI) AND an in-app update refreshes the UI/help too —
+    # a swap replaces run.dist wholesale. The fork's OWN `frontend/dist` (built here) already
+    # contains its custom screen overrides (frontend/src/app/overrides/*), so they ship automatically.
+    # spa.py / help.catalog resolve run.dist/{frontend,docs} first (v1.12.0).
+    shutil.copytree(REPO / "docs", DIST / "docs", dirs_exist_ok=True)
     if not skip_frontend:
         fe = REPO / "frontend" / "dist"
         if not fe.exists():
-            _run(["npm", "run", "build"], cwd=REPO / "frontend")
-        shutil.copytree(fe, OUT / "frontend", dirs_exist_ok=True)
-    # Windowed entry for the frozen deploy — sits at the deploy root (NOT inside run.dist,
-    # so a swap never replaces it); supervises run.dist/launcher.py + opens a pywebview window.
+            _run(["npm", "run", "build"], cwd=REPO / "frontend")   # builds the fork's UI incl. overrides
+        shutil.copytree(fe, DIST / "frontend", dirs_exist_ok=True)
+    # Windowed launcher — a small deploy-root script (NOT the swap unit; it launches run.dist). It is
+    # published as its own tiny release asset so install-station.ps1 can place it beside run.dist.
     win_entry = REPO / "run_station.py"
     if win_entry.is_file():
         shutil.copy2(win_entry, OUT / "run_station.py")

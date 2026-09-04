@@ -132,6 +132,10 @@ mints a dev lease — verified green on this workstation.
 
 ## 6. Signed updates (P3)
 
+> **Deploying to a client + the end-to-end release/update flow** (first install via
+> `deploy/install-station.ps1`, the `updates` config block, cutting a release, dev-untrusted vs
+> Keystation trust, the read-token security note) is in [DEPLOY_STATION.md](DEPLOY_STATION.md).
+
 Station side = **intake · trust · resolve · operator-gate**. A running Nuitka binary
 can't replace its own file, so *applying* is a launcher/restart step; the app verifies,
 records intent, and stages. `core/services/updates.py` (`UpdateService`):

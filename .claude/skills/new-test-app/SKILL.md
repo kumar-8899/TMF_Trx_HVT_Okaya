@@ -86,6 +86,18 @@ Edit `backend/config/app.json` (app-owned): `branding` (name/product/tagline/sho
 (No `simulation` here — v1.5.1+: simulation is **per instrument**, the Simulated
 toggle on the Instruments page.)
 
+**Wire deployment + in-app updates (so the app is update-ready on day one):**
+- In `app.json`, set the `updates` block: `github_repo` = the app's OWN repo (`<owner>/<repo>`, the
+  `origin` you wired), `github_token` `""` (the client supplies a read token via the
+  `TMF_UPDATE_TOKEN` env var — never commit it), `channel` `"stable"`, `allow_unverified` `true`
+  (installs dev/unsigned releases as UNTRUSTED pre-Keystation; set `false` once Keystation signs).
+- Scaffold the release pipeline: copy `docs/templates/release.yml` → `.github/workflows/release.yml`
+  and set the repo variable `KS_PRODUCT_SLUG` = `<name>`. On a `v*` tag it builds `--track app`,
+  signs a `.ksupdate` (dev-signed/untrusted without Keystation secrets), and publishes the Release's
+  three assets (`<name>-<ver>.zip`, `.ksupdate`, `run_station.py`).
+- The client is set up ONCE with `deploy/install-station.ps1 -Product <name> -Repo <owner>/<repo>`;
+  every later version arrives via the in-app updater. See `docs/DEPLOY_STATION.md`.
+
 ---
 
 ## Phase 3 — Instrument drivers (self-contained; copy from central)
