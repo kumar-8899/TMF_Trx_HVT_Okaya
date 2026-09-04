@@ -92,9 +92,14 @@ toggle on the Instruments page.)
   `TMF_UPDATE_TOKEN` env var — never commit it), `channel` `"stable"`, `allow_unverified` `true`
   (installs dev/unsigned releases as UNTRUSTED pre-Keystation; set `false` once Keystation signs).
 - Scaffold the release pipeline: copy `docs/templates/release.yml` → `.github/workflows/release.yml`
-  and set the repo variable `KS_PRODUCT_SLUG` = `<name>`. On a `v*` tag it builds `--track app`,
-  signs a `.ksupdate` (dev-signed/untrusted without Keystation secrets), and publishes the Release's
-  three assets (`<name>-<ver>.zip`, `.ksupdate`, `run_station.py`).
+  and set the repo variable `KS_PRODUCT_SLUG` = `<name>`. On an **`app-v*`** tag it builds
+  `--track app`, signs a `.ksupdate` (dev-signed/untrusted without Keystation secrets), and publishes
+  the Release's three assets (`<name>-<ver>.zip`, `.ksupdate`, `run_station.py`).
+- Cut a release by tagging `app-v<ver>` and pushing **only that tag**
+  (`git tag app-v1.0.0 && git push origin app-v1.0.0`) — NOT `git push --tags`. A fork inherits every
+  framework `v*` tag, so the app's own version line collides with them and `--tags` would fire the
+  workflow once per inherited tag; the `app-v` prefix scopes the trigger and keeps the lines apart.
+  The prefix is tag-only — asset names + the updater's manifest version are unaffected.
 - The client is set up ONCE with `deploy/install-station.ps1 -Product <name> -Repo <owner>/<repo>`;
   every later version arrives via the in-app updater. See `docs/DEPLOY_STATION.md`.
 

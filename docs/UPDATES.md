@@ -409,12 +409,32 @@ proves nothing `pytest` did not already prove.
 > `ci.yml` = *is the code correct?* — fast, frequent.
 > `release.yml` = *make the shippable thing* — slow, rare.
 
-### 10.3 App repo — `release.yml` (on tag `v*`)
+### 10.3 App repo — `release.yml` (on tag `app-v*`)
 
 `tag-matches-version guard → tests → Nuitka → zip + hash → sign .ksupdate →
 publish Release with the changelog body`. Signing secrets
 (`KS_INTERMEDIATE_*`) live only in app-repo Actions secrets — never on a
 laptop, never in the framework repo.
+
+**Tag with the `app-v<version>` prefix and push ONLY that tag:**
+
+```
+git tag app-v1.2.0 && git push origin app-v1.2.0
+```
+
+A fork inherits every framework `v*` tag (v1.0.0 … the current framework
+release), so the app's own v1.0.0/v1.1.0/… line collides with the framework
+baseline and `git tag v1.0.0` fails. The `app-v` prefix keeps the two version
+lines apart. It also makes `git push --tags` a footgun to avoid: that pushes all
+the inherited framework tags, and if the workflow triggered on `v*` each one
+would fire it. `release.yml` triggers on `app-v*` only, so push just the one tag.
+The prefix is a **tag convention only** — release asset names stay plain
+`<slug>-<ver>.zip` / `.ksupdate`, and the in-app updater reads the version from
+the `.ksupdate` manifest (never the tag), so the prefix is invisible to a client.
+
+The template caches the Nuitka/clcache object cache across runs (keyed on the
+framework version), so an app-only release recompiles only its changed C files
+instead of a cold ~15–20 min build.
 
 ### 10.4 App repo — `upstream-sync.yml` (weekly)
 

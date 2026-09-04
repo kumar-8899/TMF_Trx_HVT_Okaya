@@ -46,12 +46,17 @@ update preserves it — no re-setup.
 ## 2. Cutting a release (dev side)
 
 1. Bump the app's `app/<slug>/VERSION` (independent semver) and update `CHANGELOG.md`.
-2. Commit, then tag and push:
+2. Commit, then tag with the `app-v` prefix and push **only that tag**:
    ```bash
-   git tag v<ver> && git push origin main --tags
+   git push origin main
+   git tag app-v<ver> && git push origin app-v<ver>
    ```
+   Use the `app-v` prefix (not plain `v<ver>`) — a fork inherits every framework `v*` tag, so the
+   app's own version line collides with them, and `git push --tags` would push all the inherited
+   framework tags and fire the workflow once per tag. Push the single `app-v<ver>` tag only
+   (UPDATES.md §10.3).
 3. The app repo's `.github/workflows/release.yml` (scaffolded by `new-test-app` from
-   `docs/templates/release.yml`) runs on the tag: it guards tag==VERSION, tests, builds
+   `docs/templates/release.yml`) runs on the `app-v*` tag: it guards tag==VERSION, tests, builds
    `build_release.py --track app --product <slug>`, signs a `.ksupdate`, and publishes the Release
    with **three assets**: `<slug>-<ver>.zip` (the app — run.dist), `<slug>-<ver>.ksupdate` (trust
    envelope), and `run_station.py` (the launcher `install-station` places).

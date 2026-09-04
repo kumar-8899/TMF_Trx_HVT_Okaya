@@ -77,11 +77,15 @@ See RELEASE_HOWTO.md (framework tags) and SECURE_DISTRIBUTION.md (§5–6, the p
 
 An app repo ships two workflows the framework does not (framework repo = `ci.yml` only):
 
-- **`.github/workflows/release.yml`** (from `docs/templates/release.yml`) — on a `v*` tag:
-  tag-matches-version guard → tests → `build_release.py` (Nuitka + a hashed artifact `.zip` +
+- **`.github/workflows/release.yml`** (from `docs/templates/release.yml`) — on an **`app-v*`**
+  tag: tag-matches-version guard → tests → `build_release.py` (Nuitka + a hashed artifact `.zip` +
   `full_artifact_hash` in `RELEASE.json`) → sign the `.ksupdate` → publish a Release with the
-  CHANGELOG section as the body and **two assets**: `<slug>-<version>.ksupdate` (trust) +
-  `<slug>-<version>.zip` (the run.dist the station verifies and swaps).
+  CHANGELOG section as the body and its assets: `<slug>-<version>.ksupdate` (trust) +
+  `<slug>-<version>.zip` (the run.dist the station verifies and swaps) + `run_station.py`.
+  Tag `app-v<version>` and push **only that tag** (never `git push --tags` — a fork inherits
+  every framework `v*` tag; the `app-v` prefix keeps the app's version line from colliding with
+  them and scopes the trigger). The prefix is a tag convention only — asset names + the updater's
+  manifest version are unaffected (UPDATES.md §10.3).
 - **`.github/workflows/upstream-sync.yml`** (from `docs/templates/upstream-sync.yml`) — weekly
   same-MAJOR framework merge → PR, never auto-merged (drift detection).
 

@@ -5,6 +5,36 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.13.0 — 2026-09-04
+
+Release/CI tooling so a fork cuts a release cleanly + fast, plus a Windows data-integrity fix in the
+debug flight-recorder. MINOR.
+
+- **App release tags no longer collide with inherited framework tags.** A fork inherits every
+  framework `v*` tag, so the app's own v1.0.0/v1.1.0/… line was unusable. `docs/templates/release.yml`
+  now triggers on **`app-v*`** and derives the version with `${GITHUB_REF_NAME#app-v}` throughout
+  (guard, sign, notes, publish); asset names stay plain `<slug>-<ver>.zip`/`.ksupdate`. The in-app
+  updater reads the version from the `.ksupdate` **manifest**, never the tag, so the prefix is
+  invisible to clients. Docs (APP_REPO, UPDATES §10.3, DEPLOY_STATION) + both `new-test-app` skill
+  copies now say to tag `app-v<version>` and push **only that tag** — never `git push --tags`, which
+  would push all inherited framework tags and fire the workflow once per tag.
+- **debug_server rolling sink: same-millisecond rotation no longer crashes or loses data.**
+  `RollingSink._rotate()` named rotated files `debug-<ms>.jsonl`; two rotations in one millisecond
+  produced the same name → `FileExistsError [WinError 183]` on Windows (rename won't overwrite) and a
+  **silent overwrite** of the earlier file on POSIX (data loss with no error — why Linux CI never
+  caught it). Names are now collision-proof (`debug-<ms>-<n>.jsonl`, counter bumped until free,
+  checking both the `.jsonl` and compressed `.jsonl.gz` forms); `_rolled()` sorts with the name as a
+  tiebreak so same-ms files stay ordered. New test asserts no loss/crash across 40 forced same-ms
+  rotations. It was the only `.rename(` in `debug_server`.
+- **Framework CI already covers Windows** (the `backend` job is `windows-latest`, and pytest
+  `testpaths` includes `debug_server`), so the new test guards this class of Windows-only regression
+  at every framework push — the exact bug an app's `windows-latest` release build would otherwise
+  hit first. No CI change needed.
+- **Release CI caches Nuitka.** The template adds `setup-python` pip caching + an `actions/cache@v4`
+  step for `NUITKA_CACHE_DIR`, keyed on the framework version — a framework bump recompiles clean, an
+  app-only change hits the cache (clcache warms the rest), turning a cold ~15–20 min build into an
+  incremental one.
+
 ## v1.12.0 — 2026-09-04
 
 Client deployment + in-app updates are now an inherited, first-class capability, and the published

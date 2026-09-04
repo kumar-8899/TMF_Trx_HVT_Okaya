@@ -51,6 +51,20 @@ def test_gzip_deferred_during_active_run(tmp_path):
     assert not list(tmp_path.glob("debug-*.jsonl"))
 
 
+def test_rapid_same_ms_rotations_no_loss_or_crash(tmp_path):
+    # Freeze the clock so EVERY rotation lands in the same millisecond — the exact
+    # condition that used to collide: FileExistsError on Windows (rename won't overwrite)
+    # or a silent overwrite of the earlier rotated file on POSIX (data loss). A large
+    # total cap keeps eviction out of it so every record must survive on disk.
+    s = _sink(tmp_path, file_cap=120, total_cap=10_000_000, compress=False)
+    s._clock = lambda: 100.0                     # int(clock*1000) constant → forced collisions
+    n = 40
+    for i in range(n):
+        s.enqueue(_rec(i))
+        s._drain_once(block=False)               # each drain may rotate; all share one ms
+    assert {r["seq"] for r in s.read()} == set(range(n))   # nothing lost, no crash
+
+
 def test_eviction_keeps_total_under_cap(tmp_path):
     s = _sink(tmp_path, file_cap=100, total_cap=300, compress=False)
     for i in range(40):

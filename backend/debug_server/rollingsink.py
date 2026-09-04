@@ -126,7 +126,17 @@ class RollingSink:
         if self._fh is not None:
             self._fh.close()
             self._fh = None
-        rotated = self.dir / f"debug-{int(self._clock() * 1000)}.jsonl"
+        # Collision-proof name: the ms timestamp alone is NOT unique — two rotations in the
+        # same millisecond produce the same name, which on Windows raises FileExistsError
+        # (rename won't overwrite) and on POSIX SILENTLY overwrites the earlier rotated file
+        # (data loss with no error). Append a monotonic counter until the name is free,
+        # checking both the .jsonl and the deferred/compressed .jsonl.gz form.
+        base = int(self._clock() * 1000)
+        n = 0
+        while ((self.dir / f"debug-{base}-{n}.jsonl").exists()
+               or (self.dir / f"debug-{base}-{n}.jsonl.gz").exists()):
+            n += 1
+        rotated = self.dir / f"debug-{base}-{n}.jsonl"
         self._cur.rename(rotated)
         if self.cfg.compress_rotated:
             if self._active_run:
@@ -148,7 +158,9 @@ class RollingSink:
         path.unlink()
 
     def _rolled(self) -> list[Path]:
-        return sorted(self.dir.glob("debug-*.jsonl*"), key=lambda f: f.stat().st_mtime)
+        # Name is the tiebreak so same-ms rotations (equal mtime) sort deterministically
+        # oldest→newest by their monotonic counter — eviction and read-back stay ordered.
+        return sorted(self.dir.glob("debug-*.jsonl*"), key=lambda f: (f.stat().st_mtime, f.name))
 
     def _evict(self) -> None:
         files = self._rolled()

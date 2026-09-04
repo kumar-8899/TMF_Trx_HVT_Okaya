@@ -2,7 +2,16 @@
 # in a forked application repo. The FRAMEWORK repo keeps only ci.yml — it never builds,
 # signs, or publishes (a framework release is a git tag; RELEASE_HOWTO.md).
 #
-# On a `v*` tag: guard tag==version → test → Nuitka build (+ artifact zip + hash) →
+# Tag with the APP-track prefix `app-v<version>` (e.g. app-v1.2.0) and push ONLY that tag:
+#     git tag app-v1.2.0 && git push origin app-v1.2.0
+# NOT `git push --tags` — a fork inherits every framework `v*` tag (v1.0.0 … v1.12.0), and
+# `--tags` would push them all, firing this workflow once per inherited tag. The `app-v`
+# prefix also sidesteps the collision where the app's own v1.0.0/v1.1.0 line is already
+# taken by framework baseline tags. The prefix is a TAG convention only: asset names stay
+# plain `<slug>-<ver>.zip` / `.ksupdate`, and the in-app updater reads the version from the
+# .ksupdate manifest (never the tag), so the prefix is invisible downstream.
+#
+# On an `app-v*` tag: guard tag==version → test → Nuitka build (+ artifact zip + hash) →
 # sign the .ksupdate → publish a GitHub Release whose body is that version's CHANGELOG
 # section, carrying THREE assets: the .ksupdate (trust), the artifact .zip the station verifies +
 # swaps, and run_station.py (the windowed launcher install-station.ps1 places beside run.dist).
@@ -20,7 +29,7 @@
 name: release
 on:
   push:
-    tags: ["v*"]
+    tags: ["app-v*"]
 
 permissions:
   contents: write        # create the Release
@@ -34,12 +43,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
 
       - name: Tag must match the APP version (app/<slug>/VERSION)
         shell: bash
         run: |
           v="$(cat "app/${{ vars.KS_PRODUCT_SLUG }}/VERSION" | tr -d '[:space:]')"
-          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != app v$v"; exit 1; }
+          test "app-v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != app app-v$v"; exit 1; }
           echo "app version $v (framework $(python -c 'import sys;sys.path.insert(0,"backend");import core;print(core.__version__)'))"
 
       - name: Install
@@ -54,8 +65,21 @@ jobs:
           (cd backend && python -m pytest -q)
           (cd frontend && npx vitest run && npm run build)
 
+      # Warm the Nuitka/clcache object cache across runs. The key carries the framework
+      # version, so a framework bump recompiles clean while an app-only change hits the
+      # cache and only the changed C files rebuild. First run after adding this is cold.
+      - name: Cache Nuitka build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuitka-cache
+          key: nuitka-${{ runner.os }}-py311-${{ hashFiles('backend/pyproject.toml','backend/core/__init__.py') }}
+          restore-keys: |
+            nuitka-${{ runner.os }}-py311-
+
       - name: Build (Nuitka) + package artifact + hash
         shell: bash
+        env:
+          NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
         run: |
           # app version comes from app/<slug>/VERSION; the framework version it was built
           # upon is recorded automatically as pinned_fw_version in RELEASE.json.
@@ -69,7 +93,7 @@ jobs:
           KS_TRACK: app
           KS_PINNED_FW_VERSION: ${{ vars.KS_PINNED_FW_VERSION }}
         run: |
-          v="${GITHUB_REF_NAME#v}"
+          v="${GITHUB_REF_NAME#app-v}"
           python tools/ks_release_signer/sign_update.py \
             release-build/RELEASE.json \
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate"
@@ -77,7 +101,7 @@ jobs:
       - name: Release notes from CHANGELOG
         shell: bash
         run: |
-          v="${GITHUB_REF_NAME#v}"
+          v="${GITHUB_REF_NAME#app-v}"
           awk -v ver="$v" '
             $0 ~ "^## " {inblk = ($2 == "v"ver || $2 == ver)}
             inblk {print}
@@ -89,7 +113,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          v="${GITHUB_REF_NAME#v}"
+          v="${GITHUB_REF_NAME#app-v}"
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" --notes-file release-notes.md \
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate" \
