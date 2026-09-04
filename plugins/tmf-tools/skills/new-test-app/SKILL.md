@@ -93,15 +93,23 @@ toggle on the Instruments page.)
   (installs dev/unsigned releases as UNTRUSTED pre-Keystation; set `false` once Keystation signs).
 - Scaffold the release pipeline: copy `docs/templates/release.yml` → `.github/workflows/release.yml`
   and set the repo variable `KS_PRODUCT_SLUG` = `<name>`. On an **`app-v*`** tag it builds
-  `--track app`, signs a `.ksupdate` (dev-signed/untrusted without Keystation secrets), and publishes
-  the Release's three assets (`<name>-<ver>.zip`, `.ksupdate`, `run_station.py`).
+  `--track app` (backend `run.exe` + frozen `run_station.exe` + vendored Mosquitto), signs a
+  `.ksupdate` (dev-signed/untrusted without Keystation secrets), builds the offline `setup.exe`, and
+  publishes the Release's **four** assets: `<name>-<ver>.zip`, `.ksupdate`, `run_station.exe`, and
+  `<AppShort>-Setup-<ver>.exe`.
+- Scaffold the **offline installer**: the fork inherits `deploy/installer.iss.template` +
+  `deploy/build-installer.ps1` (render + compile the Inno setup.exe) and `deploy/vendor/mosquitto/`
+  (the vendored broker; if absent run `deploy/fetch-mosquitto.ps1`). No edits needed — both are
+  parameterized from `app.json` branding + `app/<name>/VERSION`.
 - Cut a release by tagging `app-v<ver>` and pushing **only that tag**
   (`git tag app-v1.0.0 && git push origin app-v1.0.0`) — NOT `git push --tags`. A fork inherits every
   framework `v*` tag, so the app's own version line collides with them and `--tags` would fire the
   workflow once per inherited tag; the `app-v` prefix scopes the trigger and keeps the lines apart.
   The prefix is tag-only — asset names + the updater's manifest version are unaffected.
-- The client is set up ONCE with `deploy/install-station.ps1 -Product <name> -Repo <owner>/<repo>`;
-  every later version arrives via the in-app updater. See `docs/DEPLOY_STATION.md`.
+- **First install** on a client is the offline `setup.exe` (double-click → fullscreen; no Python, no
+  pip, no broker service — the only post-install task is configuring instruments in-app). Every later
+  version arrives via the in-app updater (online or from USB for air-gapped benches).
+  `deploy/install-station.ps1` remains a scriptable/headless fallback. See `docs/DEPLOY_STATION.md`.
 
 ---
 

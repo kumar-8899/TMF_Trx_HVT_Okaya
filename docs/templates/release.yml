@@ -11,10 +11,15 @@
 # plain `<slug>-<ver>.zip` / `.ksupdate`, and the in-app updater reads the version from the
 # .ksupdate manifest (never the tag), so the prefix is invisible downstream.
 #
-# On an `app-v*` tag: guard tag==version → test → Nuitka build (+ artifact zip + hash) →
-# sign the .ksupdate → publish a GitHub Release whose body is that version's CHANGELOG
-# section, carrying THREE assets: the .ksupdate (trust), the artifact .zip the station verifies +
-# swaps, and run_station.py (the windowed launcher install-station.ps1 places beside run.dist).
+# On an `app-v*` tag: guard tag==version → test → vendor Mosquitto → Nuitka build (backend
+# run.exe + frozen run_station.exe, + artifact zip + hash) → sign the .ksupdate → build the
+# OFFLINE setup.exe (Inno Setup + bundled WebView2) → publish a GitHub Release whose body is that
+# version's CHANGELOG section, carrying FOUR assets:
+#   * <slug>-<ver>.ksupdate   trust envelope (in-app updater verifies this)
+#   * <slug>-<ver>.zip        the artifact the station verifies + swaps (in-app updates)
+#   * run_station.exe         frozen windowed launcher (no Python on the client)
+#   * <AppShort>-Setup-<ver>.exe  OFFLINE first-install (run.dist + run_station.exe + WebView2)
+# The GitHub Release is the single source for BOTH first-install (setup.exe) and updates.
 #
 # Signing secrets are OPTIONAL for internal/pre-Keystation use: with none set, sign_update.py
 # DEV-signs an UNTRUSTED .ksupdate — a client installs it only where app.json
@@ -57,6 +62,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install -e "backend[dev,release]"
+          python -m pip install "pywebview>=5.0"   # bundled into the frozen run_station.exe
           (cd frontend && npm ci)
 
       - name: Test (fast — is the code correct?)
@@ -76,13 +82,18 @@ jobs:
           restore-keys: |
             nuitka-${{ runner.os }}-py311-
 
+      - name: Vendor Mosquitto (into run.dist — the station's own broker)
+        shell: pwsh
+        run: ./deploy/fetch-mosquitto.ps1
+
       - name: Build (Nuitka) + package artifact + hash
         shell: bash
         env:
           NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
         run: |
           # app version comes from app/<slug>/VERSION; the framework version it was built
-          # upon is recorded automatically as pinned_fw_version in RELEASE.json.
+          # upon is recorded automatically as pinned_fw_version in RELEASE.json. --track app also
+          # vendors Mosquitto into run.dist and builds the frozen run_station.exe (bundles pywebview).
           python backend/build_release.py --track app --product "${{ vars.KS_PRODUCT_SLUG }}"
 
       - name: Sign the .ksupdate
@@ -98,6 +109,25 @@ jobs:
             release-build/RELEASE.json \
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate"
 
+      # --- OFFLINE first-install setup.exe (Inno Setup + bundled WebView2) ---
+      - name: Fetch the offline WebView2 standalone runtime
+        shell: pwsh
+        run: |
+          # The Evergreen Standalone Installer (x64) — an OS component pywebview renders through,
+          # a no-op when already present. Pin a mirrored URL + hash for reproducibility if needed.
+          New-Item -ItemType Directory -Force deploy\vendor\webview2 | Out-Null
+          $out = "deploy\vendor\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2124701" -OutFile $out
+          Write-Host "webview2 runtime: $((Get-Item $out).Length) bytes"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build the offline installer (setup.exe)
+        shell: pwsh
+        run: ./deploy/build-installer.ps1 -Slug "${{ vars.KS_PRODUCT_SLUG }}"
+
       - name: Release notes from CHANGELOG
         shell: bash
         run: |
@@ -108,14 +138,17 @@ jobs:
           ' CHANGELOG.md > release-notes.md
           test -s release-notes.md || echo "Release $v" > release-notes.md
 
-      - name: Publish Release (.ksupdate + artifact zip)
+      - name: Publish Release (.ksupdate + artifact zip + run_station.exe + setup.exe)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${GITHUB_REF_NAME#app-v}"
+          # AppShort matches build-installer.ps1: branding.name with non-alphanumerics stripped.
+          short="$(python -c 'import json,re,sys; b=json.load(open("backend/config/app.json"))["branding"] if __import__("os").path.exists("backend/config/app.json") else json.load(open("backend/config/app.example.json"))["branding"]; print(re.sub(r"[^A-Za-z0-9]","", b.get("name","") ) or sys.argv[1])' "${{ vars.KS_PRODUCT_SLUG }}")"
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" --notes-file release-notes.md \
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate" \
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.zip" \
-            "run_station.py"
+            "release-build/run_station.exe" \
+            "deploy/Output/${short}-Setup-${v}.exe"

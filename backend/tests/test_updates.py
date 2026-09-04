@@ -331,3 +331,62 @@ async def test_materialize_unpacks_and_verifies_hash(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):                              # hash mismatch rejected
         svc._materialize(rel, {"release_id": "r2", "full_artifact_hash": "deadbeef"}, None)
     await db.close()
+
+
+# --- Phase 6 (§E-bis): install from local file (air-gapped / USB) -----------
+
+async def test_install_from_file_stages_offline(tmp_path):
+    """Local .ksupdate + .zip → same verify + stage as the online path, no network."""
+    import hashlib
+    import io
+    import zipfile
+    from pathlib import Path
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("run.exe", "BINARY")
+    zdata = buf.getvalue()
+    sha = hashlib.sha256(zdata).hexdigest()
+    zip_path = tmp_path / "app-1.2.0.zip"
+    zip_path.write_bytes(zdata)
+    ks_path = tmp_path / "app-1.2.0.ksupdate"
+    ks_path.write_text("signed-manifest", encoding="utf-8")
+
+    # manifest's full_artifact_hash must match the local zip so staging verifies.
+    man = _manifest(track="app", version="1.2.0")
+    man["full_artifact_hash"] = sha
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(man), diag, current_version="1.9.0",
+                        current_app_version="1.0.0", data_dir=tmp_path)
+
+    rec = await svc.install_from_file(str(ks_path), str(zip_path))
+    assert rec["status"] == "downloaded" and rec["source"] == "file"
+    assert (Path(rec["staged_dir"]) / "run.exe").read_text() == "BINARY"
+    assert (await svc.list_offers())[0]["status"] == "downloaded"
+    await db.close()
+
+
+async def test_install_from_file_hash_mismatch_raises(tmp_path):
+    from pathlib import Path
+    (tmp_path / "a.zip").write_bytes(b"wrong-bytes")
+    (tmp_path / "a.ksupdate").write_text("m", encoding="utf-8")
+    man = _manifest(track="app", version="1.2.0")
+    man["full_artifact_hash"] = "deadbeef"                 # won't match the zip
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(man), diag, current_version="1.0.0",
+                        current_app_version="1.0.0", data_dir=tmp_path)
+    with pytest.raises(RuntimeError):
+        await svc.install_from_file(str(Path(tmp_path) / "a.ksupdate"), str(Path(tmp_path) / "a.zip"))
+    await db.close()
+
+
+async def test_install_from_file_missing_paths_raise(tmp_path):
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    with pytest.raises(FileNotFoundError):
+        await svc.install_from_file(str(tmp_path / "nope.ksupdate"), str(tmp_path / "nope.zip"))
+    await db.close()

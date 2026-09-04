@@ -2,24 +2,30 @@ r"""Windowed entry for the FROZEN station — broker (if present) + supervised b
 
 The frozen deploy has no `backend/` source and no Vite: the backend is `run.dist\run.exe`,
 which serves the built SPA on one origin (http://127.0.0.1:8000). This launcher supervises it
-through `run.dist\launcher.py` (so the exit-42 / staged-update / rollback loop keeps working)
-and opens the UI in a native **pywebview** window.
+by running the launcher's supervision loop (`launcher.Supervisor`) **in-process, on a thread**
+(so the exit-42 / staged-update / rollback loop keeps working) and opens the UI in a native
+**pywebview** window.
 
     python run_station.py               # native window (default)
     python run_station.py --browser     # default browser instead of a window
     python run_station.py --no-window    # services only (headless)
     python run_station.py --fullscreen   # kiosk window   (also --frameless)
 
+This same file is Nuitka-compiled into **`run_station.exe`** (build_release.py `--track app`),
+which bundles both pywebview and the launcher module — so a client PC needs **no system Python
+and no pip**. Frozen, `import launcher` resolves the compiled-in copy; from source it imports the
+one shipped inside `run.dist`. Either way `run.exe` is still spawned as the swappable backend
+child, and `run_station.exe` lives BESIDE `run.dist` (station root) so it survives an update's
+run.dist swap.
+
 Run it from the station root (this file's dir) — the launcher renames run.dist during a swap,
-so the working directory must be the parent. Needs a Python on PATH (the launcher is the
-supervisor; run.exe is the frozen backend). Closing the window shuts the backend down
+so the working directory must be the parent. Closing the window shuts the backend down
 gracefully (CTRL_BREAK → lifespan teardown) before exit.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import signal
 import subprocess
 import sys
@@ -33,6 +39,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent          # station/  (parent of run.dist)
 RUN_DIST = ROOT / "run.dist"
 IS_WIN = sys.platform == "win32"
+# Nuitka-compiled run_station.exe sets __compiled__ (not sys.frozen); frozen-app-build note.
+FROZEN = "__compiled__" in globals()
+
+
+def _import_launcher():
+    """The supervision loop module. Frozen `run_station.exe` bundles `launcher` (import the
+    compiled-in copy); a source run imports the copy shipped inside `run.dist`."""
+    if not FROZEN and str(RUN_DIST) not in sys.path:
+        sys.path.insert(0, str(RUN_DIST))
+    import launcher
+    return launcher
 
 BACKEND_PORT = 8000
 BROKER_PORT = 1883
@@ -106,11 +123,20 @@ def _mosquitto_exe() -> str | None:
     return None
 
 
+def _broker_cmd(exe: str) -> list[str]:
+    """Prefer the loopback conf shipped beside the exe (vendored broker) — Mosquitto 2.x with
+    NO config refuses anonymous clients, so the config is load-bearing: `listener 1883 127.0.0.1`
+    + `allow_anonymous true`. Falls back to `-v` verbose when no conf sits next to the exe."""
+    conf = Path(exe).with_name("mosquitto.conf")
+    return [exe, "-c", str(conf)] if conf.is_file() else [exe, "-v"]
+
+
 class Station:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.broker: subprocess.Popen | None = None
-        self.backend: subprocess.Popen | None = None
+        self.supervisor = None                       # launcher.Supervisor (in-process)
+        self._sup_thread: threading.Thread | None = None
         self._started_broker = False
         self._closing = False
         self._lock = threading.Lock()
@@ -124,18 +150,21 @@ class Station:
             _log("mosquitto not found - the app runs, but MQTT features stay offline "
                  "(start a broker on :1883 if you need the controller/bridge)")
             return
-        self.broker = subprocess.Popen([exe, "-v"], cwd=str(ROOT))
+        self.broker = subprocess.Popen(_broker_cmd(exe), cwd=str(ROOT))
         self._started_broker = True
         _log(f"broker started (pid={self.broker.pid})")
 
     def start_backend(self) -> None:
-        # Supervise the frozen backend through launcher.py (keeps the exit-42 / update /
-        # rollback loop working). CWD = station root so a swap can rename run.dist. New
-        # process group so we can send a graceful CTRL_BREAK at shutdown.
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP if IS_WIN else 0
-        self.backend = subprocess.Popen([sys.executable, str(RUN_DIST / "launcher.py")],
-                                        cwd=str(ROOT), creationflags=flags)
-        _log(f"backend launcher started (pid={self.backend.pid})")
+        # Run the launcher's supervision loop IN-PROCESS on a thread (keeps the exit-42 /
+        # update / rollback loop working) — no system Python is spawned, so the frozen
+        # run_station.exe is self-contained. The Supervisor spawns run.exe itself, in its own
+        # process group, and shuts it down gracefully on request_stop().
+        launcher = _import_launcher()
+        self.supervisor = launcher.Supervisor(RUN_DIST, ROOT)
+        self._sup_thread = threading.Thread(target=self.supervisor.run, daemon=True,
+                                             name="tmf-supervisor")
+        self._sup_thread.start()
+        _log("backend supervisor started (in-process)")
 
     def shutdown(self) -> None:
         with self._lock:
@@ -143,25 +172,20 @@ class Station:
                 return
             self._closing = True
         _log("shutting down ...")
-        if self.backend is not None and self.backend.poll() is None:
-            try:
-                if IS_WIN:
-                    os.kill(self.backend.pid, signal.CTRL_BREAK_EVENT)
-                else:
-                    self.backend.send_signal(signal.SIGINT)
-            except OSError:
-                pass
-            try:
-                self.backend.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                _log("backend did not stop in time - terminating")
-                _terminate_tree(self.backend)
+        if self.supervisor is not None:
+            self.supervisor.request_stop()            # graceful CTRL_BREAK to run.exe
+        if self._sup_thread is not None and self._sup_thread.is_alive():
+            self._sup_thread.join(timeout=20)
+            if self._sup_thread.is_alive():
+                _log("supervisor did not stop in time")
         if self._started_broker:
             _terminate_tree(self.broker)
         _log("stopped")
 
     def backend_alive(self) -> bool:
-        return self.backend is not None and self.backend.poll() is None
+        # The supervisor thread runs across exit-42 relaunches (staged swaps), so watch the
+        # thread, not a single child — a mid-update restart must NOT close the window.
+        return self._sup_thread is not None and self._sup_thread.is_alive()
 
 
 def _open_window(station: Station, url: str) -> None:

@@ -94,12 +94,17 @@ reconnects when the backend comes back.
 
 ```pwsh
 cd release-build
-python run_station.py            # native window (broker + supervised backend + controller)
-python run_station.py --no-window   # headless (serves the UI on :8000)
+run_station.exe                  # frozen window: broker + supervised backend + controller (NO Python)
+run_station.exe --fullscreen     # kiosk (what the installed Desktop shortcut runs)
+python run_station.py            # same code from source (dev; needs Python + pywebview)
 python run.dist\launcher.py      # backend + controller only, no window
 ```
 
-- `run_station.py`/`launcher.py` set `TMF_STATE_DIR` to the deploy root, so live config + DB +
+- **`run_station.exe`** (v1.14.0) bundles pywebview + the launcher and runs the supervision loop
+  in-process, so a client needs **no system Python, no pip**. It ships in the deploy root beside
+  `run.dist`; `run_station.py` is the same code from source for dev. The vendored broker inside
+  `run.dist/vendor/mosquitto/` means **no Mosquitto install/service** either.
+- `run_station`/`launcher.py` set `TMF_STATE_DIR` to the deploy root, so live config + DB +
   backups land in `release-build/config` + `release-build/data` (outside the swappable `run.dist`).
 - On first boot `config/app.example.json` (promoted from the app's `app.release.json`) is copied to
   the live config, so the app boots with its **own** branding + `controller.kind=python`.
@@ -107,7 +112,9 @@ python run.dist\launcher.py      # backend + controller only, no window
   controller — one compiled exe); it loads the app's step-type
   package (compiled in) and brings the station online (`/readyz`). Configure instrument instances on
   **Config → Instruments** (site config, held in the DB — not in the artifact), then restart to run
-  the app's sequence. Needs a Python on PATH (the launcher/window entry are not yet frozen).
+  the app's sequence.
+- For a real client PC, don't run these by hand — build the offline **`setup.exe`**
+  (`deploy/build-installer.ps1`) which lays this out + a fullscreen Desktop shortcut (DEPLOY_STATION.md).
 
 ---
 

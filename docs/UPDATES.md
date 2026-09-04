@@ -25,7 +25,7 @@ decision below follows from that.
 | **Download** | **Manual**, engineer-initiated. | Same. |
 | **Install** | **Manual**, engineer-initiated, two distinct clicks (Download, then Install). | Same. |
 | **During a run** | Apply is **refused with 409** while a run is active. | Never swap a binary mid-test. |
-| **Air-gapped** | `auto_check_minutes: 0` disables discovery. Existing ingest-by-path from USB is unchanged. | Already works; no new code. |
+| **Air-gapped** | `auto_check_minutes: 0` disables discovery. Update from USB via **`/update/install-file`** (`.ksupdate` + `.zip` local paths) — same verify + stage + swap as online, only the source differs (§E-bis); or re-run `setup.exe`. | No internet needed; identical trust + rollback. |
 | **Verify failure** | **Terminal, never retried.** | A tampered bundle must never sit in a retry loop. |
 | **Idempotency key** | `release_id` + **bundle SHA-256**. Re-ingesting a known hash returns the existing offer and **does not advance the anti-rollback tripwire.** | The tripwire advances on ingest even when declined. A retried download would otherwise advance it twice. |
 | **Swap safety** | **Journal-first, rename-only.** The launcher writes a journal before touching anything and reconciles it on every startup. | Power loss between `live→.bak` and `staged→live` leaves the station with no `run.dist` and nothing running to fix it. This is the worst failure mode in the system. |
@@ -124,6 +124,14 @@ POST /update/download/{release_id}
 POST /update/apply/{release_id}
      → 200 { state: "staged" }
      → 409 if a run is active, or if the offer is not applicable.
+
+POST /update/install-file   { ksupdate_path, zip_path }
+     → 200 { source: "file", state: "downloaded", staged_dir, ... }
+     AIR-GAPPED (§E-bis): stage an update from LOCAL .ksupdate + .zip (USB),
+     no network. Runs the SAME verify (ingest → signature + tripwire) +
+     full_artifact_hash check + stage pipeline as /update/download — only the
+     SOURCE differs. Then Install + Relaunch the staged offer as usual.
+     → 402 AMC, 404 missing file, 502 bad signature / hash mismatch.
 
 POST /update/relaunch/{release_id}
      → 200, then exit(42). Launcher swaps. (Existing.)

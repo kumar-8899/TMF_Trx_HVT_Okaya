@@ -11,33 +11,34 @@ per station, bound to loopback.
 | `mosquitto.conf` | Station broker config — loopback `127.0.0.1:1883`, anonymous (local trust boundary). Central-uplink template commented in. |
 | `fetch-mosquitto.ps1` | Vendors the broker runtime into `vendor/mosquitto/win64/` for bundling. |
 | `run-local.ps1` | Brings up broker + app + LabVIEW stub for a graphical-first demo. |
-| `vendor/` | Vendored broker runtime (gitignored; produced by the fetch script). |
+| `vendor/mosquitto/` | Vendored broker runtime (gitignored; produced by `fetch-mosquitto.ps1`). |
+| `installer.iss.template` | Inno Setup template for the OFFLINE first-install `setup.exe` (rendered per fork). |
+| `build-installer.ps1` | Renders `installer.iss` from the template + branding/VERSION and compiles it with ISCC. |
+| `install-station.ps1` | Scriptable/headless first-install fallback (needs Python + a broker service). |
 
-## Shipping the broker with the installer
+## Shipping the broker with the frozen station
 
-The station installer (Tauri) bundles Mosquitto so the operator never installs
-it by hand.
+The frozen app carries its **own** broker — no Mosquitto installer, no Windows
+service, no admin:
 
 1. **Build prep** — `./deploy/fetch-mosquitto.ps1` downloads the official build
-   and copies the minimal runtime (`mosquitto.exe` + DLLs + `mosquitto.conf`)
-   into `deploy/vendor/mosquitto/win64/`. CI/build runs this before packaging.
-2. **Bundle** — Tauri ships that folder as a resource. When the Tauri shell is
-   scaffolded, `src-tauri/tauri.conf.json` will carry:
-   ```jsonc
-   {
-     "bundle": {
-       "resources": { "../deploy/vendor/mosquitto/win64": "mosquitto" }
-     }
-   }
-   ```
-3. **Launch** — on station start, the shell spawns the bundled broker
-   (`mosquitto -c mosquitto.conf`) before the Python sidecar connects, then the
-   LabVIEW controller and the browser connect to the same loopback broker. The
-   Python bridge already retries until the broker is up (`bridge.py`
-   supervisor), so ordering is forgiving.
+   and copies the minimal runtime (`mosquitto.exe` + DLLs + loopback
+   `mosquitto.conf`) into `deploy/vendor/mosquitto/win64/`. CI runs it before the
+   build; it is gitignored.
+2. **Bundle** — `build_release.py --track app` copies that folder **into**
+   `run.dist/vendor/mosquitto/win64/`, so it rides inside the swap unit: every
+   app-track build and every in-app update carries the broker and it survives a
+   run.dist swap.
+3. **Launch** — `run_station(.exe)` `start_broker()` prefers
+   `run.dist/vendor/mosquitto/win64/mosquitto.exe` and launches it with `-c` on
+   the sibling loopback `mosquitto.conf` (Mosquitto 2.x refuses anonymous clients
+   with no config), before the controller/bridge connect. The bridge retries
+   until the broker is up, so ordering is forgiving.
 
-`deploy/run-local.ps1` already demonstrates the launch sequence and prefers the
-vendored broker when present.
+The offline `setup.exe` (built from `installer.iss.template` by
+`build-installer.ps1`) therefore ships no broker of its own — it's already inside
+`run.dist`. `deploy/run-local.ps1` demonstrates the launch sequence for dev and
+prefers the vendored broker when present.
 
 ## Verify it works
 

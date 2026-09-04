@@ -569,6 +569,25 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 — network / no-release / verify failure
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    @app.post("/update/install-file", dependencies=_LIC)
+    async def update_install_file(body: dict) -> dict:
+        """Air-gapped USB install (UPDATES.md §E-bis): stage an update from LOCAL `.ksupdate`
+        + `.zip` paths through the SAME verify/stage pipeline as the online download. Returns
+        the staged offer; the operator then Installs + Relaunches it from the offers table."""
+        from core.services.updates import AmcRequired
+        ks = (body or {}).get("ksupdate_path", "")
+        zp = (body or {}).get("zip_path", "")
+        if not ks or not zp:
+            raise HTTPException(status_code=422, detail="ksupdate_path and zip_path required")
+        try:
+            return await app.state.updates.install_from_file(ks, zp)
+        except AmcRequired as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — bad signature / hash mismatch / unreadable
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     @app.post("/update/apply/{release_id}", dependencies=_LIC)
     async def update_apply(release_id: str) -> dict:
         # Never swap a binary mid-test (UPDATES.md item 8): refuse while any run is active.

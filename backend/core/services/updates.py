@@ -222,19 +222,24 @@ class UpdateService:
         return {"source": repo, "release": tag, "idempotent": False, **rec}
 
     def _materialize(self, rel: dict, offer: dict, token: str | None) -> str | None:
-        """Fetch the artifact zip, verify sha256 == full_artifact_hash, unpack to a staged
-        run.dist. Returns the staged path, or None when there's no zip asset (dev / a
-        trust-only release) — the launcher then no-ops, consistent with today."""
-        import io
-        import shutil
-        import zipfile
-        from pathlib import Path
+        """Fetch the artifact zip (GitHub), then stage it. Returns the staged path, or None
+        when there's no zip asset (dev / a trust-only release) — the launcher then no-ops."""
         zip_asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".zip")), None)
         if zip_asset is None:
             self._diag.warning("updates", "no artifact zip asset — offer not stageable",
                                release_id=offer.get("release_id"))
             return None
-        data = _asset_bytes(zip_asset, token)
+        return self._stage_zip_bytes(_asset_bytes(zip_asset, token), offer)
+
+    def _stage_zip_bytes(self, data: bytes, offer: dict) -> str:
+        """Verify sha256 == full_artifact_hash, then unpack the artifact zip to a staged
+        run.dist the launcher can swap. Shared by the GitHub path (_materialize) and the
+        local-file path (install_from_file) — only the SOURCE of `data` differs, so hash
+        verification + swap/rollback semantics stay identical (UPDATES.md / DEPLOY_STATION §E-bis)."""
+        import io
+        import shutil
+        import zipfile
+        from pathlib import Path
         sha = hashlib.sha256(data).hexdigest()
         want = offer.get("full_artifact_hash")
         if want and sha != want:
@@ -246,6 +251,45 @@ class UpdateService:
         zipfile.ZipFile(io.BytesIO(data)).extractall(staged)
         self._diag.info("updates", "artifact staged", release_id=offer.get("release_id"), dir=str(staged))
         return str(staged)
+
+    # ---- local-file (air-gapped / USB) install ----------------------------
+
+    async def install_from_file(self, ksupdate_path: str, zip_path: str) -> dict:
+        """Air-gapped install (UPDATES.md §E-bis): run the SAME verify + stage pipeline as the
+        online `download()`, but read the `.ksupdate` (trust) and `.zip` (artifact) from LOCAL
+        paths (USB) instead of GitHub. Hash verification against the signed manifest and the
+        launcher's swap/rollback are IDENTICAL to the online path — only the source differs, so a
+        bench with no internet updates through the normal Updates flow. Caller then Installs +
+        Relaunches the staged offer exactly as with an online download."""
+        import asyncio
+        from pathlib import Path
+        if not Path(ksupdate_path).is_file():
+            raise FileNotFoundError(f"no .ksupdate at {ksupdate_path}")
+        if not Path(zip_path).is_file():
+            raise FileNotFoundError(f"no artifact .zip at {zip_path}")
+        rec = await self.ingest(ksupdate_path)      # verify + tripwire advance + record offer
+        rec["bundle_sha256"] = hashlib.sha256(Path(ksupdate_path).read_bytes()).hexdigest()
+        if not rec.get("verdict", {}).get("applicable"):
+            await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
+                                    summary=f"{rec['track']} {rec['version']} (offered from file)")
+            return {"source": "file", "idempotent": False, **rec}   # surfaced, not stageable
+        # AMC gate — same as the online download (Keystation-only; stub allows).
+        reason = getattr(self._lic, "amc_gate", lambda _ts: None)(rec.get("build_timestamp"))
+        if reason:
+            rec["status"] = "amc_blocked"
+            rec["amc_reason"] = reason
+            await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
+                                    summary=f"{rec['track']} {rec['version']} (AMC required)")
+            raise AmcRequired(reason)
+        data = Path(zip_path).read_bytes()
+        rec["staged_dir"] = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: self._stage_zip_bytes(data, rec))
+        rec["status"] = "downloaded"
+        await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
+                                summary=f"{rec['track']} {rec['version']} (staged from file)")
+        self._diag.info("updates", "update staged from local file", release_id=rec["release_id"],
+                        version=rec.get("version"))
+        return {"source": "file", "idempotent": False, **rec}
 
     # back-compat alias
     async def check_github(self, repo: str, token: str | None = None) -> dict:

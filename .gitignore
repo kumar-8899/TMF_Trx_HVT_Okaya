@@ -26,6 +26,10 @@ data/
 # Vendored broker runtime — fetched at build time by deploy/fetch-mosquitto.ps1
 deploy/vendor/
 
+# Installer build artifacts — rendered .iss + compiled setup.exe (deploy/build-installer.ps1)
+deploy/installer.iss
+deploy/Output/
+
 # OS / editor
 .DS_Store
 Thumbs.db

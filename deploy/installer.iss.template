@@ -1,0 +1,104 @@
+; ==========================================================================================
+; deploy/installer.iss.template — OFFLINE first-install for a frozen TMF station (Inno Setup).
+;
+; Rendered per fork by deploy/build-installer.ps1 (it substitutes the @@...@@ tokens from the app's
+; backend/config/app.json branding + app/<slug>/VERSION, writes deploy/installer.iss, then
+; compiles it with ISCC). new-test-app scaffolds this + build-installer.ps1 into each fork.
+;
+; With the frozen run_station.exe (bundles pywebview + launcher) and the vendored broker INSIDE
+; run.dist, the client needs ZERO online setup and ZERO post-install steps except configuring
+; instruments in-app. Double-click the desktop shortcut → the app opens fullscreen (kiosk).
+;
+; This installer carries exactly THREE things:
+;   1. release-build\run.dist\*        -> {app}\run.dist   (backend exe + UI + help + app def +
+;                                                            drivers + vendored Mosquitto)
+;   2. release-build\run_station.exe   -> {app}            (frozen windowed launcher; no Python)
+;   3. the OFFLINE WebView2 standalone runtime installer -> run /silent /install (no-op if present)
+; WebView2 is the ONE true OS dependency pywebview needs; it is preinstalled on Win11/current Win10.
+; ==========================================================================================
+
+#define AppName       "@@APP_NAME@@"
+#define AppShort      "@@APP_SHORT@@"
+#define AppSlug       "@@APP_SLUG@@"
+#define AppVersion    "@@APP_VERSION@@"
+#define Publisher     "@@PUBLISHER@@"
+; Set by build-installer.ps1 to the bundled offline WebView2 runtime installer path, or "" to skip.
+#ifndef WebView2Setup
+  #define WebView2Setup "@@WEBVIEW2_SETUP@@"
+#endif
+
+[Setup]
+; @@APP_ID@@ is rendered as {{<GUID>} — Inno reads {{ as a literal { , giving a fixed AppId so
+; setup.exe UPGRADES in place across versions.
+AppId=@@APP_ID@@
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisher={#Publisher}
+; Option A: the operator PICKS the install dir. NOT Program Files — the updater RENAMES run.dist,
+; and a non-elevated user cannot rename under Program Files. Default to a user-writable root.
+DefaultDirName=C:\{#Publisher}\{#AppShort}
+DisableDirPage=no
+DisableProgramGroupPage=yes
+DefaultGroupName={#AppName}
+UninstallDisplayName={#AppName} {#AppVersion}
+OutputBaseFilename={#AppShort}-Setup-{#AppVersion}
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64compatible
+; admin is needed ONLY for the WebView2 install + the icacls Modify grant on {app}. If WebView2 is
+; already present, the elevation is just for the grant; a site that pre-grants could drop to lowest.
+PrivilegesRequired=admin
+
+[Files]
+; The whole compiled backend tree (incl. run.dist\vendor\mosquitto — the station's own broker).
+Source: "..\release-build\run.dist\*"; DestDir: "{app}\run.dist"; Flags: recursesubdirs createallsubdirs ignoreversion
+; The frozen windowed launcher — BESIDE run.dist (station root) so the updater's run.dist swap
+; never touches it.
+Source: "..\release-build\run_station.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The offline WebView2 standalone runtime installer (bundled only when build-installer found one).
+#if WebView2Setup != ""
+Source: "{#WebView2Setup}"; DestDir: "{tmp}"; DestName: "webview2-runtime.exe"; Flags: deleteafterinstall; Check: NeedsWebView2
+#endif
+
+[Icons]
+; Desktop shortcut (always) + Start-Menu — both open the app FULLSCREEN (kiosk).
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\run_station.exe"; Parameters: "--fullscreen"; WorkingDir: "{app}"
+Name: "{group}\{#AppName}";       Filename: "{app}\run_station.exe"; Parameters: "--fullscreen"; WorkingDir: "{app}"
+Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+
+[Run]
+; Install the WebView2 runtime silently (no-op if already present). Must run BEFORE first launch.
+#if WebView2Setup != ""
+Filename: "{tmp}\webview2-runtime.exe"; Parameters: "/silent /install"; StatusMsg: "Installing the WebView2 runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
+#endif
+; Grant Users:Modify on {app} so a non-elevated operator can run the in-app updater (it renames
+; run.dist in place). (OI)(CI)M = object+container inherit, Modify; *S-1-5-32-545 = BUILTIN\Users.
+Filename: "{sys}\icacls.exe"; Parameters: """{app}"" /grant *S-1-5-32-545:(OI)(CI)M /T /C"; StatusMsg: "Granting write access for in-app updates..."; Flags: runhidden waituntilterminated
+; Offer to launch the station at the end.
+Filename: "{app}\run_station.exe"; Parameters: "--fullscreen"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; The updater's transient swap leftovers (belt-and-braces; normally cleaned by the launcher).
+Type: filesandordirs; Name: "{app}\run.old"
+Type: filesandordirs; Name: "{app}\run.new"
+
+[Code]
+{ WebView2 presence check — HKLM/HKCU EdgeUpdate client GUID for the Evergreen runtime. Returns
+  True when the runtime is ABSENT (so the bundled installer should run). }
+function WebView2Installed(): Boolean;
+var
+  pv: string;
+  guid: string;
+begin
+  guid := '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  Result :=
+    (RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\' + guid, 'pv', pv) and (pv <> '') and (pv <> '0.0.0.0')) or
+    (RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\' + guid, 'pv', pv) and (pv <> '') and (pv <> '0.0.0.0')) or
+    (RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\' + guid, 'pv', pv) and (pv <> '') and (pv <> '0.0.0.0'));
+end;
+
+function NeedsWebView2(): Boolean;
+begin
+  Result := not WebView2Installed();
+end;

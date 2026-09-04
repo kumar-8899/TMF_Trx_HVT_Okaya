@@ -19,7 +19,12 @@ Output layout (SECURE_DISTRIBUTION.md §5):
             and these bundle INSIDE run.dist so a swap carries it all: ---
         app/<product>/     app DEFINITION: controller.json, maps/, specs/ (NO recipes/creds)
         instrument_libs/   copied drivers (provenance; imports use the compiled-in copy)
-      run_station.py       windowed launcher (deploy root; published as its own release asset)
+        vendor/mosquitto/  vendored broker (win64: mosquitto.exe + DLLs + loopback conf) — the
+                           frozen station starts its OWN broker: no Mosquitto install/service/admin
+      run_station.exe      frozen windowed launcher (deploy root, BESIDE run.dist) — bundles
+                           pywebview + the launcher module: client needs NO Python/pip. Its own
+                           release asset; survives the run.dist swap because it's a sibling.
+      run_station.py       windowed launcher SOURCE (deploy root; kept for the scripted fallback)
       keystation_core.dll  native licensing core (app.json licensing.core_lib)
       RELEASE.json         version + SHA-256 manifest of the above
     Everything the running app SERVES (UI, help, app def, drivers) is inside run.dist, so the
@@ -248,6 +253,69 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
         print("WARNING: keystation_core.dll not found - ship it separately")
 
 
+def copy_vendor_broker() -> None:
+    """Vendor Mosquitto INTO run.dist so the frozen station carries its own broker — no
+    Mosquitto installer, no Windows service, no admin (DEPLOY_STATION.md). `run_station`'s
+    `_mosquitto_exe()` already prefers `RUN_DIST/vendor/mosquitto/win64/mosquitto.exe`, and
+    because it rides inside run.dist every app-track build (and every in-app update) carries
+    it, so it survives swaps. Source: `deploy/vendor/mosquitto/win64/` (mosquitto.exe + DLLs +
+    a loopback mosquitto.conf), populated by `deploy/fetch-mosquitto.ps1` before the build."""
+    src = REPO / "deploy" / "vendor" / "mosquitto" / "win64"
+    if not (src / "mosquitto.exe").is_file():
+        print(f"WARNING: no vendored broker at {src} — run deploy/fetch-mosquitto.ps1 first. "
+              "The frozen station will run but MQTT stays offline until a broker is on :1883.")
+        return
+    dest = DIST / "vendor" / "mosquitto" / "win64"
+    shutil.copytree(src, dest, dirs_exist_ok=True)
+    n = sum(1 for _ in dest.iterdir())
+    print(f"vendored broker: deploy/vendor/mosquitto/win64 -> run.dist/vendor/mosquitto/win64 ({n} files)")
+
+
+def build_run_station_exe(jobs: int) -> None:
+    """Nuitka-compile the windowed launcher into a standalone **`run_station.exe`** that
+    bundles pywebview + the `launcher` supervision module, so a client PC needs NO system
+    Python and NO pip (frozen-offline station). It ships in the station ROOT (beside run.dist,
+    NOT inside it) so it survives the updater's run.dist swap. `run.exe` is still spawned as the
+    swappable backend child; run_station.exe runs `launcher.Supervisor(...).run()` in-process.
+
+    Onefile → a single `release-build/run_station.exe`. Requires pywebview installed on the
+    builder (`pip install "pywebview>=5.0"`); on Windows it renders through the WebView2 runtime
+    (an OS component the installer carries — see deploy/installer.iss.template)."""
+    import os
+    if sys.platform != "win32":
+        print("note: run_station.exe is a Windows target — skipping on this platform")
+        return
+    run_station = REPO / "run_station.py"
+    if not run_station.is_file():
+        print(f"WARNING: {run_station} not found — no frozen run_station.exe built")
+        return
+    # `run_station.py` does `import launcher`; make backend/ importable so Nuitka can bundle it.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(BACKEND) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    cmd = [
+        sys.executable, "-m", "nuitka",
+        "--onefile",
+        "--assume-yes-for-downloads",
+        f"--jobs={jobs}",
+        "--output-dir=" + str(OUT),
+        "--output-filename=run_station.exe",
+        "--windows-console-mode=disable",          # kiosk: no console window
+        "--include-module=launcher",               # the supervision loop (bundled, not spawned)
+        "--include-package=webview",               # pywebview (the native window)
+        str(run_station),
+    ]
+    _run(cmd, cwd=REPO, env=env)
+    exe = OUT / "run_station.exe"
+    if not exe.is_file():
+        raise SystemExit("BUILD FAILED: Nuitka did not produce run_station.exe (is pywebview installed?)")
+    # Drop the onefile scratch trees (run_station.build / .dist / .onefile-build) so manifest()
+    # doesn't hash them and package_artifact stays lean — only run_station.exe ships.
+    for scratch in OUT.glob("run_station.*"):
+        if scratch.is_dir():
+            shutil.rmtree(scratch, ignore_errors=True)
+    print(f"windowed launcher: run_station.exe -> deploy root ({exe.stat().st_size // 1024} KB)")
+
+
 def copy_app_payload(product: str) -> None:
     """Bundle the app DEFINITION into run.dist — controller.json (template), variable maps, specs,
     VERSION — plus the repo-root `instrument_libs/` (provenance; imports use the compiled-in copy).
@@ -422,6 +490,8 @@ def main() -> int:
         # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
         copy_app_payload(args.product)
         promote_app_config(args.app_config)
+        copy_vendor_broker()            # vendored Mosquitto INSIDE run.dist (no service, no admin)
+        build_run_station_exe(args.jobs)  # frozen windowed launcher BESIDE run.dist (no Python/pip)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
     # RELEASE.json must ride INSIDE run.dist (the swap unit) so an applied update swaps the
     # version manifest too; app_version() reads run.dist/RELEASE.json first (core.__init__).

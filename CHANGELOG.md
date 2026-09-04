@@ -5,6 +5,45 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.14.0 — 2026-09-04
+
+Fully-offline frozen station: a client PC needs **zero online setup** and **zero post-install steps
+except configuring instruments**. Double-click the desktop shortcut → the app opens fullscreen. MINOR.
+
+- **Frozen windowed launcher — no system Python, no pip on the client.** The launcher's supervision
+  loop is now importable (`launcher.Supervisor` / `launcher.supervise`), and `run_station.py` runs it
+  **in-process on a thread** instead of shelling `[python, run.dist/launcher.py]`. `build_release.py
+  --track app` Nuitka-compiles `run_station.py` into a standalone **`run_station.exe`** (bundles
+  pywebview + the `launcher` module) placed in the station root **beside `run.dist`** (survives the
+  updater's run.dist swap). `run.exe` is still spawned as the swappable backend child; the full
+  exit-42 / staged-swap / rollback loop is unchanged (Supervisor spawns run.exe in its own process
+  group and shuts it down with a graceful CTRL_BREAK on window close).
+- **Vendored Mosquitto — no broker install, no service, no admin.** `build_release.py --track app`
+  copies `deploy/vendor/mosquitto/win64/` **into** `run.dist/vendor/mosquitto/win64/`, so the frozen
+  station starts its own loopback broker. `run_station` now launches it with `-c mosquitto.conf`
+  (Mosquitto 2.x refuses anonymous clients without a config). Because it rides inside run.dist, every
+  in-app update carries it and it survives swaps.
+- **Offline `setup.exe` first-install.** New `deploy/installer.iss.template` + `deploy/build-installer.ps1`
+  render + compile a per-fork Inno installer that bundles `run.dist` (incl. the vendored broker),
+  `run_station.exe`, and the offline WebView2 standalone runtime (the one true OS dependency; a no-op
+  when present). It lets the operator pick a **user-writable** install dir (not Program Files, so the
+  updater can rename run.dist), grants `Users:Modify`, and drops Desktop + Start-Menu shortcuts to
+  `run_station.exe --fullscreen`. The only post-install task is Config → Instruments.
+- **Air-gapped in-app updates from USB.** New `POST /update/install-file` (+ Updates page "Install
+  from file") stages an update from local `.ksupdate` + `.zip` paths through the **same** signature +
+  `full_artifact_hash` verify and stage → swap → rollback pipeline as the online path — only the
+  source differs. `_materialize` refactored to share `_stage_zip_bytes` with the new path.
+- **CI: four release assets.** `docs/templates/release.yml` now vendors Mosquitto, builds
+  `run_station.exe`, and builds the offline `setup.exe` (Inno + bundled WebView2), publishing
+  `<slug>-<ver>.zip`, `.ksupdate`, `run_station.exe`, and `<AppShort>-Setup-<ver>.exe`.
+- **install-station.ps1 Store-alias fix.** The Python probe no longer trusts `Get-Command python`
+  (the Microsoft Store `python.exe` alias is a stub) — it checks `py.exe` / `sys.executable` and
+  installs a real interpreter on a bare PC. The script is now the scriptable/headless **fallback**;
+  the offline `setup.exe` is the primary first-install path.
+- Docs + both `new-test-app` skill copies updated (DEPLOY_STATION, UPDATES §E-bis endpoint + air-gap
+  row, deploy/README). **Update caveat:** the in-app updater swaps only `run.dist`; a release that
+  changes `run_station.exe` must be delivered by re-running `setup.exe` (flagged in the CHANGELOG).
+
 ## v1.13.0 — 2026-09-04
 
 Release/CI tooling so a fork cuts a release cleanly + fast, plus a Windows data-integrity fix in the

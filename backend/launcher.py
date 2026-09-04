@@ -64,9 +64,10 @@ def log(msg: str) -> None:
         pass
 
 
-def backend_cmd() -> list[str]:
-    exe = HERE / "run.exe"
-    return [str(exe)] if exe.exists() else [sys.executable, str(HERE / "run.py")]
+def backend_cmd(live: Path | None = None) -> list[str]:
+    live = Path(live) if live is not None else HERE
+    exe = live / "run.exe"
+    return [str(exe)] if exe.exists() else [sys.executable, str(live / "run.py")]
 
 
 def _release_version(dist: Path) -> str | None:
@@ -282,9 +283,10 @@ def _await_boot(proc: subprocess.Popen) -> bool:
     return False
 
 
-def _db_files() -> list[Path]:
+def _db_files(state: Path | None = None) -> list[Path]:
     """The DB file(s) to snapshot — the single sqlite file plus its WAL sidecars."""
-    base = Path(os.environ.get("TMF_DB_PATH", STATE / "tmf.sqlite"))
+    state = Path(state) if state is not None else STATE
+    base = Path(os.environ.get("TMF_DB_PATH", state / "tmf.sqlite"))
     return [base, base.with_name(base.name + "-wal"), base.with_name(base.name + "-shm")]
 
 
@@ -300,72 +302,147 @@ def _shield_break() -> None:
             pass
 
 
+class Supervisor:
+    """The supervision loop as an object so it runs BOTH ways with one code path:
+
+      * standalone / dev  — `python launcher.py` (or `python -m launcher`) → `main()`
+        builds a Supervisor over this file's own dir and blocks on `.run()`.
+      * frozen windowed   — `run_station.exe` bundles this module and calls
+        `Supervisor(RUN_DIST, station_root).run()` **in a thread**, so NO system Python
+        is needed on the client. `run.exe` is still spawned as the swappable child; the
+        exit-42 / staged-swap / rollback loop is unchanged.
+
+    `live` is the swap unit (run.dist when frozen, this dir in dev). `state_root` is the
+    external deploy root (parent of run.dist), handed to the backend as TMF_STATE_DIR so
+    both agree on where config + data live. All paths are injected — the module-level
+    constants are only the defaults for a bare `python launcher.py`.
+    """
+
+    def __init__(self, live: Path | None = None, state_root: Path | None = None) -> None:
+        self.live = Path(live) if live is not None else LIVE
+        self.state_root = Path(state_root) if state_root is not None else STATE_ROOT
+        self.state = self.state_root / "data"
+        self.frozen = (self.live / "run.exe").exists()
+        self.marker = self.state / "relaunch.json"
+        self._proc: subprocess.Popen | None = None
+        self._healthy = False
+        self._stop = threading.Event()
+
+    def request_stop(self) -> None:
+        """Ask the loop to finish: signal the running backend to shut down gracefully
+        (CTRL_BREAK on Windows → uvicorn lifespan teardown) and mark the loop to exit once
+        the child dies. Used by run_station when its window closes."""
+        self._stop.set()
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                if os.name == "nt":
+                    proc.send_signal(signal.CTRL_BREAK_EVENT)
+                else:
+                    proc.send_signal(signal.SIGINT)
+            except (OSError, ValueError):
+                pass
+
+    def backend_alive(self) -> bool:
+        proc = self._proc
+        return proc is not None and proc.poll() is None and self._healthy
+
+    def run(self) -> int:
+        # Point the module logger + swap state at THIS supervisor's dirs (one Supervisor
+        # per process). Keeps SwapManager's module-level log() writing to the right file.
+        global STATE, STATE_ROOT, LIVE, FROZEN, MARKER, LOG
+        STATE, STATE_ROOT, LIVE, FROZEN = self.state, self.state_root, self.live, self.frozen
+        MARKER, LOG = self.marker, self.state / "launcher.log"
+
+        log(f"launcher up ({'frozen' if self.frozen else 'source'}); state={self.state}")
+        _shield_break()
+        swap = SwapManager(self.live, self.state, db_files=_db_files(self.state))
+        swap.reconcile()                    # finish/undo any interrupted swap BEFORE booting
+
+        # A new process group so we can send a graceful CTRL_BREAK to just the backend
+        # child (request_stop) without hitting this process.
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        strikes = 0
+        reverted = False
+        child_env = {**os.environ, "TMF_STATE_DIR": str(self.state_root)}   # external config+data
+        while True:
+            if self._stop.is_set():
+                return 0
+            proc = subprocess.Popen(backend_cmd(self.live), cwd=str(self.live),
+                                    env=child_env, creationflags=flags)
+            self._proc = proc
+            log(f"backend started pid={proc.pid}")
+            healthy = _await_boot(proc)
+            self._healthy = healthy
+            lkg_timer: threading.Timer | None = None
+            if healthy:
+                strikes, reverted = 0, False
+                # Earn last_known_good after sustained uptime (not "completed a run"), so an
+                # idle station over a weekend can still mark a good build.
+                lkg_timer = threading.Timer(GOOD_AFTER_MIN * 60,
+                                            lambda: proc.poll() is None and swap.mark_last_known_good())
+                lkg_timer.daemon = True
+                lkg_timer.start()
+            rc = proc.wait()
+            self._healthy = False
+            if lkg_timer is not None:
+                lkg_timer.cancel()
+            log(f"backend exited rc={rc} (healthy_boot={healthy})")
+
+            if self._stop.is_set():
+                log("stop requested - launcher exiting")
+                return rc
+
+            if not healthy:
+                strikes += 1
+                log(f"failed boot (strike {strikes}/2)")
+                if strikes >= 2:
+                    if not reverted and swap.revert_to_last_known_good():
+                        reverted, strikes = True, 0      # give the reverted build ONE more try
+                        continue
+                    log("UNRECOVERABLE: two bad boots and no healthy fallback — stopping. "
+                        "A person must fix the build/config on this bench.")
+                    return STOP_UNRECOVERABLE
+                continue                                 # retry the same build once more
+
+            if rc != RELAUNCH:
+                log("normal exit - launcher stopping")
+                return rc
+
+            if not self.marker.is_file():
+                log("relaunch code but no marker - restart as-is")
+                continue
+            marker = json.loads(self.marker.read_text(encoding="utf-8"))
+            if marker.get("rollback"):
+                # local-backup revert — no re-ingest, so the anti-rollback tripwire is bypassed
+                done = swap.revert_to(marker["rollback"])
+                self.marker.unlink(missing_ok=True)
+                log(f"rollback to {marker['rollback']} (done={done})")
+            else:
+                swapped = swap.apply_staged(marker)
+                self.marker.unlink(missing_ok=True)
+                if swapped:
+                    # RELEASE.json rides inside run.dist; mirror the swapped-in copy to the
+                    # deploy root so humans/tools inspecting <deploy>/RELEASE.json see the new
+                    # version too (app_version already reads run.dist/RELEASE.json first).
+                    rel = self.live / "RELEASE.json"
+                    if rel.is_file():
+                        try:
+                            shutil.copy2(rel, self.state_root / "RELEASE.json")
+                        except OSError as exc:
+                            log(f"deploy-root RELEASE.json sync skipped: {exc}")
+                log(f"relaunching for {marker.get('version', '?')} (swapped={swapped})")
+
+
+def supervise(live: Path | None = None, state_root: Path | None = None) -> int:
+    """Importable entry for the frozen windowed launcher: build + run a Supervisor.
+    `run_station.exe` calls this so a client needs no system Python."""
+    return Supervisor(live, state_root).run()
+
+
 def main() -> int:
-    log(f"launcher up ({'frozen' if FROZEN else 'source'}); state={STATE}")
-    _shield_break()
-    swap = SwapManager(LIVE, STATE, db_files=_db_files())
-    swap.reconcile()                       # finish/undo any interrupted swap BEFORE booting
-
-    strikes = 0
-    reverted = False
-    child_env = {**os.environ, "TMF_STATE_DIR": str(STATE_ROOT)}   # external config+data
-    while True:
-        proc = subprocess.Popen(backend_cmd(), cwd=str(HERE), env=child_env)
-        log(f"backend started pid={proc.pid}")
-        healthy = _await_boot(proc)
-        lkg_timer: threading.Timer | None = None
-        if healthy:
-            strikes, reverted = 0, False
-            # Earn last_known_good after sustained uptime (not "completed a run"), so an
-            # idle station over a weekend can still mark a good build.
-            lkg_timer = threading.Timer(GOOD_AFTER_MIN * 60,
-                                        lambda: proc.poll() is None and swap.mark_last_known_good())
-            lkg_timer.daemon = True
-            lkg_timer.start()
-        rc = proc.wait()
-        if lkg_timer is not None:
-            lkg_timer.cancel()
-        log(f"backend exited rc={rc} (healthy_boot={healthy})")
-
-        if not healthy:
-            strikes += 1
-            log(f"failed boot (strike {strikes}/2)")
-            if strikes >= 2:
-                if not reverted and swap.revert_to_last_known_good():
-                    reverted, strikes = True, 0      # give the reverted build ONE more try
-                    continue
-                log("UNRECOVERABLE: two bad boots and no healthy fallback — stopping. "
-                    "A person must fix the build/config on this bench.")
-                return STOP_UNRECOVERABLE
-            continue                                 # retry the same build once more
-
-        if rc != RELAUNCH:
-            log("normal exit - launcher stopping")
-            return rc
-
-        if not MARKER.is_file():
-            log("relaunch code but no marker - restart as-is")
-            continue
-        marker = json.loads(MARKER.read_text(encoding="utf-8"))
-        if marker.get("rollback"):
-            # local-backup revert — no re-ingest, so the anti-rollback tripwire is bypassed
-            done = swap.revert_to(marker["rollback"])
-            MARKER.unlink(missing_ok=True)
-            log(f"rollback to {marker['rollback']} (done={done})")
-        else:
-            swapped = swap.apply_staged(marker)
-            MARKER.unlink(missing_ok=True)
-            if swapped:
-                # RELEASE.json rides inside run.dist; mirror the swapped-in copy to the
-                # deploy root so humans/tools inspecting <deploy>/RELEASE.json see the new
-                # version too (app_version already reads run.dist/RELEASE.json first).
-                rel = LIVE / "RELEASE.json"
-                if rel.is_file():
-                    try:
-                        shutil.copy2(rel, STATE_ROOT / "RELEASE.json")
-                    except OSError as exc:
-                        log(f"deploy-root RELEASE.json sync skipped: {exc}")
-            log(f"relaunching for {marker.get('version', '?')} (swapped={swapped})")
+    # Bare `python launcher.py` — supervise this file's own dir (dev / headless fallback).
+    return Supervisor(LIVE, STATE_ROOT).run()
 
 
 if __name__ == "__main__":

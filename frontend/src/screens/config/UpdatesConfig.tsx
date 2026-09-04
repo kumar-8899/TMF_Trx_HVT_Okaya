@@ -20,6 +20,7 @@ export function UpdatesConfig() {
   const [available, setAvailable] = useState<any>(null);
   const [status, setStatus] = useState<any>(null);
   const [path, setPath] = useState("");
+  const [zipPath, setZipPath] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,6 +52,13 @@ export function UpdatesConfig() {
   const ingest = () => run(async () => {
     const r = await api.post("/update/ingest", { bundle_path: path });
     setMsg(`Ingested ${r.track} ${r.version} — ${r.verdict?.reason}`); await refresh();
+  });
+  const installFile = () => run(async () => {
+    const r = await api.post("/update/install-file", { ksupdate_path: path, zip_path: zipPath });
+    setMsg(r.staged_dir
+      ? `Staged ${r.track} ${r.version} from file — review below, then Install.`
+      : `Offered ${r.track} ${r.version} — ${r.verdict?.reason}`);
+    await refresh();
   });
   const install = (id: string) => run(async () => {
     const r = await api.post(`/update/apply/${id}`, {}); setMsg(r.note || "Staged."); await refresh();
@@ -145,14 +153,21 @@ export function UpdatesConfig() {
       )}
 
       <Divider sx={{ my: 1.5 }} />
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Install from file (USB / air-gapped)</Typography>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <TextField size="small" label="or ingest a .ksupdate path (airgap/USB)" value={path}
-          onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 320 }} />
-        <Button variant="text" disabled={!path || busy} onClick={ingest}>Ingest file</Button>
+        <TextField size="small" label=".ksupdate path" value={path}
+          onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 300 }} />
+        <TextField size="small" label="artifact .zip path" value={zipPath}
+          onChange={(e) => setZipPath(e.target.value)} sx={{ minWidth: 300 }} />
+        <Button variant="outlined" disabled={!path || !zipPath || busy} onClick={installFile}>Stage from file</Button>
+        <Button variant="text" disabled={!path || busy} onClick={ingest}>Verify only</Button>
       </Stack>
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
-        Discovery only notifies — nothing downloads unasked. Install stages the release; the launcher
-        swaps the artifact on the next restart and auto-reverts to last-known-good if the new build won't boot.
+        No internet at the bench? Copy the release's <b>.ksupdate</b> + <b>.zip</b> to USB and point
+        the two fields at them — same signature + hash verification and swap/rollback as the online path.
+        Then Install + Relaunch the staged offer above. Discovery only notifies — nothing downloads
+        unasked. The launcher swaps the artifact on the next restart and auto-reverts to last-known-good
+        if the new build won't boot.
       </Typography>
     </Section>
   );

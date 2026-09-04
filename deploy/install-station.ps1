@@ -1,5 +1,10 @@
 <#
-install-station.ps1 — one-time fresh-client bootstrap for a Test & Measurement app.
+install-station.ps1 — SCRIPTABLE/HEADLESS fallback bootstrap for a Test & Measurement app.
+
+The PRIMARY first-install path is now the OFFLINE setup.exe (Inno; run.dist + frozen
+run_station.exe + WebView2 — no Python, no pip, no broker service). See DEPLOY_STATION.md.
+Use THIS script for a scripted/headless rollout, or when you have no setup.exe. It still needs a
+system Python + pip + a broker, which the frozen setup.exe avoids.
 
 GitHub Releases delivers UPDATES (the in-app updater); this handles the FIRST install on a clean
 Windows machine. Idempotent — safe to re-run. Framework-owned + generic: every app fork uses it
@@ -32,12 +37,28 @@ function Info($m) { Write-Host "[install] $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "[install] $m" -ForegroundColor Yellow }
 
 # --- 1. Python -------------------------------------------------------------------------------
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-  Info "Python not found - installing Python 3.12 via winget..."
+function Test-RealPython {
+  # `Get-Command python` is NOT enough: on a bare Windows the WindowsApps `python.exe` is a Store
+  # ALIAS stub that opens the Store and exits non-zero — never a real interpreter. Probe for a REAL
+  # one: the py.exe launcher, or a `python` whose sys.executable is not under WindowsApps and exits 0.
+  if (Test-Path (Join-Path $env:WINDIR "py.exe")) { return $true }
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) { return $false }
+  try {
+    $real = & python -c "import sys;print(sys.executable)" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    if ($real -match 'WindowsApps') { return $false }   # the Store alias stub
+    return $true
+  } catch { return $false }
+}
+
+if (-not (Test-RealPython)) {
+  Info "no real Python found (Store alias stub does not count) - installing Python 3.12 via winget..."
   winget install --id Python.Python.3.12 --source winget -e --accept-package-agreements --accept-source-agreements
   $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-  if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    throw "Python still not on PATH. Install Python 3.11+ (add to PATH) and re-run."
+  if (-not (Test-RealPython)) {
+    throw "Python still not usable (a WindowsApps alias stub is not a real interpreter). Install " +
+          "Python 3.11+ from python.org (tick 'Add to PATH', and disable the Store alias under " +
+          "Settings > Apps > App execution aliases) and re-run."
   }
 }
 Info "Python: $((python --version) 2>&1)"
