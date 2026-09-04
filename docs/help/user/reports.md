@@ -26,8 +26,11 @@ fields **plus a column for every test parameter** in the filtered set. Each cell
 that parameter's **measured** value with its **expected**, **result**, and **cycle time
 (s)**. Use it to compare many units across all parameters at once.
 
-**Export CSV (all filtered)** downloads the whole filtered set as one CSV (fixed fields +
-every test parameter) for offline analysis — not just the current page.
+**Export CSV (all filtered)** saves the whole filtered set as one CSV (fixed fields +
+every test parameter) for offline analysis — not just the current page. The file is written
+to this PC's **Downloads** folder (e.g. `Downloads\reports-full-<date>-<time>.csv`) and a green
+banner confirms the exact path. A single run's **Export JSON / CSV** (from its results dialog)
+saves the same way. Files are timestamped, so an export never overwrites an earlier one.
 
 > Reports are stored on a MySQL / SQL Server database (Settings → Report database). If it
 > isn't configured, the page shows a note and new reports queue locally until it is.

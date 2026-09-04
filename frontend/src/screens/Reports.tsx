@@ -55,6 +55,7 @@ export function Reports() {
   const [open, setOpen] = useState<any | null>(null);
   const [full, setFull] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [configured, setConfigured] = useState(true);
 
   const qs = useCallback(() => {
@@ -90,16 +91,23 @@ export function Reports() {
     try { setFull(await api.get(`/reports/full?${qs().toString()}`)); }
     catch (e: any) { setError(e.message); }
   };
-  const doDownload = (path: string, filename: string) => {
-    setError(null);
-    downloadUrl(path, filename).catch((e: any) => setError(e.message));
+  // Save the export on the station PC (backend + UI are the same machine) and tell the user WHERE.
+  // A blob download is invisible in the native pywebview window; a server-side save + path is not.
+  const saveExport = async (path: string) => {
+    setError(null); setNotice(null);
+    try {
+      const sep = path.includes("?") ? "&" : "?";
+      const r = await api.get(`${path}${sep}save=true`);
+      setNotice(`Saved to: ${r.path}`);
+    } catch (e: any) { setError(e.message); }
   };
-  const exportFull = () => doDownload(`/reports/full/export?${qs().toString()}`, "reports-full.csv");
+  const exportFull = () => saveExport(`/reports/full/export?${qs().toString()}`);
 
   return (
     <Box>
       <PageHeader title="Reports" subtitle="Run outcomes, yield, and analytics" />
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
+      {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
       {!configured && (
         <Alert severity="info" sx={{ mb: 2 }}>Report database not configured — set it in <b>Settings → Report database</b>. New reports are queued locally until then.</Alert>
       )}
@@ -275,9 +283,9 @@ export function Reports() {
                 {can("REPORT.EXPORT") && (
                   <Stack direction="row" spacing={1}>
                     <Button size="small" variant="outlined" startIcon={<Download />}
-                      onClick={() => doDownload(`/reports/${open.run_id}/export?format=json`, `report-${open.run_id}.json`)}>Export JSON</Button>
+                      onClick={() => saveExport(`/reports/${open.run_id}/export?format=json`)}>Export JSON</Button>
                     <Button size="small" variant="outlined" startIcon={<Download />}
-                      onClick={() => doDownload(`/reports/${open.run_id}/export?format=csv`, `report-${open.run_id}.csv`)}>Export CSV</Button>
+                      onClick={() => saveExport(`/reports/${open.run_id}/export?format=csv`)}>Export CSV</Button>
                   </Stack>
                 )}
                 <ResultsTable rows={open.rows || []} />
@@ -290,25 +298,3 @@ export function Reports() {
   );
 }
 
-async function downloadUrl(path: string, filename: string): Promise<void> {
-  const tok = localStorage.getItem("tmf.token");
-  const res = await fetch(path, { headers: tok ? { Authorization: `Bearer ${tok}` } : {} });
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try { const j = await res.json(); if (j?.detail) detail = j.detail; } catch { /* body not JSON */ }
-    throw new Error(`Export failed — ${detail}`);
-  }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  // The anchor MUST be in the document for the programmatic download click to fire in
-  // Chromium/WebView2 (the native pywebview window) — a detached <a>.click() is a no-op there,
-  // which is why "nothing happened" in the desktop app. Append → click → remove.
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);   // revoke after the download has started
-}

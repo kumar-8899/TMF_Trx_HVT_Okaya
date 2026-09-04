@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from core.services.security import require_permission
@@ -9,6 +12,20 @@ from core.services.security import require_permission
 _VIEW = [Depends(require_permission("REPORT.VIEW"))]
 _EXPORT = [Depends(require_permission("REPORT.EXPORT"))]
 _SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
+
+
+def _save_to_downloads(data: bytes, filename: str) -> dict:
+    """Write an export to the station PC's Downloads folder and return its path. The station is a
+    LOCAL app (backend + UI on one PC), so a server-side save lands on the operator's own machine —
+    reliable in the native pywebview window, where a browser blob-download is invisible (no flyout,
+    unknown location). Filename is made unique with a timestamp so nothing is overwritten silently."""
+    base = Path.home() / "Downloads"
+    dest_dir = base if base.is_dir() else Path.home()
+    stem, dot, ext = filename.rpartition(".")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    out = dest_dir / (f"{stem}-{stamp}.{ext}" if dot else f"{filename}-{stamp}")
+    out.write_bytes(data)
+    return {"saved": True, "path": str(out), "filename": out.name, "bytes": len(data)}
 
 
 def build_router(module) -> APIRouter:
@@ -47,9 +64,11 @@ def build_router(module) -> APIRouter:
     async def full_export(
         recipe_id: str | None = None, result: str | None = None,
         model: str | None = None, shift: str | None = None, serial: str | None = None,
-        date_from: str | None = None, date_to: str | None = None,
-    ) -> Response:
+        date_from: str | None = None, date_to: str | None = None, save: bool = False,
+    ):
         data = await module.full_csv(**_filters(recipe_id, result, model, shift, serial, date_from, date_to))
+        if save:   # native window: save to the PC's Downloads and return the path to show the user
+            return _save_to_downloads(data, "reports-full.csv")
         return Response(content=data, media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="reports-full.csv"'})
 
@@ -90,11 +109,13 @@ def build_router(module) -> APIRouter:
         return report
 
     @router.get("/{run_id}/export", dependencies=_EXPORT)
-    async def export_report(run_id: str, format: str = "json") -> Response:
+    async def export_report(run_id: str, format: str = "json", save: bool = False):
         try:
             data = await module.export(run_id, format)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"no report for run '{run_id}'") from exc
+        if save:   # native window: save to the PC's Downloads and return the path to show the user
+            return _save_to_downloads(data, f"report-{run_id}.{format}")
         media = "text/csv" if format == "csv" else "application/json"
         return Response(content=data, media_type=media,
                         headers={"Content-Disposition": f'attachment; filename="report-{run_id}.{format}"'})

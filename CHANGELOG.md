@@ -5,20 +5,30 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
-## Unreleased
+## v1.15.0 — 2026-09-05
 
-Post-v1.14.0 fixes (no framework version bump yet):
+Desktop-station polish: a real app icon, working report export in the native window, an actionable
+Dashboard, and update-page clarity. MINOR.
 
+- **Dashboard redesign.** The old "loaded modules" grid (raw activation-gate dump, no operator value)
+  is replaced with an at-a-glance ops view: an **attention band** that surfaces only what needs a
+  human — disconnected instruments, an offline station bridge, an unconfigured report database,
+  modules skipped for config/license reasons, and (super_admin) an available application update —
+  with a calm "All systems normal" strip when there is nothing to act on. Below it, a **7-day KPI
+  band** (runs, yield, units, first-pass yield, avg cycle) and a **pass/fail trend chart**
+  (`/reports/analytics/dashboard`), plus a **live instrument snapshot** reading real connection state
+  from the variable engine (`/variables/instances`) instead of a static list.
 - **Native window app icon.** `station.py` / `run_station.py` now set the pywebview window title-bar
   icon via `webview.start(icon=…)`, and `build_release.py` embeds it into `run_station.exe`
   (`--windows-icon-from-ico`) so the taskbar icon is right before the window opens. Added
   `frontend/public/favicon.ico` (multi-res, generated from `favicon.svg`) — a fork's own favicon is
   used automatically.
-- **Report export in the desktop window.** `Reports` CSV/JSON export produced nothing in the native
-  window: the download `<a>` was never added to the DOM, and Chromium/WebView2 no-ops a detached
-  `click()`. The anchor is now appended → clicked → removed, and export errors are surfaced instead
-  of silently swallowed. (Full-view export streams `GET /reports/full/export` as `reports-full.csv`
-  to the browser/OS Downloads folder.)
+- **Report export in the desktop window.** `Reports` CSV/JSON export produced nothing visible in the
+  native window (a browser blob-download has no flyout and an unknown location under WebView2). Export
+  now **saves server-side to the station PC's Downloads folder** (`?save=true` on
+  `/reports/full/export` and `/reports/{id}/export`) and a green banner shows the **exact path**
+  (`Downloads\reports-full-<date>-<time>.csv`); files are timestamped so nothing is overwritten.
+  Errors are surfaced instead of silently swallowed.
 - **Updates page clarity.** Shows the **application** version prominently beside the framework
   version, and states that "Check for application updates" polls this app's own release line only —
   never framework updates.
