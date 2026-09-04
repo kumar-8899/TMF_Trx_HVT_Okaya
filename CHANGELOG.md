@@ -5,6 +5,26 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## Unreleased
+
+Post-v1.14.0 fixes (no framework version bump yet):
+
+- **Native window app icon.** `station.py` / `run_station.py` now set the pywebview window title-bar
+  icon via `webview.start(icon=…)`, and `build_release.py` embeds it into `run_station.exe`
+  (`--windows-icon-from-ico`) so the taskbar icon is right before the window opens. Added
+  `frontend/public/favicon.ico` (multi-res, generated from `favicon.svg`) — a fork's own favicon is
+  used automatically.
+- **Report export in the desktop window.** `Reports` CSV/JSON export produced nothing in the native
+  window: the download `<a>` was never added to the DOM, and Chromium/WebView2 no-ops a detached
+  `click()`. The anchor is now appended → clicked → removed, and export errors are surfaced instead
+  of silently swallowed. (Full-view export streams `GET /reports/full/export` as `reports-full.csv`
+  to the browser/OS Downloads folder.)
+- **Updates page clarity.** Shows the **application** version prominently beside the framework
+  version, and states that "Check for application updates" polls this app's own release line only —
+  never framework updates.
+- **new-test-app skill:** backend deps install now includes the `desktop` extra (pywebview) so
+  `python station.py` gets a native window instead of falling back to the browser.
+
 ## v1.14.0 — 2026-09-04
 
 Fully-offline frozen station: a client PC needs **zero online setup** and **zero post-install steps

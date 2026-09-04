@@ -121,11 +121,18 @@ python run.dist\launcher.py      # backend + controller only, no window
 ## Packaging note — the OS window icon
 
 The SVG favicon (`frontend/public/favicon.svg`) covers the **browser tab / WebView tab
-icon** and the in-app title bar (`BrandMark`). The **OS window / taskbar icon** of the
-pywebview window comes from the *executable's* icon, not the page — Python's icon in a
-source run, the `.exe` icon in a frozen build. To brand the taskbar icon, give
-`build_release.py`'s Nuitka step `--windows-icon-from-ico=<app.ico>` (needs a real
-`.ico`, not the SVG). Not yet wired.
+icon** and the in-app title bar (`BrandMark`). The **OS window title-bar + taskbar icon**
+of the pywebview window needs a real `.ico`/`.png`, not the SVG — wired as of v1.14.x:
+
+- **Title-bar icon (both source + frozen):** `station.py` / `run_station.py` pass
+  `webview.start(icon=<favicon.ico>)` — resolved from the built SPA (`frontend/public` or
+  `run.dist/frontend`), so a fork's own `favicon.ico` is used automatically.
+- **Taskbar icon before the window opens (frozen):** `build_release.py`'s `run_station.exe`
+  Nuitka step embeds it via `--windows-icon-from-ico=frontend/public/favicon.ico`.
+
+`frontend/public/favicon.ico` (multi-res) is generated from `favicon.svg`; regenerate it if
+the SVG changes. A source run still shows Python's icon in the taskbar (only the title-bar
+icon is set) — the frozen `run_station.exe` shows the app icon in both.
 
 ---
 

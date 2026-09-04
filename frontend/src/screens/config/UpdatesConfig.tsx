@@ -73,20 +73,26 @@ export function UpdatesConfig() {
   });
 
   return (
-    <Section title="Updates" subtitle="signed code updates (Keystation) — notify-only, two-click install">
+    <Section title="Updates" subtitle="signed application updates (Keystation) — notify-only, two-click install">
       {error && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>{error}</Alert>}
       {msg && <Alert severity="info" sx={{ mb: 1.5 }} onClose={() => setMsg(null)}>{msg}</Alert>}
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Installed: <b style={{ fontFamily: MONO_STACK }}>{current?.app_version ? `App ${current.app_version}` : `framework ${current?.version ?? "—"}`}</b>
-        {current?.app_version && <> · framework {current.version}</>}
+        Installed:{" "}
+        {current?.app_version
+          ? <>Application <b style={{ fontFamily: MONO_STACK }}>{current.app_version}</b> · framework <b style={{ fontFamily: MONO_STACK }}>{current.version}</b></>
+          : <>framework <b style={{ fontFamily: MONO_STACK }}>{current?.version ?? "—"}</b> <i>(no app payload)</i></>}
         {current?.abi >= 0 && <> · core ABI {current.abi}</>}
       </Typography>
 
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-        <Button variant="contained" disabled={!source || busy} onClick={check}>Check for updates</Button>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
+        <Button variant="contained" disabled={!source || busy} onClick={check}>Check for application updates</Button>
         {source && <Typography variant="caption" color="text.secondary">source: {source}</Typography>}
       </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block" }}>
+        Checks this application's releases only (its own version line) — not the framework. The
+        framework version is provenance; it changes only when a new app build is built on a newer one.
+      </Typography>
 
       {available && (
         <Alert severity="success" sx={{ mb: 2 }}

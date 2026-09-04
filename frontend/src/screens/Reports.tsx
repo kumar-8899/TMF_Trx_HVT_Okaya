@@ -90,7 +90,11 @@ export function Reports() {
     try { setFull(await api.get(`/reports/full?${qs().toString()}`)); }
     catch (e: any) { setError(e.message); }
   };
-  const exportFull = () => downloadUrl(`/reports/full/export?${qs().toString()}`, "reports-full.csv");
+  const doDownload = (path: string, filename: string) => {
+    setError(null);
+    downloadUrl(path, filename).catch((e: any) => setError(e.message));
+  };
+  const exportFull = () => doDownload(`/reports/full/export?${qs().toString()}`, "reports-full.csv");
 
   return (
     <Box>
@@ -271,9 +275,9 @@ export function Reports() {
                 {can("REPORT.EXPORT") && (
                   <Stack direction="row" spacing={1}>
                     <Button size="small" variant="outlined" startIcon={<Download />}
-                      onClick={() => downloadReport(open.run_id, "json")}>Export JSON</Button>
+                      onClick={() => doDownload(`/reports/${open.run_id}/export?format=json`, `report-${open.run_id}.json`)}>Export JSON</Button>
                     <Button size="small" variant="outlined" startIcon={<Download />}
-                      onClick={() => downloadReport(open.run_id, "csv")}>Export CSV</Button>
+                      onClick={() => doDownload(`/reports/${open.run_id}/export?format=csv`, `report-${open.run_id}.csv`)}>Export CSV</Button>
                   </Stack>
                 )}
                 <ResultsTable rows={open.rows || []} />
@@ -286,16 +290,25 @@ export function Reports() {
   );
 }
 
-const downloadReport = (runId: string, fmt: string) =>
-  downloadUrl(`/reports/${runId}/export?format=${fmt}`, `report-${runId}.${fmt}`);
-
 async function downloadUrl(path: string, filename: string): Promise<void> {
   const tok = localStorage.getItem("tmf.token");
   const res = await fetch(path, { headers: tok ? { Authorization: `Bearer ${tok}` } : {} });
-  if (!res.ok) return;
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try { const j = await res.json(); if (j?.detail) detail = j.detail; } catch { /* body not JSON */ }
+    throw new Error(`Export failed — ${detail}`);
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
+  // The anchor MUST be in the document for the programmatic download click to fire in
+  // Chromium/WebView2 (the native pywebview window) — a detached <a>.click() is a no-op there,
+  // which is why "nothing happened" in the desktop app. Append → click → remove.
   const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);   // revoke after the download has started
 }

@@ -302,8 +302,13 @@ def build_run_station_exe(jobs: int) -> None:
         "--windows-console-mode=disable",          # kiosk: no console window
         "--include-module=launcher",               # the supervision loop (bundled, not spawned)
         "--include-package=webview",               # pywebview (the native window)
-        str(run_station),
     ]
+    # Embed the app icon so the TASKBAR icon is correct before the window opens (the window
+    # title-bar icon is set at runtime via webview.start(icon=...)). The fork's own favicon.ico wins.
+    icon = REPO / "frontend" / "public" / "favicon.ico"
+    if icon.is_file():
+        cmd.append(f"--windows-icon-from-ico={icon}")
+    cmd.append(str(run_station))
     _run(cmd, cwd=REPO, env=env)
     exe = OUT / "run_station.exe"
     if not exe.is_file():

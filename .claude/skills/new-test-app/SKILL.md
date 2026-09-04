@@ -192,9 +192,10 @@ optional hand-off notes.** A fresh clone has no `node_modules` and no editable i
 so the app cannot build, boot, or run `station.py` until they complete. Do them before any
 verify/run step, and before telling the user the app is ready.
 
-Backend deps + editable installs (run from `backend/`):
+Backend deps + editable installs (run from `backend/`). The `desktop` extra pulls **pywebview** —
+needed for the `python station.py` native window (else it falls back to the browser):
 ```pwsh
-cd backend ; pip install -e instrumentlib ; pip install -e ".[dev,report-db]" ; cd ..
+cd backend ; pip install -e instrumentlib ; pip install -e ".[dev,report-db,desktop]" ; cd ..
 ```
 
 **Frontend deps — ALWAYS run `npm install` inside `frontend/`** (the only `package.json`

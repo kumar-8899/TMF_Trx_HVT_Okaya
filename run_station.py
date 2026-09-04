@@ -188,6 +188,18 @@ class Station:
         return self._sup_thread is not None and self._sup_thread.is_alive()
 
 
+def _window_icon() -> str | None:
+    """The app icon for the window title bar + taskbar (pywebview `start(icon=...)`). The built SPA
+    ships `favicon.ico` at its root, so it lives in run.dist/frontend — and a fork's custom favicon
+    (its own `frontend/public/favicon.ico`) ships automatically. The frozen run_station.exe ALSO
+    embeds this .ico (Nuitka --windows-icon-from-ico) so the taskbar icon is right before the window
+    even opens."""
+    for c in (RUN_DIST / "frontend" / "favicon.ico", RUN_DIST / "frontend" / "app-icon.png"):
+        if c.is_file():
+            return str(c)
+    return None
+
+
 def _open_window(station: Station, url: str) -> None:
     try:
         import webview  # pywebview
@@ -218,7 +230,12 @@ def _open_window(station: Station, url: str) -> None:
                 pass
 
     threading.Thread(target=_watch_backend, daemon=True).start()
-    webview.start()  # blocks on the main thread until the window is closed
+    icon = _window_icon()
+    start_kw = {"icon": icon} if icon else {}
+    try:
+        webview.start(**start_kw)   # blocks on the main thread until the window is closed
+    except TypeError:
+        webview.start()             # older pywebview without the icon= param
 
 
 def main() -> int:

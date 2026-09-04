@@ -253,6 +253,9 @@ def _open_window(station: Station, url: str) -> None:
         return
 
     title = _window_title()
+    # App icon for the title bar + taskbar — the fork's own favicon.ico (public/ or the built dist/).
+    icon = next((str(p) for p in (FRONTEND / "public" / "favicon.ico",
+                                  FRONTEND / "dist" / "favicon.ico") if p.is_file()), None)
     window = webview.create_window(
         title, url,
         width=1440, height=900,
@@ -274,7 +277,11 @@ def _open_window(station: Station, url: str) -> None:
                 pass
 
     threading.Thread(target=_watch_backend, daemon=True).start()
-    webview.start()  # blocks on the main thread until the window is closed
+    start_kw = {"icon": icon} if icon else {}
+    try:
+        webview.start(**start_kw)  # blocks on the main thread until the window is closed
+    except TypeError:
+        webview.start()            # older pywebview without the icon= param
 
 
 # --------------------------------------------------------------------------- main
