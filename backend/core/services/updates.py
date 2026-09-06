@@ -29,6 +29,13 @@ class AmcRequired(Exception):
     """Download blocked because the AMC does not cover this build (UPDATES.md §8 → 402)."""
 
 
+class StationModeBlocked(Exception):
+    """The update *source* is not allowed on this station (`updates.station_mode`). An
+    `online` station refuses `/update/install-file`; an `air_gapped` station refuses
+    `/update/check` and `/update/download`. Mapped to HTTP 409. This is a SOURCE
+    restriction — orthogonal to `allow_unverified`, which is a TRUST restriction."""
+
+
 def _asset_bytes(asset: dict, token: str | None) -> bytes:
     """Download one GitHub Release asset's bytes (private-repo needs the API url +
     octet-stream Accept)."""
@@ -64,7 +71,7 @@ class UpdateService:
 
     def __init__(self, db, licensing, diag, *, current_version: str, current_abi: int = -1,
                  data_dir=None, current_app_version: str | None = None,
-                 allow_unverified: bool = False):
+                 allow_unverified: bool = False, station_mode: str = "online"):
         self._db = db
         self._lic = licensing
         self._diag = diag
@@ -76,6 +83,26 @@ class UpdateService:
         # untrusted. Config-gated (app.json updates.allow_unverified); default off so a real
         # Keystation deployment only ever installs a verified manifest (UPDATES.md §trust).
         self._allow_unverified = bool(allow_unverified)
+        # Which update SOURCE this station accepts (app.json updates.station_mode; DEPLOY_STATION.md):
+        # "online" → GitHub check/download only; "air_gapped" → USB install-file only. Default
+        # "online" keeps every existing deployment fully permissive (no migration).
+        self._station_mode = station_mode if station_mode in ("online", "air_gapped") else "online"
+
+    @property
+    def station_mode(self) -> str:
+        return self._station_mode
+
+    def _require_online(self) -> None:
+        if self._station_mode == "air_gapped":
+            raise StationModeBlocked(
+                "this station is air-gapped (updates.station_mode) — online check/download is "
+                "disabled; update from USB via Config → Updates → Install from file")
+
+    def _require_air_gapped(self) -> None:
+        if self._station_mode == "online":
+            raise StationModeBlocked(
+                "this station updates online (updates.station_mode) — install-from-file is "
+                "disabled; use Config → Updates → Check / Download")
 
     # ---- resolve (publish != deploy) --------------------------------------
 
@@ -159,6 +186,7 @@ class UpdateService:
         """Discovery — NOTIFY ONLY (UPDATES.md item 5). Polls GitHub, downloads nothing.
         Returns the available release's metadata (or null). Idempotent, network-tolerant."""
         import asyncio
+        self._require_online()
         try:
             rel = await asyncio.get_running_loop().run_in_executor(
                 None, lambda: self._gh_release(repo, token, channel=channel))
@@ -192,6 +220,7 @@ class UpdateService:
         NOT advance the anti-rollback tripwire a second time."""
         import asyncio
         from pathlib import Path
+        self._require_online()
 
         def _fetch() -> tuple[dict, str, bytes]:
             rel = self._gh_release(repo, token, channel=channel)
@@ -284,6 +313,7 @@ class UpdateService:
         Relaunches the staged offer exactly as with an online download."""
         import asyncio
         from pathlib import Path
+        self._require_air_gapped()
         if not Path(ksupdate_path).is_file():
             raise FileNotFoundError(f"no .ksupdate at {ksupdate_path}")
         if not Path(zip_path).is_file():

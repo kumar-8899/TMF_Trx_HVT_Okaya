@@ -17,6 +17,7 @@ export function UpdatesConfig() {
   const [current, setCurrent] = useState<any>(null);
   const [offers, setOffers] = useState<any[]>([]);
   const [source, setSource] = useState<string | null>(null);
+  const [stationMode, setStationMode] = useState<"online" | "air_gapped">("online");
   const [available, setAvailable] = useState<any>(null);
   const [status, setStatus] = useState<any>(null);
   const [path, setPath] = useState("");
@@ -29,6 +30,7 @@ export function UpdatesConfig() {
     try {
       const r = await api.get("/update/offers");
       setCurrent(r.current); setOffers(r.offers || []); setSource(r.source || null);
+      setStationMode(r.station_mode === "air_gapped" ? "air_gapped" : "online");
       setStatus(await api.get("/update/status"));
     } catch (e: any) { setError(e.message); }
   };
@@ -108,21 +110,30 @@ export function UpdatesConfig() {
         {current?.abi >= 0 && <> · core ABI {current.abi}</>}
       </Typography>
 
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
-        <Button variant="contained" disabled={!source || busy} onClick={check}>Check for application updates</Button>
-        {source && <Typography variant="caption" color="text.secondary">source: {source}</Typography>}
-      </Stack>
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block" }}>
-        Checks this application's releases only (its own version line) — not the framework. The
-        framework version is provenance; it changes only when a new app build is built on a newer one.
-      </Typography>
-
-      {available && (
-        <Alert severity="success" sx={{ mb: 2 }}
-          action={<Button color="inherit" size="small" disabled={busy} onClick={download}>Download</Button>}>
-          <b>{available.tag}</b> available{available.asset_bytes ? ` · ${Math.round(available.asset_bytes / 1024)} KB` : ""}
-          {available.notes && <Typography variant="caption" display="block" sx={{ mt: 0.5, whiteSpace: "pre-wrap" }}>{available.notes}</Typography>}
+      {stationMode === "air_gapped" ? (
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          This station is <b>air-gapped</b> (<code>updates.station_mode</code>). Online check /
+          download is disabled — update from USB using <b>Install from file</b> below.
         </Alert>
+      ) : (
+        <>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
+            <Button variant="contained" disabled={!source || busy} onClick={check}>Check for application updates</Button>
+            {source && <Typography variant="caption" color="text.secondary">source: {source}</Typography>}
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block" }}>
+            Checks this application's releases only (its own version line) — not the framework. The
+            framework version is provenance; it changes only when a new app build is built on a newer one.
+          </Typography>
+
+          {available && (
+            <Alert severity="success" sx={{ mb: 2 }}
+              action={<Button color="inherit" size="small" disabled={busy} onClick={download}>Download</Button>}>
+              <b>{available.tag}</b> available{available.asset_bytes ? ` · ${Math.round(available.asset_bytes / 1024)} KB` : ""}
+              {available.notes && <Typography variant="caption" display="block" sx={{ mt: 0.5, whiteSpace: "pre-wrap" }}>{available.notes}</Typography>}
+            </Alert>
+          )}
+        </>
       )}
 
       {offers.length > 0 && (
@@ -183,21 +194,31 @@ export function UpdatesConfig() {
 
       <Divider sx={{ my: 1.5 }} />
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Install from file (USB / air-gapped)</Typography>
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <TextField size="small" label=".ksupdate path" value={path}
-          onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 300 }} />
-        <TextField size="small" label="artifact .zip path" value={zipPath}
-          onChange={(e) => setZipPath(e.target.value)} sx={{ minWidth: 300 }} />
-        <Button variant="outlined" disabled={!path || !zipPath || busy} onClick={installFile}>Stage from file</Button>
-        <Button variant="text" disabled={!path || busy} onClick={ingest}>Verify only</Button>
-      </Stack>
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
-        No internet at the bench? Copy the release's <b>.ksupdate</b> + <b>.zip</b> to USB and point
-        the two fields at them — same signature + hash verification and swap/rollback as the online path.
-        Then Install + Relaunch the staged offer above. Discovery only notifies — nothing downloads
-        unasked. The launcher swaps the artifact on the next restart and auto-reverts to last-known-good
-        if the new build won't boot.
-      </Typography>
+      {stationMode === "online" ? (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+          This station updates <b>online</b> (<code>updates.station_mode</code>) — install-from-file
+          is disabled; use the check button above. Set{" "}
+          <code>updates.station_mode: "air_gapped"</code> in <code>app.json</code> for a bench with no
+          internet.
+        </Typography>
+      ) : (
+        <>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <TextField size="small" label=".ksupdate path" value={path}
+              onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 300 }} />
+            <TextField size="small" label="artifact .zip path" value={zipPath}
+              onChange={(e) => setZipPath(e.target.value)} sx={{ minWidth: 300 }} />
+            <Button variant="outlined" disabled={!path || !zipPath || busy} onClick={installFile}>Stage from file</Button>
+            <Button variant="text" disabled={!path || busy} onClick={ingest}>Verify only</Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
+            No internet at the bench? Copy the release's <b>.ksupdate</b> + <b>.zip</b> to USB and point
+            the two fields at them — same signature + hash verification and swap/rollback as the online path.
+            Then Install + Relaunch the staged offer above. The launcher swaps the artifact on the next
+            restart and auto-reverts to last-known-good if the new build won't boot.
+          </Typography>
+        </>
+      )}
     </Section>
   );
 }

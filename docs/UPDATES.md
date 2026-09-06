@@ -403,6 +403,8 @@ the Updates page only, which only an engineer ever opens.
   "github_repo": "exeliq/app-acme-eol",
   "github_token": "<read-only>",
   "channel": "stable",
+  "station_mode": "online",
+  "allow_unverified": false,
   "auto_check_minutes": 60,
   "auto_download": false,
   "auto_apply": false,
@@ -417,6 +419,25 @@ the Updates page only, which only an engineer ever opens.
 `auto_check_minutes: 0` → discovery disabled entirely (air-gapped sites).
 `auto_download` and `auto_apply` exist but **must remain `false`**; they are
 present so the decision is visible in config rather than buried in code.
+
+### `station_mode` — one update SOURCE per station
+
+`docs/DEPLOY_STATION.md` describes two supported update paths — online
+(`Config → Updates → Check/Download`) and USB (`/update/install-file`) — but the
+running station accepts **both** unless told otherwise. `station_mode` enforces the
+split so a deployment can only do what its site actually allows:
+
+| value | `/update/check`, `/update/download` | `/update/install-file` |
+|---|---|---|
+| `"online"` (default) | reachable | **409** |
+| `"air_gapped"` | **409** (`StationModeBlocked`) | reachable |
+
+Default `"online"` → every existing deployment keeps today's fully-permissive
+behavior; **zero migration**. It is a **source** restriction, orthogonal to
+`allow_unverified` (a **trust** restriction). The Updates page reads it from
+`GET /update/offers` and hides the disallowed half with an explanation. Set it
+explicitly in each deployment's `app.release.json` rather than relying on the
+permissive default in production.
 
 ---
 
@@ -442,12 +463,27 @@ proves nothing `pytest` did not already prove.
 > `ci.yml` = *is the code correct?* — fast, frequent.
 > `release.yml` = *make the shippable thing* — slow, rare.
 
-### 10.3 App repo — `release.yml` (on tag `app-v*`)
+### 10.3 App repo — `release.yml` (on tag `app-v*`) OR `deploy/cut-release.ps1` (local)
 
-`tag-matches-version guard → tests → Nuitka → zip + hash → sign .ksupdate →
-publish Release with the changelog body`. Signing secrets
-(`KS_INTERMEDIATE_*`) live only in app-repo Actions secrets — never on a
-laptop, never in the framework repo.
+`version guard (tag == VERSION **and** strictly newer than the latest published
+`app-v*`) → tests → vendor Mosquitto → Nuitka → zip + hash → sign .ksupdate →
+WebView2 + setup.exe → publish Release with the changelog body`. Signing secrets
+(`KS_INTERMEDIATE_*`) live only in app-repo Actions secrets or the releasing
+developer's environment — never committed, never in the framework repo.
+
+**Two ways to run those steps, same Release + four assets:**
+
+- **GitHub-hosted `release.yml`** — on the `app-v*` tag push. Simple, but every
+  tagged build is **cold**: GitHub Actions cache is ref-scoped, a cache saved on
+  one tag is unreachable from the next, and nothing runs the Nuitka build on the
+  default branch to seed the fallback scope. Measured ~45 min ≈ 90 GitHub-Free
+  minutes (Windows bills 2×) **per release**.
+- **`deploy/cut-release.ps1`** (rendered from `deploy/cut-release.ps1.template` by
+  `new-test-app`) — the identical steps on a developer's machine with a
+  **persistent** local `NUITKA_CACHE_DIR` (warm after the first build), no CI
+  minutes. A fork that adopts it retargets its own `release.yml` to
+  `on: workflow_dispatch:` so the tag push doesn't fire both. Prereqs:
+  `CONTRIBUTING.md`.
 
 **Tag with the `app-v<version>` prefix and push ONLY that tag:**
 
@@ -465,9 +501,10 @@ The prefix is a **tag convention only** — release asset names stay plain
 `<slug>-<ver>.zip` / `.ksupdate`, and the in-app updater reads the version from
 the `.ksupdate` manifest (never the tag), so the prefix is invisible to a client.
 
-The template caches the Nuitka/clcache object cache across runs (keyed on the
-framework version), so an app-only release recompiles only its changed C files
-instead of a cold ~15–20 min build.
+`release.yml` still has a `Cache Nuitka build` step, but see the comment block at
+the top of the template: on GitHub-hosted runs it effectively never hits, because
+the cache is scoped per-ref and no run ever seeds a reusable scope. The local
+`cut-release.ps1` is what actually gives you a warm cache.
 
 ### 10.4 App repo — `upstream-sync.yml` (weekly)
 

@@ -2,6 +2,25 @@
 # in a forked application repo. The FRAMEWORK repo keeps only ci.yml — it never builds,
 # signs, or publishes (a framework release is a git tag; RELEASE_HOWTO.md).
 #
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# COST NOTE — this GitHub-hosted build is EXPENSIVE and its Nuitka cache never warms.
+#   GitHub Actions cache access is scoped per-ref: a cache saved on tag A is unreachable
+#   from tag B (tags have no hierarchy), and the only fallback scope — the default branch —
+#   never gets a Nuitka-cache entry either, because nothing runs the Nuitka build on `main`.
+#   So EVERY tagged release build is cold, unconditionally (and GitHub Free's ~500 MB
+#   combined cache+artifact budget can't hold a full `.nuitka-cache` anyway). A real fork
+#   measured ~45 min on `windows-latest` = 90 of the 2000 free minutes/month PER RELEASE
+#   (Windows bills 2×).
+#
+#   Cost-conscious alternative: `deploy/cut-release.ps1` (rendered from
+#   deploy/cut-release.ps1.template by new-test-app). It runs the SAME steps on a
+#   developer's machine with a PERSISTENT local Nuitka cache and publishes the same
+#   Release + 4 assets. A fork that adopts it MUST retarget the trigger below from
+#   `on: push: tags` to `on: workflow_dispatch:` — otherwise the local script's tag push
+#   ALSO fires this workflow and you pay for both. That retarget is an app-owned edit to
+#   this file; keep whichever trigger matches how the fork actually cuts releases.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+#
 # Tag with the APP-track prefix `app-v<version>` (e.g. app-v1.2.0) and push ONLY that tag:
 #     git tag app-v1.2.0 && git push origin app-v1.2.0
 # NOT `git push --tags` — a fork inherits every framework `v*` tag (v1.0.0 … v1.12.0), and
@@ -56,12 +75,22 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
 
-      - name: Tag must match the APP version (app/<slug>/VERSION)
+      - name: Tag matches the APP version AND is strictly newer than the latest published
         shell: bash
         run: |
           v="$(cat "app/${{ vars.KS_PRODUCT_SLUG }}/VERSION" | tr -d '[:space:]')"
           test "app-v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != app app-v$v"; exit 1; }
-          echo "app version $v (framework $(python -c 'import sys;sys.path.insert(0,"backend");import core;print(core.__version__)'))"
+          # tag==VERSION passes trivially even for a version REGRESSION (a distinct tag string
+          # always satisfies it, and git only rejects an EXACT duplicate). Also demand the new
+          # version be strictly semver-greater than the highest already-published app-v* tag —
+          # matters now that more than one developer may cut releases from possibly-stale checkouts.
+          git fetch --tags origin --quiet || true
+          latest="$(git tag -l 'app-v*' | sed 's/^app-v//' | sort -V | tail -1)"
+          if [ -n "$latest" ] && [ "$latest" != "$v" ]; then
+            newest="$(printf '%s\n%s\n' "$latest" "$v" | sort -V | tail -1)"
+            test "$newest" = "$v" || { echo "app-v$v is not newer than the latest published app-v$latest"; exit 1; }
+          fi
+          echo "app version $v > $( [ -n "$latest" ] && echo "app-v$latest" || echo '(first release)' ) (framework $(python -c 'import sys;sys.path.insert(0,"backend");import core;print(core.__version__)'))"
 
       - name: Install
         shell: bash

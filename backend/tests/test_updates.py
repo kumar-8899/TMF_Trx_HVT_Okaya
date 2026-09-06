@@ -31,12 +31,13 @@ def _manifest(track="framework", version="1.1.0", verified=True, min_abi=1, crit
             "verified": verified}
 
 
-async def _svc(manifest, *, version="1.0.0", abi=-1):
+async def _svc(manifest, *, version="1.0.0", abi=-1, station_mode="online"):
     db = Database(":memory:", station="st1", source_version="0.0.0")
     await db.connect()
     diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
     return UpdateService(db, _FakeLicensing(manifest), diag,
-                         current_version=version, current_abi=abi), db
+                         current_version=version, current_abi=abi,
+                         station_mode=station_mode), db
 
 
 async def test_resolve_newer_framework_is_applicable():
@@ -444,7 +445,7 @@ async def test_install_from_file_stages_offline(tmp_path):
     await db.connect()
     diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
     svc = UpdateService(db, _FakeLicensing(man), diag, current_version="1.9.0",
-                        current_app_version="1.0.0", data_dir=tmp_path)
+                        current_app_version="1.0.0", data_dir=tmp_path, station_mode="air_gapped")
 
     rec = await svc.install_from_file(str(ks_path), str(zip_path))
     assert rec["status"] == "downloaded" and rec["source"] == "file"
@@ -463,15 +464,82 @@ async def test_install_from_file_hash_mismatch_raises(tmp_path):
     await db.connect()
     diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
     svc = UpdateService(db, _FakeLicensing(man), diag, current_version="1.0.0",
-                        current_app_version="1.0.0", data_dir=tmp_path)
+                        current_app_version="1.0.0", data_dir=tmp_path, station_mode="air_gapped")
     with pytest.raises(RuntimeError):
         await svc.install_from_file(str(Path(tmp_path) / "a.ksupdate"), str(Path(tmp_path) / "a.zip"))
     await db.close()
 
 
 async def test_install_from_file_missing_paths_raise(tmp_path):
-    svc, db = await _svc(_manifest())
+    svc, db = await _svc(_manifest(), station_mode="air_gapped")
     svc._data_dir = tmp_path
     with pytest.raises(FileNotFoundError):
         await svc.install_from_file(str(tmp_path / "nope.ksupdate"), str(tmp_path / "nope.zip"))
+    await db.close()
+
+
+# --- station_mode: restrict a station to exactly one update channel -------------
+
+async def test_station_mode_defaults_to_online_and_stays_permissive():
+    svc, db = await _svc(_manifest())
+    assert svc.station_mode == "online"
+    svc._require_online()                        # no raise
+    from core.services.updates import StationModeBlocked
+    with pytest.raises(StationModeBlocked):
+        svc._require_air_gapped()               # install-file is the one blocked online
+    await db.close()
+
+
+async def test_air_gapped_station_refuses_online_check_and_download(monkeypatch):
+    from core.services.updates import StationModeBlocked
+    svc, db = await _svc(_manifest(version="1.2.0"), station_mode="air_gapped")
+    # even with a reachable "GitHub", the source gate trips first — no network call is made
+    monkeypatch.setattr(UpdateService, "_gh_release",
+                        staticmethod(lambda *a, **k: (_ for _ in ()).throw(AssertionError("network hit"))))
+    with pytest.raises(StationModeBlocked):
+        await svc.check("owner/repo")
+    with pytest.raises(StationModeBlocked):
+        await svc.download("owner/repo")
+    await db.close()
+
+
+async def test_online_station_refuses_install_from_file(tmp_path):
+    from core.services.updates import StationModeBlocked
+    (tmp_path / "a.zip").write_bytes(b"z")
+    (tmp_path / "a.ksupdate").write_text("m", encoding="utf-8")
+    svc, db = await _svc(_manifest(track="app", version="1.2.0"), station_mode="online")
+    svc._data_dir = tmp_path
+    with pytest.raises(StationModeBlocked):
+        await svc.install_from_file(str(tmp_path / "a.ksupdate"), str(tmp_path / "a.zip"))
+    await db.close()
+
+
+async def test_air_gapped_station_allows_install_from_file(tmp_path):
+    import hashlib
+    import io
+    import zipfile
+    from pathlib import Path
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("run.exe", "BINARY")
+    zdata = buf.getvalue()
+    man = _manifest(track="app", version="1.2.0")
+    man["full_artifact_hash"] = hashlib.sha256(zdata).hexdigest()
+    (tmp_path / "a.zip").write_bytes(zdata)
+    (tmp_path / "a.ksupdate").write_text("signed", encoding="utf-8")
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(man), diag, current_version="1.9.0",
+                        current_app_version="1.0.0", data_dir=tmp_path, station_mode="air_gapped")
+    rec = await svc.install_from_file(str(tmp_path / "a.ksupdate"), str(tmp_path / "a.zip"))
+    assert rec["status"] == "downloaded"
+    assert (Path(rec["staged_dir"]) / "run.exe").read_text() == "BINARY"
+    await db.close()
+
+
+async def test_unknown_station_mode_falls_back_to_online():
+    svc, db = await _svc(_manifest(), station_mode="weird")
+    assert svc.station_mode == "online"
     await db.close()

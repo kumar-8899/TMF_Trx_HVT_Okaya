@@ -1,0 +1,83 @@
+# Contributing to <App Name>
+
+`new-test-app` copies this to the fork root and fills `<App Name>` / `<slug>`. It is the
+one-page onboarding doc for a developer working on this application.
+
+## What is app-owned vs framework-owned
+
+This repo is a **fork of the Super_Test_App framework** (`docs/TEMPLATE.md` §1 is the
+authoritative boundary). You own:
+
+- `app/<slug>/` — step-type packages, variable maps, recipes, `controller.json`, `VERSION`
+- `backend/modules/<slug>_*/` — app-specific modules
+- `instrument_libs/` — drivers copied from the central `Instrument_Library`
+- `frontend/src/app/overrides/` — screen overrides
+- `labview/App/` and the live config (`backend/config/*.json`)
+- **this repo's own** `.github/workflows/release.yml` and `deploy/cut-release.ps1`
+
+Everything else is framework code. A change you need there goes upstream and comes back as a
+framework release you `git merge` — never a downstream patch (it makes the next merge worse).
+
+## Local setup
+
+```pwsh
+# backend
+cd backend
+python -m pip install -e ".[dev]"        # or ".[dev,release]" to also cut releases (below)
+pytest -q
+cd ..
+# frontend
+cd frontend
+npm install
+npx vitest run
+npm run build                            # this is the type check
+cd ..
+# run the whole stack
+powershell -ExecutionPolicy Bypass -File .\dev.ps1
+```
+
+Dev login `admin` / `admin`. Live config is gitignored — copy from the `*.example.json` on
+first run.
+
+## Cutting a release
+
+Two supported paths — pick one and keep `.github/workflows/release.yml`'s trigger matching it:
+
+| Path | Trigger | Cost | When |
+|---|---|---|---|
+| **GitHub-hosted** (`release.yml`) | `on: push: tags: ["app-v*"]` | ~45 min / ~90 Free minutes **per release** (Windows bills 2×), and the Nuitka cache never warms — see the note atop `release.yml` | paid plan, or no local Windows toolchain |
+| **Local** (`deploy/cut-release.ps1`) | `on: workflow_dispatch:` (retarget `release.yml` so the tag push doesn't fire both) | one warm local Nuitka cache; no CI minutes | GitHub Free, cost-conscious |
+
+Both produce the same GitHub Release with the same four assets
+(`<slug>-<ver>.ksupdate`, `<slug>-<ver>.zip`, `run_station.exe`, `<AppShort>-Setup-<ver>.exe`),
+so the in-app updater and first-install docs are identical.
+
+### Prerequisites for the local script
+
+- **Python 3.11 or 3.12** + `pip install -e "backend[dev,release]"` (pulls Nuitka, zstandard, pywebview)
+- **Node / npm** (frontend build)
+- **Inno Setup 6** — `winget install JRSoftware.InnoSetup` (for `setup.exe`)
+- **`gh` CLI** authenticated with `contents:write` on `origin`
+- A C toolchain Nuitka can use — **MSVC Build Tools** ("Desktop development with C++") is the
+  tested one; without it `run_station.exe` / `setup.exe` may fail to build (the script is
+  fail-soft and still publishes the two update assets)
+- *(optional, trusted signing)* `KS_INTERMEDIATE_SEED` / `KS_INTERMEDIATE_CERT` in the
+  environment — without them the `.ksupdate` is dev-signed and installs only where
+  `updates.allow_unverified: true`
+
+### Steps
+
+```pwsh
+# 1. bump app/<slug>/VERSION (independent semver) and add a CHANGELOG.md section
+# 2. run it (slug is baked in as the default):
+.\deploy\cut-release.ps1
+#    -DryRun        stop before any push / tag / gh release
+#    -SkipTests     resume after a mid-pipeline failure (tag already pushed)
+#    -CacheDir <p>  override the persistent Nuitka cache (default %LOCALAPPDATA%\tmf-nuitka-cache)
+```
+
+The script guards that `VERSION` is strictly newer than the latest published `app-v*` tag,
+runs the tests, then **pushes the `app-v<version>` tag before the build** so a second
+developer racing the same version is rejected by git in seconds, not after a 45-minute build.
+
+See `docs/DEPLOY_STATION.md` §2 for the full release + client-update picture.

@@ -92,6 +92,26 @@ and installs a real interpreter), installs Mosquitto (:1883), `pip install pyweb
 
 ## 2. Cutting a release (dev side)
 
+Two equivalent paths — they publish the **same** GitHub Release with the **same four assets**, so
+nothing downstream (the in-app updater, first-install) cares which you use:
+
+### 2a. Local — `deploy/cut-release.ps1` (cost-conscious, recommended on GitHub Free)
+
+```powershell
+# bump app/<slug>/VERSION + CHANGELOG.md first, then:
+.\deploy\cut-release.ps1            # -Slug baked in by new-test-app; -DryRun / -SkipTests / -CacheDir
+```
+Runs every `release.yml` step on your machine with a **persistent** `NUITKA_CACHE_DIR`
+(default `%LOCALAPPDATA%\tmf-nuitka-cache`; warm after the first build) — no CI minutes. It guards
+that `VERSION` is **strictly newer** than the latest published `app-v*` tag, runs the tests, then
+pushes the `app-v<ver>` tag **before** the build so a racing developer is rejected by git in
+seconds, not after ~45 min. Prereqs (Python + `backend[dev,release]`, Node, Inno Setup 6, `gh`,
+ideally MSVC Build Tools): `CONTRIBUTING.md`. If you use this, retarget the fork's own
+`.github/workflows/release.yml` to `on: workflow_dispatch:` so the tag push doesn't also fire the
+hosted build.
+
+### 2b. GitHub-hosted — `release.yml` on the tag
+
 1. Bump the app's `app/<slug>/VERSION` (independent semver) and update `CHANGELOG.md`.
 2. Commit, then tag with the `app-v` prefix and push **only that tag**:
    ```bash
@@ -103,14 +123,16 @@ and installs a real interpreter), installs Mosquitto (:1883), `pip install pyweb
    framework tags and fire the workflow once per tag. Push the single `app-v<ver>` tag only
    (UPDATES.md §10.3).
 3. The app repo's `.github/workflows/release.yml` (scaffolded by `new-test-app` from
-   `docs/templates/release.yml`) runs on the `app-v*` tag: it guards tag==VERSION, tests, vendors
-   Mosquitto, builds `build_release.py --track app --product <slug>` (backend `run.exe` + frozen
-   `run_station.exe`), signs a `.ksupdate`, builds the offline `setup.exe`, and publishes the Release
-   with **four assets**:
+   `docs/templates/release.yml`) runs on the `app-v*` tag: it guards tag==VERSION **and
+   strictly-newer-than-latest**, tests, vendors Mosquitto, builds `build_release.py --track app
+   --product <slug>` (backend `run.exe` + frozen `run_station.exe`), signs a `.ksupdate`, builds the
+   offline `setup.exe`, and publishes the Release with **four assets**:
    - `<slug>-<ver>.zip` — the app (run.dist) the in-app updater verifies + swaps;
    - `<slug>-<ver>.ksupdate` — the signed trust envelope;
    - `run_station.exe` — the frozen windowed launcher (no Python on the client);
    - `<AppShort>-Setup-<ver>.exe` — the **offline first-install** installer.
+   **Cost:** ~45 min ≈ 90 GitHub-Free minutes per release, and the Nuitka cache never warms across
+   runs (cache is ref-scoped — see the note atop the template). Prefer 2a on a Free plan.
 
 The `.zip` is a **complete** app: the UI, the in-app help, the app definition, the drivers, and the
 vendored broker all ride inside `run.dist`, so an update refreshes everything (including your
@@ -129,6 +151,12 @@ the new version. If a new build fails to come up, it auto-reverts to the last-kn
 untouched throughout.
 
 ### Air-gapped benches (no internet at the station)
+
+Set **`updates.station_mode: "air_gapped"`** in that station's `app.json` (default is `"online"`).
+It disables `/update/check` + `/update/download` (they'd just fail against GitHub anyway) and makes
+**Install from file** the only in-app path — the Updates page hides the online half with an
+explanation. A networked station keeps the default `"online"`, which conversely refuses
+`install-file`. It's a **source** lock, independent of `allow_unverified` (trust). See UPDATES.md §9.
 
 The online **Check/Download** talks to GitHub, so it can't run offline. Two ways to update instead —
 both preserve config + data exactly like the online path:

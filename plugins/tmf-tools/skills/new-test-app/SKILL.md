@@ -90,22 +90,37 @@ toggle on the Instruments page.)
 - In `app.json`, set the `updates` block: `github_repo` = the app's OWN repo (`<owner>/<repo>`, the
   `origin` you wired), `github_token` `""` (the client supplies a read token via the
   `TMF_UPDATE_TOKEN` env var — never commit it), `channel` `"stable"`, `allow_unverified` `true`
-  (installs dev/unsigned releases as UNTRUSTED pre-Keystation; set `false` once Keystation signs).
-- Scaffold the release pipeline: copy `docs/templates/release.yml` → `.github/workflows/release.yml`
-  and set the repo variable `KS_PRODUCT_SLUG` = `<name>`. On an **`app-v*`** tag it builds
-  `--track app` (backend `run.exe` + frozen `run_station.exe` + vendored Mosquitto), signs a
-  `.ksupdate` (dev-signed/untrusted without Keystation secrets), builds the offline `setup.exe`, and
-  publishes the Release's **four** assets: `<name>-<ver>.zip`, `.ksupdate`, `run_station.exe`, and
-  `<AppShort>-Setup-<ver>.exe`.
+  (installs dev/unsigned releases as UNTRUSTED pre-Keystation; set `false` once Keystation signs),
+  and `station_mode` — `"online"` (default; GitHub check/download) or `"air_gapped"` (USB
+  install-file only). Set it explicitly per deployment; the app's own `app.release.json` should
+  carry the value each client type actually uses.
+- **Choose a release path** (both publish the same GitHub Release + four assets — the in-app
+  updater and first-install docs don't care which):
+  - **GitHub-hosted** — copy `docs/templates/release.yml` → `.github/workflows/release.yml`,
+    set repo var `KS_PRODUCT_SLUG` = `<name>`. Fires on an **`app-v*`** tag: builds `--track app`
+    (backend `run.exe` + frozen `run_station.exe` + vendored Mosquitto), signs a `.ksupdate`
+    (dev-signed/untrusted without Keystation secrets), builds the offline `setup.exe`, publishes
+    `<name>-<ver>.zip`, `.ksupdate`, `run_station.exe`, `<AppShort>-Setup-<ver>.exe`. Simple, but
+    ~45 min / ~90 GitHub-Free minutes **per release** and its Nuitka cache never warms (see the
+    note atop the template).
+  - **Local (cost-conscious)** — render `deploy/cut-release.ps1.template` → `deploy/cut-release.ps1`
+    (substitute `@@APP_SLUG@@` = `<name>`). Same steps on the developer's machine with a persistent
+    local Nuitka cache; no CI minutes. **If you pick this, also retarget the fork's
+    `.github/workflows/release.yml` from `on: push: tags: ["app-v*"]` to `on: workflow_dispatch:`**
+    so the local script's tag push doesn't also fire the hosted build.
+  - Scaffold **both** regardless (harmless — the trigger in `release.yml` decides which is live).
+- Scaffold `CONTRIBUTING.md.template` → `CONTRIBUTING.md` (fill `<App Name>` / `<slug>`): local
+  release prerequisites + the app/framework ownership boundary in one onboarding page.
 - Scaffold the **offline installer**: the fork inherits `deploy/installer.iss.template` +
   `deploy/build-installer.ps1` (render + compile the Inno setup.exe) and `deploy/vendor/mosquitto/`
   (the vendored broker; if absent run `deploy/fetch-mosquitto.ps1`). No edits needed — both are
   parameterized from `app.json` branding + `app/<name>/VERSION`.
 - Cut a release by tagging `app-v<ver>` and pushing **only that tag**
-  (`git tag app-v1.0.0 && git push origin app-v1.0.0`) — NOT `git push --tags`. A fork inherits every
-  framework `v*` tag, so the app's own version line collides with them and `--tags` would fire the
-  workflow once per inherited tag; the `app-v` prefix scopes the trigger and keeps the lines apart.
-  The prefix is tag-only — asset names + the updater's manifest version are unaffected.
+  (`git tag app-v1.0.0 && git push origin app-v1.0.0`, or let `cut-release.ps1` do it) — NOT
+  `git push --tags`. A fork inherits every framework `v*` tag, so the app's own version line
+  collides with them and `--tags` would fire the workflow once per inherited tag; the `app-v`
+  prefix scopes the trigger and keeps the lines apart. The prefix is tag-only — asset names + the
+  updater's manifest version are unaffected.
 - **First install** on a client is the offline `setup.exe` (double-click → fullscreen; no Python, no
   pip, no broker service — the only post-install task is configuring instruments in-app). Every later
   version arrives via the in-app updater (online or from USB for air-gapped benches).

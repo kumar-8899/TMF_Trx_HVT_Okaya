@@ -65,7 +65,12 @@
         "github_repo": { "type": "string", "description": "owner/repo whose latest app-track Release carries the .ksupdate + artifact .zip assets." },
         "github_token": { "type": "string", "description": "Read token for a private repo. PREFER the TMF_UPDATE_TOKEN env var per-client; never commit a token here." },
         "channel": { "enum": ["stable", "beta"], "description": "stable = /releases/latest; beta = newest release incl. prereleases. Default stable." },
-        "allow_unverified": { "type": "boolean", "description": "Install UNSIGNED/dev releases (shown UNTRUSTED) pre-Keystation. Default false — a Keystation deployment only installs a verified manifest." }
+        "allow_unverified": { "type": "boolean", "description": "Install UNSIGNED/dev releases (shown UNTRUSTED) pre-Keystation. Default false — a Keystation deployment only installs a verified manifest." },
+        "station_mode": {
+          "enum": ["online", "air_gapped"],
+          "default": "online",
+          "description": "online (default): /update/check and /update/download reachable, /update/install-file refused. air_gapped: the reverse. Independent of allow_unverified (that's a trust concern; this is a source concern). Set it explicitly per deployment (DEPLOY_STATION.md)."
+        }
       }
     },
     "debug": {

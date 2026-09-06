@@ -5,6 +5,35 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.17.0 — 2026-09-06
+
+Two independent capabilities, both from real pain cutting fork releases on GitHub Free. MINOR
+(additive; existing deployments unchanged).
+
+- **Generic local release-cutting script — `deploy/cut-release.ps1.template`.** GitHub Actions
+  cache is scoped per-ref: a `.nuitka-cache` saved on one `app-v*` tag is unreachable from the
+  next, and nothing runs the Nuitka build on the default branch to seed the fallback scope — so
+  **every** templated `release.yml` build is cold, ~45 min ≈ 90 GitHub-Free minutes per release
+  (Windows bills 2×). The new script runs the identical steps (version guard → tests → vendor
+  Mosquitto → Nuitka → sign `.ksupdate` → WebView2 + `setup.exe` → `gh release create` with the
+  same four assets) on a developer's machine with a **persistent** `NUITKA_CACHE_DIR`, warm after
+  the first build. `new-test-app` renders it per-fork (`@@APP_SLUG@@`) alongside — not replacing —
+  `release.yml`; a fork that adopts it retargets its own `release.yml` to `on: workflow_dispatch:`.
+  It also **pushes the `app-v<ver>` tag before the build** as a race lock, and both it and
+  `release.yml`'s guard now reject a version that isn't strictly semver-greater than the latest
+  published `app-v*` tag (the old `tag == VERSION` check passed even for a regression). New
+  `CONTRIBUTING.md.template` documents the local toolchain + the app/framework boundary. Comment
+  block atop `docs/templates/release.yml` explains the cache limitation and points at the script.
+- **`updates.station_mode` — restrict a station to one update source.** `DEPLOY_STATION.md`
+  describes two update paths (online check/download vs. USB `install-file`) but nothing enforced
+  the split. New `updates.station_mode` enum in `app.schema.json`: `"online"` (default) →
+  `/update/check` + `/update/download` reachable, `/update/install-file` → **409**; `"air_gapped"`
+  → the reverse. New `StationModeBlocked` exception (sibling of `AmcRequired`), raised by
+  `UpdateService.check/download/install_from_file`, mapped to HTTP 409 in `core/app.py`.
+  `GET /update/offers` now returns `station_mode`; the Updates page hides the disallowed half with
+  an explanation. Default `"online"` = zero migration. Independent of `allow_unverified` (that's
+  trust; this is source).
+
 ## v1.16.3 — 2026-09-06
 
 Both bugs reproduced live end-to-end against a real installed frozen station (`okaya_transformer`,

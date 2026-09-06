@@ -29,6 +29,11 @@ deploy/vendor/
 # Installer build artifacts — rendered .iss + compiled setup.exe (deploy/build-installer.ps1)
 deploy/installer.iss
 deploy/Output/
+release-notes.md
+
+# Local release script — the framework ships only the .template; new-test-app renders the
+# .ps1 into a fork (app-owned there). It must never be committed to the framework repo.
+deploy/cut-release.ps1
 
 # OS / editor
 .DS_Store

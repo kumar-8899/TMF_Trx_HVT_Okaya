@@ -47,6 +47,12 @@ own — **Check**, then **Download**, then **Install**, then **Relaunch**. The l
 swaps the new version in on the next start and automatically rolls back to the last
 known good build if the new one won't boot.
 
+This station is set to one update source (`updates.station_mode` in its config):
+**online** stations show **Check for application updates**; **air-gapped** stations
+hide that and show only **Install from file** (copy the release's `.ksupdate` +
+`.zip` to USB). The other half is shown disabled with a one-line reason — that is
+expected, not a fault.
+
 - **"The last relaunch could not apply …"** — a red banner means the swap failed and
   the **previous version is still running**. Press **Relaunch** on the offer to try
   again; it usually clears on the second try. If it keeps failing, roll back to a

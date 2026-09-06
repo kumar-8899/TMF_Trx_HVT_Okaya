@@ -172,8 +172,10 @@ def create_app(
         app.state.updates = UpdateService(db, licensing, diag, current_version=__version__,
                                           current_app_version=app_version(),
                                           data_dir=DEFAULT_DB_PATH.parent,
-                                          allow_unverified=bool(_updates_cfg.get("allow_unverified")))
-        app.state.update_source = _updates_cfg   # {github_repo, github_token?, channel?, allow_unverified?}
+                                          allow_unverified=bool(_updates_cfg.get("allow_unverified")),
+                                          station_mode=_updates_cfg.get("station_mode", "online"))
+        # {github_repo, github_token?, channel?, allow_unverified?, station_mode?}
+        app.state.update_source = _updates_cfg
         discover()
         result: ActivationResult = await activate_modules(
             core=core,
@@ -554,7 +556,8 @@ def create_app(
     async def update_offers() -> dict:
         return {"current": app.state.updates.current(),
                 "offers": await app.state.updates.list_offers(),
-                "source": app.state.update_source.get("github_repo")}
+                "source": app.state.update_source.get("github_repo"),
+                "station_mode": app.state.update_source.get("station_mode", "online")}
 
     def _update_repo_token() -> tuple[str, str | None, str]:
         src = app.state.update_source
@@ -567,16 +570,22 @@ def create_app(
     @app.post("/update/check", dependencies=_LIC)
     async def update_check() -> dict:
         """Discovery — NOTIFY ONLY. Polls GitHub, downloads nothing (UPDATES.md item 5)."""
+        from core.services.updates import StationModeBlocked
         repo, token, channel = _update_repo_token()
-        return await app.state.updates.check(repo, token, channel=channel)
+        try:
+            return await app.state.updates.check(repo, token, channel=channel)
+        except StationModeBlocked as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/update/download", dependencies=_LIC)
     async def update_download() -> dict:
         """Fetch the latest .ksupdate, verify + offer (item 6). Idempotent on bundle hash."""
-        from core.services.updates import AmcRequired
+        from core.services.updates import AmcRequired, StationModeBlocked
         repo, token, channel = _update_repo_token()
         try:
             return await app.state.updates.download(repo, token, channel=channel)
+        except StationModeBlocked as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except AmcRequired as exc:
             raise HTTPException(status_code=402, detail=str(exc)) from exc   # UPDATES.md §8.5
         except Exception as exc:  # noqa: BLE001 — network / no-release / verify failure
@@ -587,13 +596,15 @@ def create_app(
         """Air-gapped USB install (UPDATES.md §E-bis): stage an update from LOCAL `.ksupdate`
         + `.zip` paths through the SAME verify/stage pipeline as the online download. Returns
         the staged offer; the operator then Installs + Relaunches it from the offers table."""
-        from core.services.updates import AmcRequired
+        from core.services.updates import AmcRequired, StationModeBlocked
         ks = (body or {}).get("ksupdate_path", "")
         zp = (body or {}).get("zip_path", "")
         if not ks or not zp:
             raise HTTPException(status_code=422, detail="ksupdate_path and zip_path required")
         try:
             return await app.state.updates.install_from_file(ks, zp)
+        except StationModeBlocked as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except AmcRequired as exc:
             raise HTTPException(status_code=402, detail=str(exc)) from exc
         except FileNotFoundError as exc:

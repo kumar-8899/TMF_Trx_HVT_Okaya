@@ -41,4 +41,30 @@ describe("UpdatesConfig", () => {
     fireEvent.click(btn());
     await waitFor(() => expect(screen.getByText(/up to date/)).toBeInTheDocument());
   });
+
+  it("online (default): shows Check, hides the Install-from-file inputs", async () => {
+    mockFetch({
+      "GET /update/offers": {
+        body: { current: { version: "1.16.0" }, offers: [], source: "owner/repo" },   // no station_mode → online
+      },
+      "GET /update/status": { body: { backups: [], last_known_good: null } },
+    });
+    render(<UpdatesConfig />);
+    await waitFor(() => expect(screen.getByText("Check for application updates")).toBeInTheDocument());
+    expect(screen.queryByLabelText(".ksupdate path")).not.toBeInTheDocument();
+    expect(screen.getByText(/install-from-file is disabled/)).toBeInTheDocument();
+  });
+
+  it("air_gapped: hides Check, shows the Install-from-file inputs", async () => {
+    mockFetch({
+      "GET /update/offers": {
+        body: { current: { version: "1.16.0" }, offers: [], source: "owner/repo", station_mode: "air_gapped" },
+      },
+      "GET /update/status": { body: { backups: [], last_known_good: null } },
+    });
+    render(<UpdatesConfig />);
+    await waitFor(() => expect(screen.getByLabelText(".ksupdate path")).toBeInTheDocument());
+    expect(screen.queryByText("Check for application updates")).not.toBeInTheDocument();
+    expect(screen.getByText(/Online check .* download is disabled/)).toBeInTheDocument();
+  });
 });
