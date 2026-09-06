@@ -175,6 +175,63 @@ async def test_check_none_when_no_asset(monkeypatch):
     await db.close()
 
 
+def _gh_tag(tag: str):
+    return {"tag_name": tag, "published_at": "t0", "body": "notes", "prerelease": False,
+            "assets": [{"name": "app-x.ksupdate", "url": "http://x/api",
+                       "browser_download_url": "http://x/dl", "size": 42}]}
+
+
+async def test_check_no_offer_when_latest_release_is_the_current_version(monkeypatch):
+    """The bug: a station on app v1.0.2 checking a repo whose latest release is ALSO app-v1.0.2
+    must NOT show "Update available" — check() must compare versions, not just "does an asset exist"."""
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(_manifest()), diag,
+                        current_version="1.14.0", current_app_version="1.0.2")
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh_tag("app-v1.0.2")))
+    r = await svc.check("owner/repo")
+    assert r["available"] is None
+    await db.close()
+
+
+async def test_check_no_offer_when_latest_release_is_older(monkeypatch):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(_manifest()), diag,
+                        current_version="1.14.0", current_app_version="1.0.2")
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh_tag("app-v1.0.1")))
+    r = await svc.check("owner/repo")
+    assert r["available"] is None
+    await db.close()
+
+
+async def test_check_offers_when_latest_release_is_genuinely_newer(monkeypatch):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(_manifest()), diag,
+                        current_version="1.14.0", current_app_version="1.0.2")
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh_tag("app-v1.0.3")))
+    r = await svc.check("owner/repo")
+    assert r["available"] is not None and r["available"]["tag"] == "app-v1.0.3"
+    await db.close()
+
+
+async def test_check_falls_back_to_framework_version_with_no_app_track(monkeypatch):
+    """Framework-track station (no app payload): baseline is current_version, plain 'v' tag prefix."""
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    svc = UpdateService(db, _FakeLicensing(_manifest()), diag, current_version="1.16.1")
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh_tag("v1.16.1")))
+    assert (await svc.check("owner/repo"))["available"] is None
+    monkeypatch.setattr(UpdateService, "_gh_release", staticmethod(lambda *a, **k: _gh_tag("v1.17.0")))
+    assert (await svc.check("owner/repo"))["available"] is not None
+    await db.close()
+
+
 class _CountLic:
     def __init__(self, manifest):
         self._m = manifest

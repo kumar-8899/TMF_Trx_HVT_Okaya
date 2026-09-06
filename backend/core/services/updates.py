@@ -47,6 +47,16 @@ def _semver(v: str | None) -> tuple:
         return (0, 0, 0)
 
 
+def _tag_version(tag: str | None) -> str | None:
+    """A GitHub release tag IS the version, modulo the `app-v`/`v` prefix (UPDATES.md §10.3)."""
+    if not tag:
+        return None
+    for prefix in ("app-v", "v"):
+        if tag.startswith(prefix):
+            return tag[len(prefix):]
+    return tag
+
+
 class UpdateService:
     """Depends on `core.db` (offer records) + `core.licensing` (verify) +
     `core.diag`. `current_version` is the running framework version (core.__version__);
@@ -159,9 +169,20 @@ class UpdateService:
         asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".ksupdate")), None)
         available = None
         if asset is not None:
-            available = {"tag": rel.get("tag_name"), "published_at": rel.get("published_at"),
-                         "notes": rel.get("body"), "asset_name": asset["name"],
-                         "asset_bytes": asset.get("size"), "prerelease": rel.get("prerelease")}
+            # Gate discovery on version too — an asset existing on the latest release says nothing
+            # about whether that release is actually NEWER than what's installed (a repod's own
+            # current release always carries a .ksupdate). Cheap: the tag_name IS the version,
+            # no manifest fetch needed. Mirrors resolve()'s baseline; an app-track station's own
+            # repo only ever carries its own app-track releases, so there's no track ambiguity here.
+            baseline = self._app_version or self._version
+            offered = _tag_version(rel.get("tag_name"))
+            if _semver(offered) > _semver(baseline):
+                available = {"tag": rel.get("tag_name"), "published_at": rel.get("published_at"),
+                             "notes": rel.get("body"), "asset_name": asset["name"],
+                             "asset_bytes": asset.get("size"), "prerelease": rel.get("prerelease")}
+            else:
+                self._diag.info("updates", "update check: already current",
+                                offered=offered, baseline=baseline)
         self._diag.info("updates", "update check", repo=repo, available=bool(available))
         return {"checked_at": time.time(), "current": self.current(), "available": available}
 

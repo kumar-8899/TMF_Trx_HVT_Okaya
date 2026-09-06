@@ -5,6 +5,41 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.16.2 — 2026-09-06
+
+Two bugs found running the update pipeline for real against a live GitHub Releases repo. PATCH.
+
+- **`UpdateService.check()` never compared versions — "Update available" fired for the CURRENT
+  version too.** Reproduced live: a station on app v1.0.2, checking a repo whose latest release
+  was ALSO app-v1.0.2, showed "Update available: app-v1.0.2" for the exact version already
+  installed. `check()` only asked "does the latest release have a `.ksupdate` asset" — the real
+  applicability gate (`resolve()`'s `_semver()` comparison) only ran later, at `download()`/
+  `ingest()` time, AFTER the misleading banner had already shown. Fixed: `check()` now compares
+  the release tag's version (stripping the `app-v`/`v` prefix) against the installed baseline —
+  same baseline `resolve()` uses — before ever calling it "available." Every station's Updates
+  page had been showing false positives for anyone actually current. 4 new tests, including the
+  exact reported scenario (tag equals installed version → no offer).
+- **`_WEBVIEW_NOFOLLOW` excluding `webview.platforms.win32` is NOT stable across Nuitka/pywebview
+  version combinations.** v1.15.1 added `win32` to fix a real conflict on one machine; excluding
+  it broke the build on another (confirmed empirically, in OPPOSITE directions, on two real
+  Windows boxes running the very same Nuitka 4.1.3 — the difference is elsewhere in the toolchain,
+  not something a static list can track). A hardcoded list can only ever be tuned for the machine
+  it was tested against. Fixed properly instead of flip-flopping the list again: `build_run_station_exe()`
+  now retries adaptively — start with the four submodules that are non-Windows on every version
+  (`android`/`cocoa`/`gtk`/`qt`), and if Nuitka's own FATAL line names one more (e.g. `win32`),
+  add exactly that name and try again, up to a few rounds. This is the CI check the original ask
+  wanted ("attempts the Nuitka compile, not just static review of the flag list") — release.yml's
+  existing real build IS that check, now self-correcting instead of needing a human to re-tune the
+  list every time a fork's toolchain disagrees with the last one. Verified live end-to-end on this
+  machine: round 1 hits the win32 conflict, round 2 (win32 added) compiles clean, smoke-tests OK.
+- **Found while re-verifying the above: the runtime smoke test itself had a false-positive bug.**
+  `_verify_run_station_exe`'s `/healthz` probe didn't check WHO was answering — a stray station a
+  dev already had running on :8000 answered the probe instead of the freshly-built (and, in this
+  reproduction, non-booting — no `run.dist` present) exe, and the smoke test reported "verified"
+  regardless. Fixed: refuse to run the check at all if anything already answers `/healthz` before
+  the exe is even spawned. 2 new tests cover both branches (occupied port aborts without spawning;
+  free port proceeds to spawn).
+
 ## v1.16.1 — 2026-09-06
 
 - **"Manage users" added to the account dropdown** (top-right avatar menu), alongside Log out —

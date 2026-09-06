@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -274,20 +275,31 @@ def copy_vendor_broker() -> None:
     print(f"vendored broker: deploy/vendor/mosquitto/win64 -> run.dist/vendor/mosquitto/win64 ({n} files)")
 
 
-# pywebview.platforms submodules Nuitka's OWN pywebview plugin (PywebViewPlugin.onModuleEncounter)
-# has already decided NOT to include on Windows. Force-including the whole `webview` package (needed
-# because pywebview's real backend, e.g. winforms, is chosen by a runtime OS check the plugin
-# handles, not a static import Nuitka would otherwise follow) pulls these back in and collides with
-# the plugin's own decision: `FATAL: Conflict between user and plugin decision for module
-# 'webview.platforms.<name>'`. On Windows the plugin allows ONLY winforms / edgechromium / edgehtml /
-# mshtml / cef — everything else under `webview.platforms.*` must be excluded here to match it.
-# Verified against pywebview 6.2.1 (`python -c "import webview.platforms as p, pkgutil;
-# print([m.name for m in pkgutil.iter_modules(p.__path__)])"` → 9 submodules; 5 non-Windows/legacy
-# ones below are NOT on the plugin's allow-list). If a future pywebview adds a new platforms/*.py and
-# this list goes stale, the SAME "Conflict…" FATAL names the new module — add it here.
-_WEBVIEW_NOFOLLOW = ",".join(
-    f"webview.platforms.{p}" for p in ("android", "cocoa", "gtk", "qt", "win32")
+# pywebview.platforms submodules that are UNCONDITIONALLY non-Windows — Nuitka's own pywebview
+# plugin (PywebViewPlugin.onModuleEncounter) never allows these on a Windows build, on any Nuitka
+# or pywebview version. Force-including the whole `webview` package (needed because pywebview's
+# real backend, e.g. winforms, is chosen by a runtime OS check the plugin handles, not a static
+# import Nuitka would otherwise follow) pulls these back in and collides with the plugin's own
+# decision: `FATAL: Conflict between user and plugin decision for module 'webview.platforms.<name>'`.
+_WEBVIEW_NOFOLLOW_ALWAYS = ("android", "cocoa", "gtk", "qt")
+
+# Beyond the always-non-Windows four, whether a Windows-relevant submodule (e.g. `win32`, a shared
+# helper edgechromium/mshtml may or may not pull in) needs excluding too is NOT stable across
+# Nuitka/pywebview version combinations — confirmed by direct, empirical, contradicting evidence
+# on two real machines: excluding it was REQUIRED on one Nuitka 4.1.3 + pywebview 6.2.1 install and
+# BROKE the build on another. A static list can only ever be right for the version it was tuned
+# against. So don't guess: retry adaptively, expanding the exclude set from Nuitka's OWN FATAL line
+# (a stable, public-facing message) until it stops naming a new submodule, instead of hardcoding one.
+_NUITKA_WEBVIEW_CONFLICT_RE = re.compile(
+    r"Conflict between user and plugin decision for module 'webview\.platforms\.(\w+)'"
 )
+
+
+def _nuitka_webview_conflict(output: str) -> str | None:
+    """The bare submodule name (e.g. "win32") Nuitka's FATAL line names, or None if `output`
+    doesn't show this failure mode (a different error — don't retry those, just fail)."""
+    m = _NUITKA_WEBVIEW_CONFLICT_RE.search(output)
+    return m.group(1) if m else None
 
 
 def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
@@ -296,8 +308,22 @@ def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
     the zig/clang C backend — can produce an exe that COMPILES but never boots (the old controller.exe
     'Failed to import encodings' failure mode, same class of bug). A failure here does not abort the
     release (see build_run_station_exe) — the caller downgrades the windowed launcher to "missing",
-    same as a compile failure, rather than ship a launcher nobody can start."""
+    same as a compile failure, rather than ship a launcher nobody can start.
+
+    `/healthz` answering 200 is only meaningful if it's OUR spawned process answering — refuse to
+    "verify" against a stray process a dev already has bound to :8000 (silently proved a false pass:
+    the exe had no run.dist, exited in <1s with rc=1, and an unrelated already-running station on
+    :8000 answered the probe instead — "verified" a build that never actually booted)."""
     import urllib.request
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=2) as r:
+            if r.status < 500:
+                print("run_station.exe smoke test: ABORTED — something is already answering "
+                      "http://127.0.0.1:8000/healthz (a stray station already running?). Free port "
+                      "8000 and rebuild; a probe against an occupied port can't verify THIS exe.")
+                return False
+    except OSError:
+        pass   # good: the port is free, so a later 200 can only be from the process we spawn below
     exe = station_root / "run_station.exe"
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     proc = subprocess.Popen([str(exe), "--no-window"], cwd=str(station_root), creationflags=flags)
@@ -360,30 +386,56 @@ def build_run_station_exe(jobs: int) -> bool | None:
     # `run_station.py` does `import launcher`; make backend/ importable so Nuitka can bundle it.
     env = dict(os.environ)
     env["PYTHONPATH"] = str(BACKEND) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    cmd = [
-        sys.executable, "-m", "nuitka",
-        "--onefile",
-        "--assume-yes-for-downloads",
-        f"--jobs={jobs}",
-        "--output-dir=" + str(OUT),
-        "--output-filename=run_station.exe",
-        "--windows-console-mode=disable",          # kiosk: no console window
-        "--include-module=launcher",               # the supervision loop (bundled, not spawned)
-        "--include-package=webview",                # pywebview (the native window: winforms + data)
-        f"--nofollow-import-to={_WEBVIEW_NOFOLLOW}", # match the pywebview plugin's own exclusions
-    ]
-    # Embed the app icon so the TASKBAR icon is correct before the window opens (the window
-    # title-bar icon is set at runtime via webview.start(icon=...)). The fork's own favicon.ico wins.
     icon = REPO / "frontend" / "public" / "favicon.ico"
-    if icon.is_file():
-        cmd.append(f"--windows-icon-from-ico={icon}")
-    cmd.append(str(run_station))
-    try:
-        _run(cmd, cwd=REPO, env=env)
-    except subprocess.CalledProcessError as exc:
-        print(f"WARNING: run_station.exe compile FAILED (rc={exc.returncode}) — run.dist is still "
+
+    def _build_cmd(nofollow: set[str]) -> list[str]:
+        cmd = [
+            sys.executable, "-m", "nuitka",
+            "--onefile",
+            "--assume-yes-for-downloads",
+            f"--jobs={jobs}",
+            "--output-dir=" + str(OUT),
+            "--output-filename=run_station.exe",
+            "--windows-console-mode=disable",       # kiosk: no console window
+            "--include-module=launcher",            # the supervision loop (bundled, not spawned)
+            "--include-package=webview",             # pywebview (the native window: winforms + data)
+            "--nofollow-import-to=" + ",".join(f"webview.platforms.{p}" for p in sorted(nofollow)),
+        ]
+        # Embed the app icon so the TASKBAR icon is correct before the window opens (the window
+        # title-bar icon is set at runtime via webview.start(icon=...)). A fork's own favicon.ico wins.
+        if icon.is_file():
+            cmd.append(f"--windows-icon-from-ico={icon}")
+        cmd.append(str(run_station))
+        return cmd
+
+    # Adaptive retry (see _nuitka_webview_conflict): start with the always-non-Windows four, and
+    # if Nuitka's own FATAL names one more Windows-relevant submodule that this Nuitka/pywebview
+    # combination's plugin ALSO excludes, add exactly that one and try again — up to a handful of
+    # rounds, since each round can only ever add one previously-unseen name (a repeat means Nuitka's
+    # message stopped matching the pattern, so retrying further would just loop on a different bug).
+    nofollow = set(_WEBVIEW_NOFOLLOW_ALWAYS)
+    combined = ""
+    for attempt in range(1, len(_WEBVIEW_NOFOLLOW_ALWAYS) + 4):
+        cmd = _build_cmd(nofollow)
+        print("+", " ".join(str(c) for c in cmd), flush=True)
+        result = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True)
+        combined = (result.stdout or "") + (result.stderr or "")
+        print(combined)
+        if result.returncode == 0:
+            break
+        conflict = _nuitka_webview_conflict(combined)
+        if conflict and conflict not in nofollow:
+            print(f"note: this Nuitka/pywebview combination's plugin also excludes "
+                  f"'webview.platforms.{conflict}' — adding it and retrying (round {attempt})")
+            nofollow.add(conflict)
+            continue
+        print(f"WARNING: run_station.exe compile FAILED (rc={result.returncode}) — run.dist is still "
               "built/usable; the in-app updater does not need run_station.exe, only the offline "
               "setup.exe does. Build it on a machine with the tested MSVC toolchain (DEPLOY_STATION.md).")
+        return False
+    else:
+        print(f"WARNING: run_station.exe compile still conflicting after {attempt} rounds "
+              f"(exclude set: {sorted(nofollow)}) — giving up. run.dist is still built/usable.")
         return False
     exe = OUT / "run_station.exe"
     if not exe.is_file():
@@ -483,7 +535,6 @@ def promote_app_config(app_config: str | None) -> None:
 
 
 def _framework_version() -> str:
-    import re
     init = (BACKEND / "core" / "__init__.py").read_text(encoding="utf-8")
     m = re.search(r'^__version__\s*=\s*"([^"]+)"', init, re.M)
     return m.group(1) if m else "0.0.0"
