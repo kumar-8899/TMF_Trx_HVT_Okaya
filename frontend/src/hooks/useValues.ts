@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 export interface ValueFrame { name: string; value: number | string | boolean | null; ts?: number }
 
-/** Subscribe to the DAQ values WebSocket and accumulate the latest value per
- * variable name. Snapshot-on-join + live updates arrive as `{name, value, ts}`. */
+/** Subscribe to the live station-variable values WebSocket (served by the `variables`
+ * module) and accumulate the latest value per variable name. Snapshot-on-join + live
+ * updates arrive as `{name, value, ts}`. */
 export function useValues(path: string | null = "/instruments/values/ws"): Record<string, ValueFrame> {
   const [values, setValues] = useState<Record<string, ValueFrame>>({});
   const wsRef = useRef<WebSocket | null>(null);

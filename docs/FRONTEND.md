@@ -26,8 +26,8 @@ frontend/src/
                       { key, component } to replace Runs / Recipes / recipe editor /
                       recipe detail / Maintenance; framework ships overrides/ empty
   theme/              theme.ts (tokens), ColorMode.tsx (light/dark provider+toggle)
-  components/         Layout (AppBar + drawer), UserMenu, UpdateChip, BrandMark, ui.tsx, Sparkline, RecipeForm, StepEditor
-  screens/            Login, ChangePassword, Dashboard, Daq, Runs, Recipes,
+  components/         Layout (AppBar + drawer), UserMenu, UpdateChip, BrandMark, ui.tsx, RecipeForm, StepEditor
+  screens/            Login, ChangePassword, Dashboard, Runs, Recipes,
                       RecipeDetail, RecipeEditor, Reports, Users, ComingSoon
   auth/               AuthContext, permissions.ts, RequirePermission
   hooks/              useStream (WebSocket)
@@ -103,7 +103,6 @@ The visual vocabulary every screen reuses:
 
 `useStream<T>(path | null)` opens a WebSocket to a backend WS endpoint and returns
 `{ last, status }`. Pass `null` to stay idle. Used by:
-- DAQ stream cards (`/instruments/daq/{ai,di}/stream/ws`),
 - Runs station feed + live results (`/ws/station`).
 
 ## Screens
@@ -119,9 +118,8 @@ framework. The framework ships `overrides/` empty. See TEMPLATE.md §1.3.
 |---|---|---|
 | Login | `/login` | split navy-identity / white-form card; secure-connection note |
 | Change password | `/change-password` | forced on first login (temp password) |
-| Dashboard | `/` | station readiness stat cards + module-status grid |
-| DAQ | `/daq` | AI/DI stream cards (live channel tiles + sparklines, channel/rate), Variables panel (read/write, DO set 0/1) |
-| Runs (Test Bench) | `/runs` | **operator testing window** — drawer-less layout (AppBar stays); identity (Serial No / Model) + Start dialog (Barcode / Select-recipe) + Abort; big **verdict banner**, message/status line, **live results table**, **live-values** tiles (DAQ values WS), **today strip** (pass/fail/yield + recent-run dots). Composition driven by `GET /runs/config` |
+| Dashboard | `/` | attention band (disconnected instruments, offline bridge, unconfigured report DB, skipped modules, pending app update) or an all-clear; 7-day KPI band + pass/fail trend chart; live instrument connection panel |
+| Runs (Test Bench) | `/runs` | **operator testing window** — drawer-less layout (AppBar stays); identity (Serial No / Model) + Start dialog (Barcode / Select-recipe) + Abort; big **verdict banner**, message/status line, **live results table**, **live-values** tiles (live-values WS), **today strip** (pass/fail/yield + recent-run dots). Composition driven by `GET /runs/config` |
 | Recipes | `/recipes` | list: search/filter/sort, count cards, import/export (`.zip`), per-row View / **Edit** (new version, same id) / **Duplicate** (new editable id) / Export |
 | Recipe editor | `/recipes/new`, `/recipes/:id/edit` | two-pane: left rail of tests (search, All/Set/Empty, status dots) + right pane (fixed fields + Parameter Name/Value/Unit table); Owner auto = current user |
 | Recipe view | `/recipes/:id` | editor surface **read-only** + versions/compare; **Edit (new version)** (fork→publish, same id) · **Duplicate** (copy → new editable id) · **Deactivate** (deprecate) |
@@ -133,7 +131,7 @@ framework. The framework ships `overrides/` empty. See TEMPLATE.md §1.3.
 | Help | `/help` + AppBar **?** panel | HELP.VIEW; in-app docs from the `help` module. AppBar **?** (or `F1`) opens a **context-aware** slide-over for the current screen; `/help` is the full page (sidebar tree + search + markdown). super_admin gets a **User/Developer** toggle (dev docs gated HELP.DEV). |
 | Config (cascaded nav group, `CONFIG.VIEW`) | `/config/*` | **Instruments** (`/config/instruments`) — **owner-aware** form engine: pick **Python-owned** (library picker → fields from the library's `connection_params` in the index + `simulated`) or **LabVIEW-owned** (transport picker → fields from `GET /config/transports`); id/label/model, editable resource + preview, **Test connection** (LabVIEW probe / live instance state), family/capabilities; CRUD gated `CONFIG.EDIT`; read-only libraries + live-instances panel. Python instances feed the variable engine (apply on restart). **Shift** (`/config/shift`) — enabled toggle + editable shift list (label + start, 24h contiguous; current-shift chip). **MES** (`/config/mes`). **Barcode** — placeholder |
 | Health | `/health` | HEALTH.VIEW; **Production Readiness** banner (Ready / Warnings / Blocked), **Operator/Technician/Engineer** view toggle, checks grouped by **business function** (Core Software / Production Systems / Test Equipment / External Systems) with impact + what-to-do + known-issue remedy on failure; per-check & suite Re-test, live progress (WS), **Scheduled runs** (startup/shutdown/30-min/daily), **Trend analysis** (MTBF, fail rate, repeated, flaky), history |
-| Maintenance | `/maintenance` | HEALTH.MAINTENANCE; enter/exit maintenance, variable read/write (write-gated on maintenance), run a check, live values — composed from existing contracts |
+| Maintenance | `/maintenance` | HEALTH.MAINTENANCE; enter/exit maintenance, variable read/write (write-gated on maintenance), run a check, live values — composed from existing contracts; embeds the capability-driven **instrument test bench** panel for `super_admin` (hands-on control of Python-owned instruments; no standalone route) |
 | Diagnostics | `/diagnostics` | DIAGNOSTICS.VIEW; live event tail (`/diagnostics/stream`) + readiness (`/readyz`) + module status (thin client, no backend) |
 
 ### Recipe authoring model (phase 1)

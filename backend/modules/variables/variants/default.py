@@ -4,6 +4,14 @@ Builds instrument instances from config (via the instrumentlib registry), expose
 scalar `variable.*` verbs to LabVIEW over the bridge (Py-served `query/{op}`,
 LABVIEW_BRIDGE §5), and a REST surface for the maintenance/human path. Non-scalar
 capabilities are NOT here — they go through `capability.request` (§2.2, arriving IL4).
+
+Also relays live station-variable values to the operator window (`/instruments/values/ws`):
+subscribes `value/#`, caches the latest frame per (station, name), fans out over a WebSocket.
+Controller-agnostic — the Python controller retained-publishes `value/{name}` on every step
+read/write (controller/serve.py) independent of what kind of instrument is behind it, so this
+has nothing to do with DAQ/LabVIEW hardware specifically. Migrated here from the (removed) `daq`
+module, which is where it happened to live before `variables` existed; `Runs`/`Maintenance`'s
+live-values panel (`useValues("/instruments/values/ws")`) depends on it.
 """
 
 from __future__ import annotations
@@ -13,7 +21,10 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from fastapi import WebSocket, WebSocketDisconnect
+
 from core.framework.contract import CoreServices, Health, HealthStatus
+from core.services.streaming import StreamHub
 from instrumentlib.registry import build_index
 from modules.variables.api import build_router
 from modules.variables.engine import VariableEngine
@@ -51,7 +62,9 @@ class DefaultVariables:
         self._db_vars: set[tuple[str, str]] = set()   # (station, name)
         self._instance_stations: dict[str, list[str]] = {}   # id -> sockets (no-lease rule)
         self.router = build_router(self)
-        self.mqtt_handlers: list = []
+        self._values_hub = StreamHub()            # value/{name} -> /instruments/values/ws
+        self._values: dict[tuple, dict] = {}       # (station, name) -> latest frame (snapshot)
+        self.mqtt_handlers: list = [("value/#", self._on_value)]
 
     def _load_libraries(self) -> None:
         """Import the external instrument-library package(s) so their registration
@@ -141,6 +154,43 @@ class DefaultVariables:
 
     def instance_status(self) -> list[dict]:
         return self.instances.status()
+
+    # --- live values relay (operator window) --------------------------------
+
+    @staticmethod
+    def _station_of(topic: str) -> str | None:
+        parts = topic.split("/")
+        return parts[1] if len(parts) > 2 and parts[0] == "tmf" else None
+
+    def _on_value(self, topic: str, payload: dict | None) -> None:
+        # value topic = tmf/{station}/value/{name}; cache latest per (station,name) + fan out.
+        if payload is None:
+            return
+        station = self._station_of(topic)
+        name = topic.split("value/", 1)[-1]
+        frame = {"name": name, "station": station, **payload}
+        self._values[(station, name)] = frame
+        self._values_hub.broadcast(frame)
+
+    async def stream_values_ws(self, ws: WebSocket) -> None:
+        """Live station variable values for the operator window (Runs/Maintenance live-values
+        panel). Snapshot-on-join (every cached value), then live value/{name} updates.
+        `?station=` filters (MULTI_STATION.md §5)."""
+        await ws.accept()
+        station = ws.query_params.get("station")
+        for frame in list(self._values.values()):
+            if station and frame.get("station") != station:
+                continue
+            await ws.send_json(frame)
+        async with self._values_hub.subscription() as q:
+            try:
+                while True:
+                    frame = await q.get()
+                    if station and frame.get("station") != station:
+                        continue
+                    await ws.send_json(frame)
+            except WebSocketDisconnect:
+                pass
 
     # --- variable-map editor (DB-backed bindings per station, super_admin) ---
 

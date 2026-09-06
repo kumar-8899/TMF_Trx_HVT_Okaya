@@ -5,7 +5,6 @@ import { useAuth } from "./auth/AuthContext";
 import { RequirePermission, RequireRole } from "./auth/RequirePermission";
 import { Layout } from "./components/Layout";
 import { ChangePassword } from "./screens/ChangePassword";
-import { Daq } from "./screens/Daq";
 import { Dashboard } from "./screens/Dashboard";
 import { Logs } from "./screens/Logs";
 import { Login } from "./screens/Login";
@@ -21,7 +20,6 @@ import { ConfigVariableMap } from "./screens/config/VariableMap";
 import { Diagnostics } from "./screens/Diagnostics";
 import { Health } from "./screens/Health";
 import { Help } from "./screens/Help";
-import { InstrumentTestBench } from "./screens/InstrumentTestBench";
 import { Maintenance } from "./screens/Maintenance";
 import { Permissions } from "./screens/Permissions";
 import { Recipes } from "./screens/Recipes";
@@ -67,7 +65,6 @@ export function App() {
           <Route path="/recipes/new" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditorC /></RequirePermission>} />
           <Route path="/recipes/:id" element={<RequirePermission perm="RECIPE.VIEW"><RecipeDetailC /></RequirePermission>} />
           <Route path="/recipes/:id/edit" element={<RequirePermission perm="RECIPE.EDIT"><RecipeEditorC /></RequirePermission>} />
-          <Route path="/daq" element={<Daq />} />
           <Route path="/reports" element={<RequirePermission perm="REPORT.VIEW"><Reports /></RequirePermission>} />
           <Route path="/analytics" element={<RequirePermission perm="REPORT.VIEW"><Analytics /></RequirePermission>} />
           <Route path="/health" element={<RequirePermission perm="HEALTH.VIEW"><Health /></RequirePermission>} />
@@ -78,7 +75,6 @@ export function App() {
           <Route path="/config/shift" element={<RequirePermission perm="CONFIG.VIEW"><ConfigShift /></RequirePermission>} />
           <Route path="/config/mes" element={<RequirePermission perm="CONFIG.VIEW"><ConfigMes /></RequirePermission>} />
           <Route path="/maintenance" element={<RequirePermission perm="HEALTH.MAINTENANCE"><MaintenanceC /></RequirePermission>} />
-          <Route path="/instruments/test" element={<RequireRole role="super_admin"><InstrumentTestBench /></RequireRole>} />
           <Route path="/diagnostics" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Diagnostics /></RequirePermission>} />
           <Route path="/logs" element={<RequirePermission perm="DIAGNOSTICS.VIEW"><Logs /></RequirePermission>} />
           <Route path="/users" element={<RequirePermission perm="AUTH.MANAGE_USERS"><Users /></RequirePermission>} />

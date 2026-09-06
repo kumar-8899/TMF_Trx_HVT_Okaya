@@ -11,7 +11,7 @@ The lamp in the top bar is amber/red. The LabVIEW controller link is down.
 - **No recipe** — the barcode didn't resolve to a recipe; pick a recipe directly.
 - **Controller offline** — see "link down" above.
 
-## Live values / DAQ not updating
+## Live values not updating
 Controller offline, or the variable isn't being published. Check Health → Production Systems.
 
 ## Maintenance won't turn on

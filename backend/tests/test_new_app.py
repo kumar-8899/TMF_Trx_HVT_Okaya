@@ -83,8 +83,8 @@ def test_all_framework_modules_enabled(tmp_path):
     assert r.returncode == 0, r.stderr + r.stdout
     cfg = json.loads((cfgdir / "app.json").read_text())
     ids = {m["id"] for m in cfg["modules"]}
-    # all 11 framework modules + the discovered future module + the app module
-    assert {"daq", "runs", "auth", "report", "variables"} <= ids
+    # all 10 framework modules + the discovered future module + the app module
+    assert {"runs", "auth", "report", "variables"} <= ids
     assert "future_mod" in ids and "acme_eol" in ids
 
 

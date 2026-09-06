@@ -51,4 +51,4 @@ def test_modules_status_reports_gate(config_dir):
         assert resp.status_code == 200
         body = resp.json()
         assert "modules" in body and "loaded" in body and "skipped" in body
-        assert "daq" in body["loaded"]
+        assert "variables" in body["loaded"]

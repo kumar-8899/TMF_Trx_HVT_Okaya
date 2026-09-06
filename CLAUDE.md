@@ -59,7 +59,7 @@ Controller  ◄── MQTT only (tmf/{station}/…) ──►  Python backend  �
 
 **MQTT grammar** (`docs/LABVIEW_BRIDGE.md`): `tmf/{station}/{class}/{name}` with classes cmd/query/stream/value/event/diag/status; request/reply is MQTT-3.1.1-safe via payload `reply_to` + `id`. Topics are rule-derived from this grammar, never stored per-variable. Debugging starts with MQTT Explorer on `tmf/#`, not a stack trace.
 
-**Modules** (`backend/modules/`: daq, runs, auth, logs, recipe, report, mes, health, config, variables, help): each has a `manifest.json`, the lifecycle construct → init → start → stop → health, and is gated by config ∩ license at activation. Modules depend **only on core, never on each other**, and consume **permissions (`DOMAIN.ACTION`), never roles**. Each must run standalone (core + that module); testers live in `modules/*/tester/`.
+**Modules** (`backend/modules/`: runs, auth, logs, recipe, report, mes, health, config, variables, help): each has a `manifest.json`, the lifecycle construct → init → start → stop → health, and is gated by config ∩ license at activation. Modules depend **only on core, never on each other**, and consume **permissions (`DOMAIN.ACTION`), never roles**. Each must run standalone (core + that module); testers live in `modules/*/tester/`.
 
 **Multi-station** (`docs/MULTI_STATION.md`): one PC runs N sockets `st1…stN`; one socket looks single-station.
 

@@ -5,6 +5,35 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.16.0 — 2026-09-06
+
+Nav simplification + a real bug fix hiding behind it: the `daq` module was LabVIEW-only and
+inert under the Python controller, but its `/instruments/values/ws` live-values relay is
+controller-agnostic and Runs/Maintenance depend on it. MINOR — no locked contract broke (an
+existing fork's `app.json` still listing `daq` degrades gracefully, "not registered," not a
+crash) but a LabVIEW-controller fork that actively used DAQ streaming loses that capability on
+merge; read this before pulling the change in.
+
+- **`daq` module removed entirely** (backend + frontend). It bundled two unrelated things: (1)
+  LabVIEW analog/digital signal streaming (`ai`/`di`), genuinely dead under `controller.kind:
+  python`, and (2) a generic live-station-variable-values relay (`/instruments/values/ws`,
+  subscribing `value/#`) used by `Runs`/`Maintenance`'s live-values panel — NOT LabVIEW-specific,
+  since the Python controller retained-publishes `value/{name}` on every step read/write too.
+  (2) is migrated into the `variables` module (which already owned the identically-pathed, and
+  previously **colliding**, `GET/PUT /variables/{name}/value` routes — same URL, two different
+  handlers registered by two different modules); (1) plus the `Daq.tsx` screen, its nav entry,
+  `Sparkline.tsx` (its only consumer), the `docs/contracts/daq.md` contract, the
+  `docs/HOWTO_TEST_DAQ_WITH_LABVIEW.md` guide, and the LabVIEW-hardware-only
+  `tools/check_phase1.py` acceptance script are deleted outright.
+- **"Test Bench" nav entry + `/instruments/test` route removed** — `Maintenance.tsx` already
+  embeds the identical `InstrumentControlPanel` for `super_admin`; the standalone page was a
+  redundant second mount of the same component, reachable by no one who couldn't already see it
+  in Maintenance. `InstrumentTestBench.tsx` deleted; its still-relevant help content merged into
+  `docs/help/user/maintenance.md` as a subsection.
+- **"Variable Map" dropped from the nav** — the `test-step-authoring`/`add-bench-test` skills
+  author bindings directly, so the manual editor sees little use. Route, backend, and the skill's
+  automation are untouched; a super_admin can still reach `/config/variables` directly.
+
 ## v1.15.2 — 2026-09-06
 
 - **Permissions page couldn't grant `DIAGNOSTICS.PURGE`.** It has gated `DELETE

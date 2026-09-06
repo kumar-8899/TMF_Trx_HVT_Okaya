@@ -16,7 +16,6 @@
     "allow_unverified": true
   },
   "modules": [
-    { "id": "daq",   "variant": "default" },
     {
       "id": "runs",
       "variant": "default",

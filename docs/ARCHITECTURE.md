@@ -57,7 +57,6 @@ activation gate with skip-and-continue), CoreServices DI, and the core services:
 
 | Module | Entitlement | What it does | Status |
 |---|---|---|---|
-| `daq` | daq | AI/DI streaming + WS relays, station variables (read/write) | backend done; live needs real LabVIEW |
 | `runs` | runs | run control proxy, run records, `/ws/station` + `/diagnostics/stream`, **barcode/recipe acquisition**, **test-result rows** | backend done |
 | `auth` | auth | permission-first auth, sessions, full user management, **protected super_admin**, **temp-password creation** | backend done |
 | `logs` | logs | error-log + action-log persistence, query/stats/retention | backend done |
@@ -90,7 +89,7 @@ Topics are **rule-derived** from the fixed grammar, not stored per-variable — 
 ## React frontend (`frontend/`)
 
 Vite + React + TS + MUI. Talks only to Python. Full UI: shell + Login, Dashboard,
-DAQ, Runs, Recipes (list/editor/view), Reports, Users — on a shared navy/green
+Runs, Recipes (list/editor/view), Reports, Users — on a shared navy/green
 "instrument console" theme with a light/dark toggle. See [FRONTEND.md](FRONTEND.md).
 
 ## Repo layout

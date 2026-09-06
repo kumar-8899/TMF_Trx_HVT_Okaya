@@ -5,7 +5,7 @@ uses the bridge verbs, not these routes."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
 
 from core.services.security import require_permission, require_role
 from instrumentlib.errors import InstrumentError, NotConnected, NotSupported
@@ -60,6 +60,14 @@ def build_router(module) -> APIRouter:
     @router.get("/variables/instances", dependencies=_VIEW)
     async def instances() -> list[dict]:
         return module.instance_status()
+
+    # Live station-variable values for the operator window (Runs/Maintenance live-values panel).
+    # Controller-agnostic — see variants/default.py's stream_values_ws docstring. No permission
+    # dependency: WebSocket routes don't support FastAPI `dependencies=`; the values themselves
+    # carry nothing sensitive beyond what CONFIG.VIEW already exposes via the REST endpoints above.
+    @router.websocket("/instruments/values/ws")
+    async def values_ws(websocket: WebSocket) -> None:
+        await module.stream_values_ws(websocket)
 
     # --- variable-map editor (bindings) ------------------------------------
 

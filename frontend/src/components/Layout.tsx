@@ -1,9 +1,9 @@
 import {
-  AccountTreeOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
+  Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
   Fullscreen, FullscreenExit,
   GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
-  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, Speed, TroubleshootOutlined, TuneOutlined,
+  ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, TuneOutlined,
 } from "@mui/icons-material";
 import {
   AppBar, Box, Collapse, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon,
@@ -44,21 +44,18 @@ const NAV: NavItem[] = [
       { label: "Recipes", to: "/recipes", icon: <ScienceOutlined />, perm: "RECIPE.VIEW" },
       { label: "Reports", to: "/reports", icon: <Assessment />, perm: "REPORT.VIEW" },
       { label: "Analytics", to: "/analytics", icon: <QueryStatsOutlined />, perm: "REPORT.VIEW" },
-      { label: "DAQ", to: "/daq", icon: <Speed /> },
     ],
   },
   {
     label: "Health", icon: <FavoriteBorder />, children: [
       { label: "Health", to: "/health", icon: <FavoriteBorder />, perm: "HEALTH.VIEW" },
       { label: "Maintenance", to: "/maintenance", icon: <BuildOutlined />, perm: "HEALTH.MAINTENANCE" },
-      { label: "Test Bench", to: "/instruments/test", icon: <TroubleshootOutlined />, role: "super_admin" },
     ],
   },
   {
     label: "Config", icon: <TuneOutlined />, perm: "CONFIG.VIEW", children: [
       { label: "App identity", to: "/config/branding", icon: <BadgeOutlined />, role: "super_admin" },
       { label: "Instruments", to: "/config/instruments", icon: <MemoryOutlined /> },
-      { label: "Variable Map", to: "/config/variables", icon: <AccountTreeOutlined />, role: "super_admin" },
       { label: "Barcode", to: "/config/barcode", icon: <QrCodeScannerOutlined /> },
       { label: "Shift", to: "/config/shift", icon: <ScheduleOutlined /> },
       { label: "MES", to: "/config/mes", icon: <HubOutlined /> },
