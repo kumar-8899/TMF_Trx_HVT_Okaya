@@ -41,6 +41,16 @@ export function UpdatesConfig() {
 
   const check = () => run(async () => {
     const r = await api.post("/update/check", {});
+    // The backend is network-tolerant: a failed check (no network, or a private repo rejecting an
+    // empty/invalid token) still returns 200 with `error` set and `available: null` — NOT an
+    // exception, so it doesn't land in the catch below. Surface it as a distinct failure instead of
+    // silently falling through to "up to date", which looked identical and hid real breakage.
+    if (r.error) {
+      setAvailable(null);
+      setError(`Update check failed: ${r.error} — verify updates.github_repo / github_token `
+        + "(or TMF_UPDATE_TOKEN) if this is a private repo, and that this station has network access.");
+      return;
+    }
     setAvailable(r.available);
     setMsg(r.available ? `Update available: ${r.available.tag}` : "No update available — you are up to date.");
   });

@@ -14,12 +14,17 @@
 # On an `app-v*` tag: guard tag==version → test → vendor Mosquitto → Nuitka build (backend
 # run.exe + frozen run_station.exe, + artifact zip + hash) → sign the .ksupdate → build the
 # OFFLINE setup.exe (Inno Setup + bundled WebView2) → publish a GitHub Release whose body is that
-# version's CHANGELOG section, carrying FOUR assets:
-#   * <slug>-<ver>.ksupdate   trust envelope (in-app updater verifies this)
-#   * <slug>-<ver>.zip        the artifact the station verifies + swaps (in-app updates)
-#   * run_station.exe         frozen windowed launcher (no Python on the client)
-#   * <AppShort>-Setup-<ver>.exe  OFFLINE first-install (run.dist + run_station.exe + WebView2)
-# The GitHub Release is the single source for BOTH first-install (setup.exe) and updates.
+# version's CHANGELOG section, carrying up to FOUR assets:
+#   * <slug>-<ver>.ksupdate   trust envelope (in-app updater verifies this)          — always
+#   * <slug>-<ver>.zip        the artifact the station verifies + swaps (in-app updates) — always
+#   * run_station.exe         frozen windowed launcher (no Python on the client)     — if it built
+#   * <AppShort>-Setup-<ver>.exe  OFFLINE first-install (run.dist + run_station.exe + WebView2) — if it built
+# build_release.py is FAIL-SOFT on run_station.exe (Nuitka onefile / MSVC-less-builder issues): the
+# Build step exits 3 (not a hard failure) when it can't build/verify the frozen launcher, and this
+# workflow then skips the setup.exe steps and publishes ONLY the first two assets — the in-app
+# update path never needed run_station.exe, only first-install did. See the Build step's warning
+# and DEPLOY_STATION.md for building it where the tested MSVC toolchain is present.
+# The GitHub Release is the single source for BOTH first-install (setup.exe, when present) and updates.
 #
 # Signing secrets are OPTIONAL for internal/pre-Keystation use: with none set, sign_update.py
 # DEV-signs an UNTRUSTED .ksupdate — a client installs it only where app.json
@@ -61,8 +66,9 @@ jobs:
       - name: Install
         shell: bash
         run: |
+          # `release` pulls nuitka + zstandard (onefile compression) + pywebview (bundled into
+          # the frozen run_station.exe) — nothing extra to install for the windowed launcher build.
           python -m pip install -e "backend[dev,release]"
-          python -m pip install "pywebview>=5.0"   # bundled into the frozen run_station.exe
           (cd frontend && npm ci)
 
       - name: Test (fast — is the code correct?)
@@ -87,6 +93,7 @@ jobs:
         run: ./deploy/fetch-mosquitto.ps1
 
       - name: Build (Nuitka) + package artifact + hash
+        id: build
         shell: bash
         env:
           NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
@@ -94,7 +101,24 @@ jobs:
           # app version comes from app/<slug>/VERSION; the framework version it was built
           # upon is recorded automatically as pinned_fw_version in RELEASE.json. --track app also
           # vendors Mosquitto into run.dist and builds the frozen run_station.exe (bundles pywebview).
+          #
+          # build_release.py is FAIL-SOFT on run_station.exe: exit 3 means run.dist + the .zip/
+          # .ksupdate (the in-app update artifact) built fine, but the frozen windowed launcher did
+          # not compile or failed its own runtime smoke test — only the offline setup.exe needs it,
+          # so don't fail the whole release; skip setup.exe for this run instead. Any OTHER non-zero
+          # exit is a real build failure (e.g. the backend itself) and still fails the job.
+          set +e
           python backend/build_release.py --track app --product "${{ vars.KS_PRODUCT_SLUG }}"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then
+            echo "::warning::run_station.exe failed its build/runtime smoke test — publishing this release WITHOUT run_station.exe or the offline setup.exe (run.dist + the in-app update artifact are unaffected)."
+            echo "run_station_ok=false" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          else
+            echo "run_station_ok=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Sign the .ksupdate
         shell: bash
@@ -110,7 +134,11 @@ jobs:
             "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate"
 
       # --- OFFLINE first-install setup.exe (Inno Setup + bundled WebView2) ---
+      # Skipped when the "Build" step's fail-soft path already warned that run_station.exe
+      # couldn't be built/verified on this runner — build-installer.ps1 needs it and would just
+      # throw with the same guidance (build it where the tested MSVC toolchain is, e.g. here).
       - name: Fetch the offline WebView2 standalone runtime
+        if: steps.build.outputs.run_station_ok == 'true'
         shell: pwsh
         run: |
           # The Evergreen Standalone Installer (x64) — an OS component pywebview renders through,
@@ -121,10 +149,12 @@ jobs:
           Write-Host "webview2 runtime: $((Get-Item $out).Length) bytes"
 
       - name: Install Inno Setup
+        if: steps.build.outputs.run_station_ok == 'true'
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
       - name: Build the offline installer (setup.exe)
+        if: steps.build.outputs.run_station_ok == 'true'
         shell: pwsh
         run: ./deploy/build-installer.ps1 -Slug "${{ vars.KS_PRODUCT_SLUG }}"
 
@@ -138,17 +168,26 @@ jobs:
           ' CHANGELOG.md > release-notes.md
           test -s release-notes.md || echo "Release $v" > release-notes.md
 
-      - name: Publish Release (.ksupdate + artifact zip + run_station.exe + setup.exe)
+      - name: Publish Release (.ksupdate + artifact zip [+ run_station.exe + setup.exe])
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${GITHUB_REF_NAME#app-v}"
-          # AppShort matches build-installer.ps1: branding.name with non-alphanumerics stripped.
-          short="$(python -c 'import json,re,sys; b=json.load(open("backend/config/app.json"))["branding"] if __import__("os").path.exists("backend/config/app.json") else json.load(open("backend/config/app.example.json"))["branding"]; print(re.sub(r"[^A-Za-z0-9]","", b.get("name","") ) or sys.argv[1])' "${{ vars.KS_PRODUCT_SLUG }}")"
+          assets=(
+            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate"
+            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.zip"
+          )
+          # run_station.exe / setup.exe only exist when the fail-soft build step succeeded
+          # (steps.build.outputs.run_station_ok) — a skipped/failed windowed-launcher build still
+          # publishes the two assets above (the in-app updater doesn't need either).
+          if [ "${{ steps.build.outputs.run_station_ok }}" = "true" ]; then
+            # AppShort matches build-installer.ps1: branding.name with non-alphanumerics stripped.
+            short="$(python -c 'import json,re,sys; b=json.load(open("backend/config/app.json"))["branding"] if __import__("os").path.exists("backend/config/app.json") else json.load(open("backend/config/app.example.json"))["branding"]; print(re.sub(r"[^A-Za-z0-9]","", b.get("name","") ) or sys.argv[1])' "${{ vars.KS_PRODUCT_SLUG }}")"
+            assets+=("release-build/run_station.exe" "deploy/Output/${short}-Setup-${v}.exe")
+          else
+            echo "::warning::publishing WITHOUT run_station.exe / setup.exe this release (see the Build step's warning) — first-install stays on deploy/install-station.ps1 until a rebuild fixes it."
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" --notes-file release-notes.md \
-            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.ksupdate" \
-            "release-build/${{ vars.KS_PRODUCT_SLUG }}-${v}.zip" \
-            "release-build/run_station.exe" \
-            "deploy/Output/${short}-Setup-${v}.exe"
+            "${assets[@]}"

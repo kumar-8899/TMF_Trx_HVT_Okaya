@@ -24,6 +24,9 @@ Output layout (SECURE_DISTRIBUTION.md §5):
       run_station.exe      frozen windowed launcher (deploy root, BESIDE run.dist) — bundles
                            pywebview + the launcher module: client needs NO Python/pip. Its own
                            release asset; survives the run.dist swap because it's a sibling.
+                           FAIL-SOFT (build_run_station_exe): a compile or runtime-smoke-test
+                           failure WARNS + returns rather than aborting — run.dist below still
+                           gets built either way, since only the offline setup.exe needs this exe.
       run_station.py       windowed launcher SOURCE (deploy root; kept for the scripted fallback)
       keystation_core.dll  native licensing core (app.json licensing.core_lib)
       RELEASE.json         version + SHA-256 manifest of the above
@@ -271,7 +274,62 @@ def copy_vendor_broker() -> None:
     print(f"vendored broker: deploy/vendor/mosquitto/win64 -> run.dist/vendor/mosquitto/win64 ({n} files)")
 
 
-def build_run_station_exe(jobs: int) -> None:
+# pywebview.platforms submodules Nuitka's OWN pywebview plugin (PywebViewPlugin.onModuleEncounter)
+# has already decided NOT to include on Windows. Force-including the whole `webview` package (needed
+# because pywebview's real backend, e.g. winforms, is chosen by a runtime OS check the plugin
+# handles, not a static import Nuitka would otherwise follow) pulls these back in and collides with
+# the plugin's own decision: `FATAL: Conflict between user and plugin decision for module
+# 'webview.platforms.<name>'`. On Windows the plugin allows ONLY winforms / edgechromium / edgehtml /
+# mshtml / cef — everything else under `webview.platforms.*` must be excluded here to match it.
+# Verified against pywebview 6.2.1 (`python -c "import webview.platforms as p, pkgutil;
+# print([m.name for m in pkgutil.iter_modules(p.__path__)])"` → 9 submodules; 5 non-Windows/legacy
+# ones below are NOT on the plugin's allow-list). If a future pywebview adds a new platforms/*.py and
+# this list goes stale, the SAME "Conflict…" FATAL names the new module — add it here.
+_WEBVIEW_NOFOLLOW = ",".join(
+    f"webview.platforms.{p}" for p in ("android", "cocoa", "gtk", "qt", "win32")
+)
+
+
+def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
+    """Best-effort GATE: actually RUN the frozen `run_station.exe --no-window` from a real station
+    root and confirm it reaches `/healthz`. Nuitka onefile wrapping — and, on an MSVC-less builder,
+    the zig/clang C backend — can produce an exe that COMPILES but never boots (the old controller.exe
+    'Failed to import encodings' failure mode, same class of bug). A failure here does not abort the
+    release (see build_run_station_exe) — the caller downgrades the windowed launcher to "missing",
+    same as a compile failure, rather than ship a launcher nobody can start."""
+    import urllib.request
+    exe = station_root / "run_station.exe"
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    proc = subprocess.Popen([str(exe), "--no-window"], cwd=str(station_root), creationflags=flags)
+    try:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                print(f"run_station.exe smoke test: process exited early (rc={proc.returncode})")
+                return False
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=2) as r:
+                    if r.status == 200:
+                        return True
+            except OSError:
+                pass
+            time.sleep(1)
+        print(f"run_station.exe smoke test: timed out waiting for /healthz ({timeout:.0f}s)")
+        return False
+    finally:
+        if proc.poll() is None:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                               capture_output=True, check=False)
+            else:
+                proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                pass
+
+
+def build_run_station_exe(jobs: int) -> bool | None:
     """Nuitka-compile the windowed launcher into a standalone **`run_station.exe`** that
     bundles pywebview + the `launcher` supervision module, so a client PC needs NO system
     Python and NO pip (frozen-offline station). It ships in the station ROOT (beside run.dist,
@@ -280,15 +338,25 @@ def build_run_station_exe(jobs: int) -> None:
 
     Onefile → a single `release-build/run_station.exe`. Requires pywebview installed on the
     builder (`pip install "pywebview>=5.0"`); on Windows it renders through the WebView2 runtime
-    (an OS component the installer carries — see deploy/installer.iss.template)."""
+    (an OS component the installer carries — see deploy/installer.iss.template).
+
+    FAIL-SOFT by design: run.dist (the backend + the in-app update artifact) does not need
+    run_station.exe at all — only the offline first-install setup.exe does. So a compile or smoke
+    failure here WARNS and returns instead of aborting the whole release; the caller (main) still
+    produces run.dist + the .zip/.ksupdate, and surfaces the failure as a distinct non-zero exit so
+    CI can tell (docs/DEPLOY_STATION.md: build it on a machine with the tested MSVC toolchain instead,
+    e.g. the release CI runner — build-installer.ps1 treats a missing run_station.exe as "build in CI").
+
+    Returns True (built + verified runnable), False (attempted and failed — compile, missing exe, or
+    failed the runtime smoke test), or None (skipped: non-Windows, or run_station.py missing)."""
     import os
     if sys.platform != "win32":
         print("note: run_station.exe is a Windows target — skipping on this platform")
-        return
+        return None
     run_station = REPO / "run_station.py"
     if not run_station.is_file():
         print(f"WARNING: {run_station} not found — no frozen run_station.exe built")
-        return
+        return None
     # `run_station.py` does `import launcher`; make backend/ importable so Nuitka can bundle it.
     env = dict(os.environ)
     env["PYTHONPATH"] = str(BACKEND) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
@@ -301,7 +369,8 @@ def build_run_station_exe(jobs: int) -> None:
         "--output-filename=run_station.exe",
         "--windows-console-mode=disable",          # kiosk: no console window
         "--include-module=launcher",               # the supervision loop (bundled, not spawned)
-        "--include-package=webview",               # pywebview (the native window)
+        "--include-package=webview",                # pywebview (the native window: winforms + data)
+        f"--nofollow-import-to={_WEBVIEW_NOFOLLOW}", # match the pywebview plugin's own exclusions
     ]
     # Embed the app icon so the TASKBAR icon is correct before the window opens (the window
     # title-bar icon is set at runtime via webview.start(icon=...)). The fork's own favicon.ico wins.
@@ -309,16 +378,37 @@ def build_run_station_exe(jobs: int) -> None:
     if icon.is_file():
         cmd.append(f"--windows-icon-from-ico={icon}")
     cmd.append(str(run_station))
-    _run(cmd, cwd=REPO, env=env)
+    try:
+        _run(cmd, cwd=REPO, env=env)
+    except subprocess.CalledProcessError as exc:
+        print(f"WARNING: run_station.exe compile FAILED (rc={exc.returncode}) — run.dist is still "
+              "built/usable; the in-app updater does not need run_station.exe, only the offline "
+              "setup.exe does. Build it on a machine with the tested MSVC toolchain (DEPLOY_STATION.md).")
+        return False
     exe = OUT / "run_station.exe"
     if not exe.is_file():
-        raise SystemExit("BUILD FAILED: Nuitka did not produce run_station.exe (is pywebview installed?)")
+        print("WARNING: Nuitka reported success but did not produce run_station.exe "
+              "(is pywebview installed? `pip install -e \"backend[release]\"`)")
+        return False
     # Drop the onefile scratch trees (run_station.build / .dist / .onefile-build) so manifest()
     # doesn't hash them and package_artifact stays lean — only run_station.exe ships.
     for scratch in OUT.glob("run_station.*"):
         if scratch.is_dir():
             shutil.rmtree(scratch, ignore_errors=True)
-    print(f"windowed launcher: run_station.exe -> deploy root ({exe.stat().st_size // 1024} KB)")
+    print(f"windowed launcher: run_station.exe -> deploy root ({exe.stat().st_size // 1024} KB) "
+          "— verifying it actually boots ...")
+    if not _verify_run_station_exe(OUT):
+        # A compiled-but-unrunnable exe is worse than a missing one: it looks like a release asset
+        # but bricks first-install. Remove it so downstream (build-installer.ps1) sees "missing" and
+        # falls back to "build in CI" instead of shipping a broken setup.exe.
+        exe.unlink(missing_ok=True)
+        print("WARNING: run_station.exe compiled but FAILED the runtime smoke test (did not reach "
+              "/healthz) — removed it. This backend/C-toolchain combination cannot produce a runnable "
+              "windowed launcher; build it on a machine with the tested MSVC toolchain instead "
+              "(e.g. the release CI runner). run.dist is unaffected.")
+        return False
+    print("run_station.exe smoke test: OK (reached /healthz)")
+    return True
 
 
 def copy_app_payload(product: str) -> None:
@@ -490,13 +580,17 @@ def main() -> int:
         _verify_frozen_controller(args.product)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
+    run_station_ok: bool | None = None
     if args.track == "app":
         # A runnable app = the backend exe (which also runs the controller) + the app definition +
         # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
         copy_app_payload(args.product)
         promote_app_config(args.app_config)
         copy_vendor_broker()            # vendored Mosquitto INSIDE run.dist (no service, no admin)
-        build_run_station_exe(args.jobs)  # frozen windowed launcher BESIDE run.dist (no Python/pip)
+        # FAIL-SOFT (see build_run_station_exe docstring): run.dist + the .zip/.ksupdate are still
+        # produced below even if the frozen windowed launcher can't be built/verified here — only the
+        # offline first-install setup.exe needs run_station.exe, not the in-app update path.
+        run_station_ok = build_run_station_exe(args.jobs)  # BESIDE run.dist (no Python/pip on client)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
     # RELEASE.json must ride INSIDE run.dist (the swap unit) so an applied update swaps the
     # version manifest too; app_version() reads run.dist/RELEASE.json first (core.__init__).
@@ -505,6 +599,13 @@ def main() -> int:
     shutil.copy2(OUT / "RELEASE.json", DIST / "RELEASE.json")
     package_artifact(args.product)
     print("\nrelease at:", OUT)
+    if run_station_ok is False:
+        RUN_STATION_EXE_FAILED = 3   # distinct from a hard build failure (which raises/exits nonzero earlier)
+        print("\nWARNING: run.dist + the update artifact are ready, but run_station.exe did NOT build "
+              "or did not pass its runtime smoke test — see the WARNING above. The offline setup.exe "
+              "cannot be built from THIS run-station.exe; build it on a machine with the tested MSVC "
+              "toolchain (e.g. the release CI runner), or fall back to install-station.ps1.")
+        return RUN_STATION_EXE_FAILED
     return 0
 
 

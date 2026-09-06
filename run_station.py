@@ -36,11 +36,16 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent          # station/  (parent of run.dist)
+# Nuitka-compiled run_station.exe sets __compiled__ (not sys.frozen). Compute FROZEN FIRST and use
+# it for ROOT: in a Nuitka **onefile** exe, `__file__` resolves to the temp extraction dir
+# (…\Temp\onefile_XXXX_…\), NOT the exe's real location — `ROOT/run.dist` would point into that temp
+# dir and the launcher would abort at startup ("run.dist not found"), in CI same as locally.
+# `sys.argv[0]` is the invoked exe's own path; `.resolve().parent` is the real station root beside
+# run.dist.
+FROZEN = "__compiled__" in globals()
+ROOT = Path(sys.argv[0]).resolve().parent if FROZEN else Path(__file__).resolve().parent
 RUN_DIST = ROOT / "run.dist"
 IS_WIN = sys.platform == "win32"
-# Nuitka-compiled run_station.exe sets __compiled__ (not sys.frozen); frozen-app-build note.
-FROZEN = "__compiled__" in globals()
 
 
 def _import_launcher():

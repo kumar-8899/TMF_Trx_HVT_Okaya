@@ -48,6 +48,35 @@ The app repo's `release.yml` builds it in CI (§2). To build locally after a
 deploy\build-installer.ps1 -Slug <slug>   # needs Inno Setup 6 (choco install innosetup -y)
 ```
 
+**MSVC caveat — `run_station.exe` needs the tested C toolchain.** `build_release.py --track app`
+also Nuitka-**onefile**-compiles the frozen windowed launcher (`run_station.exe`, bundling pywebview
++ the `launcher` supervision module — SECURE_DISTRIBUTION.md-style, no Python/pip on the client). On
+a builder **without MSVC**, Nuitka falls back to its bundled zig/clang C backend, which has
+historically produced a *standalone* dist that COMPILES but fails to boot for lean import graphs (the
+same class of bug as the old `controller.exe "Failed to import encodings"` failure). So
+`build_run_station_exe()` **actually runs** the compiled exe (`run_station.exe --no-window` from a
+real station root) and asserts it reaches `/healthz` before calling it good — a compile that produces
+a broken exe is caught, not shipped.
+
+This step is **fail-soft**: it never aborts the release. `run.dist` (the backend + the in-app update
+artifact — `.zip` + `.ksupdate`) does **not** need `run_station.exe` at all; only the offline
+first-install `setup.exe` does. So on a compile failure OR a failed runtime smoke test,
+`build_release.py` prints a `WARNING`, removes the broken exe if any, and exits with a **distinct
+code (3)** — `run.dist` + the update artifact are still produced. `deploy\build-installer.ps1` then
+throws a clear "missing run_station.exe" error with the same guidance instead of silently building a
+setup.exe around a broken launcher. `release.yml` (§2) checks that exit code and, on 3, **skips the
+setup.exe steps and publishes the release without run_station.exe/setup.exe** rather than failing the
+whole workflow (the in-app updater is unaffected).
+
+If you hit this locally:
+1. **Build where the tested toolchain is** — the release CI runner (`windows-latest`) ships MSVC
+   Build Tools, so this is rare there; prefer building `run_station.exe`/`setup.exe` in CI over a
+   bare MSVC-less dev box.
+2. **Or install MSVC locally** — Visual Studio Build Tools, workload "Desktop development with
+   C++" — then re-run `build_release.py --track app`; the default backend picks up `cl` automatically.
+3. **Or skip the offline installer for now** — `run.dist` + the `.zip`/`.ksupdate` still ship; use
+   `deploy\install-station.ps1` (below) for first-install until a rebuild fixes `run_station.exe`.
+
 ### Scripted / headless fallback — install-station.ps1
 When you have no setup.exe (or want an unattended rollout), the older bootstrap still works, but it
 needs a system **Python**, `pip install pywebview`, and a **Mosquitto** service:

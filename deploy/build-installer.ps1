@@ -64,11 +64,54 @@ if (-not $WebView2) {
 if ($WebView2 -and -not (Test-Path $WebView2)) { throw "WebView2 installer not found: $WebView2" }
 if ($WebView2) { Info "bundling offline WebView2: $WebView2" } else { Warn "no WebView2 bundled (OK on Win11/current Win10)" }
 
-# --- verify the build artifacts exist --------------------------------------------------------
+# --- verify the build artifacts exist AND are COMPLETE (not a stale/aborted run) --------------
+# A build that fails mid-pipeline (e.g. build_run_station_exe hitting the pywebview plugin
+# conflict, pre-fix) used to raise SystemExit BEFORE build_release.py reached the step that writes
+# release-build\RELEASE.json and packages the artifact - leaving a run.dist on disk with NO
+# RELEASE.json, or one left over from a PREVIOUS successful run. Checking only "does run.dist
+# exist" let that ship: setup.exe installed fine, but the station's app_version() (reads
+# run.dist\RELEASE.json) returned None forever, and "Check for updates" comparisons were
+# meaningless from the very first boot. Refuse to package anything that isn't a complete,
+# correctly-versioned build for THIS slug.
 $dist = Join-Path $repo "release-build\run.dist"
 $rsExe = Join-Path $repo "release-build\run_station.exe"
+$releaseJson = Join-Path $repo "release-build\RELEASE.json"
 if (-not (Test-Path $dist)) { throw "missing $dist - run build_release.py --track app first" }
-if (-not (Test-Path $rsExe)) { throw "missing $rsExe - build_release.py --track app builds it (needs pywebview)" }
+if (-not (Test-Path $releaseJson)) {
+  throw "missing $releaseJson`n`n" +
+    "release-build is incomplete or stale - build_release.py --track app did not finish (it writes " +
+    "RELEASE.json near the end, after run.dist + run_station.exe). Re-run:`n" +
+    "    python backend\build_release.py --track app --product $Slug`n" +
+    "and only run this script after it completes successfully."
+}
+$rel = Get-Content $releaseJson -Raw | ConvertFrom-Json
+if ($rel.track -ne "app") {
+  throw "release-build\RELEASE.json is track '$($rel.track)', not 'app' - re-run " +
+    "'python backend\build_release.py --track app --product $Slug' (this looks like a stale " +
+    "framework-track build left in release-build\)."
+}
+if ($rel.version -ne $version) {
+  throw "release-build\RELEASE.json is version '$($rel.version)', but app\$Slug\VERSION says " +
+    "'$version' - release-build is STALE (leftover from a previous build/version). Re-run " +
+    "'python backend\build_release.py --track app --product $Slug' and only run this script " +
+    "after it completes successfully; never package an old release-build\ against a bumped VERSION."
+}
+Info "release-build verified: track=app, version=$version (RELEASE.json matches app\$Slug\VERSION)"
+if (-not (Test-Path $rsExe)) {
+  throw "missing $rsExe`n`n" +
+    "build_release.py --track app builds run_station.exe automatically, but is FAIL-SOFT: if the " +
+    "Nuitka compile fails, or the compiled exe fails its own runtime smoke test (couldn't reach " +
+    "/healthz), it WARNS and removes/skips run_station.exe rather than aborting the whole release " +
+    "(run.dist + the .zip/.ksupdate still get built - only the offline setup.exe needs it).`n`n" +
+    "This usually means the LOCAL C toolchain (no MSVC -> Nuitka's zig/clang fallback) could not " +
+    "produce a runnable frozen launcher. Options:`n" +
+    "  1. Build run_station.exe (and this installer) on a machine with the tested MSVC toolchain - " +
+    "e.g. the release CI runner (windows-latest ships MSVC Build Tools).`n" +
+    "  2. Install 'Desktop development with C++' (Visual Studio Build Tools) locally and re-run " +
+    "build_release.py --track app.`n" +
+    "  3. Skip the offline setup.exe for now and use deploy/install-station.ps1 (scriptable " +
+    "fallback; needs Python + pip on the client) instead."
+}
 
 # --- render the template ---------------------------------------------------------------------
 $wv2 = if ($WebView2) { $WebView2 } else { "" }

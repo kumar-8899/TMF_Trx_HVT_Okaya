@@ -5,6 +5,63 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.15.1 — 2026-09-06
+
+`build_release.py --track app` could not freeze `run_station.exe` on an MSVC-less builder, a
+broken build could still be packaged into a shippable installer, and a failed update check
+looked identical to "you are up to date." PATCH.
+
+- **`run_station.exe` couldn't locate `run.dist` when frozen (broke EVERY frozen station, not just
+  the build).** In a Nuitka **onefile** exe, `__file__` resolves to the temp extraction dir, not the
+  exe's real location — so `ROOT` (and thus `RUN_DIST`) pointed into `…\Temp\onefile_XXXX_…\` and the
+  launcher aborted at startup ("run.dist not found"). Fixed: compute `FROZEN` first and use
+  `sys.argv[0]` (the invoked exe's own path) for `ROOT` when frozen. Verified against a real onefile
+  build: the error message now names the exe's actual directory.
+- **Nuitka plugin conflict killed the compile** (`FATAL: Conflict between user and plugin decision
+  for module 'webview.platforms.android'`, then `'...win32'` once the first four were excluded).
+  Force-including the whole `webview` package pulled back in platform backends Nuitka's own pywebview
+  plugin had already excluded. Fixed with
+  `--nofollow-import-to=webview.platforms.{android,cocoa,gtk,qt,win32}` (matching the plugin's own
+  Windows allow-list: winforms/edgechromium/edgehtml/mshtml/cef) alongside `--include-package=webview`.
+  Verified end-to-end: `build_release.py`'s Nuitka invocation now completes and produces a working exe
+  against a real pywebview 6.2.1 install.
+- **Onefile shipped uncompressed** without `zstandard`. Added it (+ `pywebview`) to the backend's
+  `release` extra so `pip install -e "backend[release]"` alone covers everything the build needs.
+  Verified: onefile payload compressed ~24% smaller with it present.
+- **Fail-soft + a real runtime gate.** `build_run_station_exe()` now actually **runs** the compiled
+  exe (`--no-window` from a real station root) and asserts it reaches `/healthz` before calling it
+  good — a compile that produces a broken exe (the historical MSVC-less zig/clang failure mode) is
+  caught instead of shipped. A compile or smoke-test failure no longer aborts the whole release: it
+  WARNs, removes the broken exe, and `build_release.py` exits a **distinct code (3)** — `run.dist` +
+  the `.zip`/`.ksupdate` (the in-app update artifact) still get built either way, since only the
+  offline `setup.exe` needs `run_station.exe`. `release.yml` checks that exit code and publishes the
+  release without `run_station.exe`/`setup.exe` on 3, instead of failing the whole workflow.
+- **A broken/stale build could still be packaged into a shippable `setup.exe`.** Before the fail-soft
+  fix above, a `build_run_station_exe()` failure raised `SystemExit` *before* `build_release.py`
+  reached the step that writes `RELEASE.json` into `run.dist` — leaving a `release-build/` on disk
+  with run.dist present but no version manifest at all. `deploy/build-installer.ps1` only checked
+  that `run.dist`/`run_station.exe` *existed*, not that the build was *complete and current* — so it
+  happily packaged that partial build (or an older `release-build/` left over from a previous
+  successful run, now stale against a bumped `app/<slug>/VERSION`) into a `setup.exe` that shipped
+  with `app_version()` permanently returning `None`, making every future "Check for updates"
+  comparison meaningless from first boot. Fixed: `build-installer.ps1` now refuses to package unless
+  `release-build/RELEASE.json` exists, `track == "app"`, and its `version` matches
+  `app/<slug>/VERSION` — with a clear "re-run build_release.py" error otherwise. (The ordering fix
+  above already prevents the original *incomplete-build* failure mode from recurring; this adds the
+  same guard for a hard `build_backend()` failure or a forgotten rebuild after a version bump.)
+- **A failed update check looked identical to "you are up to date."** `UpdateService.check()` is
+  deliberately network-tolerant — on any GitHub error (no network, or a private repo rejecting an
+  empty/invalid token) it returns 200 with `available: null` and `error` set, not an exception. The
+  Updates page ignored `error` entirely and showed the same neutral "No update available — you are up
+  to date" message either way, so an operator had no way to tell "genuinely current" apart from "the
+  check is broken" (reproduced for real: an empty `github_token` against a private repo silently
+  reported "up to date"). Fixed: `error` now surfaces as a distinct, actionable failure message
+  ("Update check failed: … — verify updates.github_repo/github_token…") in the page's error state,
+  not the neutral info banner.
+- `deploy/build-installer.ps1`'s "missing run_station.exe" error explains why (fail-soft) and how to
+  fix it (build where the tested MSVC toolchain is — e.g. the release CI runner — or install VS Build
+  Tools locally). Documented in `docs/DEPLOY_STATION.md` §1.
+
 ## v1.15.0 — 2026-09-05
 
 Desktop-station polish: a real app icon, working report export in the native window, an actionable
