@@ -124,6 +124,17 @@ the global `simulation: false`; the app-level `app.json` `controller.simulation`
 knob is deprecated and ignored (diag warning). The global force-all flag remains a
 standalone/dev convenience for hand-written configs only.
 
+**Teardown under app supervision (v1.16.3+):** `ControllerSupervisor.stop()` is
+called on the normal lifespan shutdown **and** by the relaunch/rollback endpoints
+before their hard `os._exit(42)` (which skips the lifespan). It is graceful first
+(`CTRL_BREAK` / `SIGTERM` → every instrument to safe state), then confirms the
+child is actually dead — hard `taskkill /T` on the whole tree if it overruns — and
+returns that as a bool. This matters most on a **frozen app-track** build, where
+the controller is `run.exe --controller` spawned as the backend's own child: left
+running it orphans, holds `run.dist` open (blocking every update swap) and stays a
+second process on the instruments. On Windows the frozen child is also spawned
+`CREATE_NO_WINDOW` so it doesn't pop a console window on the windowed station.
+
 ---
 
 ## 4. Build slices — what each delivers (as-built)

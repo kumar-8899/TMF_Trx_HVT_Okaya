@@ -78,6 +78,123 @@ def _release_version(dist: Path) -> str | None:
         return None
 
 
+def _rename_with_retry(src: Path, dst: Path, *, attempts: int = 6, base_delay: float = 0.4) -> None:
+    """`Path.rename` with a bounded backoff. On Windows a just-exited process can keep its
+    executable image (or a data file) open for a short, non-deterministic window after it
+    dies — a lagging child, an AV scanner, the loader — so a swap rename that would succeed
+    a moment later fails with WinError 32. Retry a few times before giving up rather than
+    aborting the whole swap on the first transient lock (UPDATES.md §4)."""
+    for i in range(1, attempts + 1):
+        try:
+            src.rename(dst)
+            return
+        except OSError as exc:
+            if i == attempts:
+                raise
+            log(f"rename {src.name} -> {dst.name} blocked ({exc}); retry {i}/{attempts - 1}")
+            time.sleep(base_delay * i)
+
+
+class _WinJob:
+    """A Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: every process assigned
+    to it — and every descendant they spawn — is terminated the instant the job is
+    terminated or its last handle closes.
+
+    The supervisor puts each backend generation in its own job so that when the backend
+    exits with rc=42 (a hard `os._exit` — and on an app-track build the backend spawns
+    `run.exe --controller` as its OWN child), the launcher can guarantee the WHOLE tree is
+    gone before it swaps run.dist: nothing left holding a file open to block the rename,
+    and — the safety point — no orphaned controller still driving instrument I/O. The
+    backend's own shutdown is the primary mechanism; this is the unconditional backstop.
+
+    No-op off Windows, or if the Win32 calls are unavailable for any reason."""
+
+    def __init__(self) -> None:
+        self._h = None
+        self._k32 = None
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CreateJobObjectW.restype = wintypes.HANDLE
+            k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+            k32.SetInformationJobObject.restype = wintypes.BOOL
+            k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                    wintypes.LPVOID, wintypes.DWORD]
+            k32.AssignProcessToJobObject.restype = wintypes.BOOL
+            k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            k32.TerminateJobObject.restype = wintypes.BOOL
+            k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+            k32.CloseHandle.restype = wintypes.BOOL
+            k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+            class _BASIC(ctypes.Structure):
+                _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                            ("PerJobUserTimeLimit", ctypes.c_int64),
+                            ("LimitFlags", wintypes.DWORD),
+                            ("MinimumWorkingSetSize", ctypes.c_size_t),
+                            ("MaximumWorkingSetSize", ctypes.c_size_t),
+                            ("ActiveProcessLimit", wintypes.DWORD),
+                            ("Affinity", ctypes.c_void_p),
+                            ("PriorityClass", wintypes.DWORD),
+                            ("SchedulingClass", wintypes.DWORD)]
+
+            class _IO(ctypes.Structure):
+                _fields_ = [("ReadOperationCount", ctypes.c_uint64),
+                            ("WriteOperationCount", ctypes.c_uint64),
+                            ("OtherOperationCount", ctypes.c_uint64),
+                            ("ReadTransferCount", ctypes.c_uint64),
+                            ("WriteTransferCount", ctypes.c_uint64),
+                            ("OtherTransferCount", ctypes.c_uint64)]
+
+            class _EXT(ctypes.Structure):
+                _fields_ = [("BasicLimitInformation", _BASIC), ("IoInfo", _IO),
+                            ("ProcessMemoryLimit", ctypes.c_size_t),
+                            ("JobMemoryLimit", ctypes.c_size_t),
+                            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                            ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+            h = k32.CreateJobObjectW(None, None)
+            if not h:
+                return
+            info = _EXT()
+            info.BasicLimitInformation.LimitFlags = 0x2000        # KILL_ON_JOB_CLOSE
+            if not k32.SetInformationJobObject(h, 9, ctypes.byref(info), ctypes.sizeof(info)):
+                k32.CloseHandle(h)
+                return
+            self._k32, self._h = k32, h
+        except Exception as exc:  # noqa: BLE001 — degrade to "backend teardown only"
+            log(f"job object unavailable ({exc}) — relying on the backend's own controller teardown")
+            self._h = None
+
+    def assign(self, proc: subprocess.Popen) -> None:
+        if self._h is None:
+            return
+        try:
+            if not self._k32.AssignProcessToJobObject(self._h, int(proc._handle)):
+                log("AssignProcessToJobObject failed — the controller-orphan backstop is degraded "
+                    "for this generation (backend self-teardown still applies)")
+        except Exception as exc:  # noqa: BLE001
+            log(f"AssignProcessToJobObject error: {exc}")
+
+    def terminate_and_close(self) -> None:
+        """Kill everything still in the job, then drop the handle. Safe to call when the
+        backend already exited cleanly — it just sweeps any surviving descendants."""
+        if self._h is None:
+            return
+        try:
+            self._k32.TerminateJobObject(self._h, 1)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._k32.CloseHandle(self._h)
+        except Exception:  # noqa: BLE001
+            pass
+        self._h = None
+
+
 # --------------------------------------------------------------------------- swap core
 class SwapManager:
     """Journal-first, rename-only swaps + backups + last-known-good + DB snapshots.
@@ -93,6 +210,7 @@ class SwapManager:
         self.backups = self.state / "backups"
         self.journal = self.state / "swap-journal.json"
         self.lkg_ptr = self.state / "last_known_good.json"
+        self.swap_error = self.state / "last_swap_error.json"
         self.db_files = [Path(p) for p in (db_files or [])]
         self.keep = keep_backups
         self.clock = clock
@@ -164,20 +282,46 @@ class SwapManager:
                              "live": str(self.live), "version": marker.get("version"),
                              "started_at": self.clock()})
         try:
-            self.live.rename(backup)                         # 1. live -> backup (atomic)
+            _rename_with_retry(self.live, backup)            # 1. live -> backup (atomic, w/ backoff)
             self._write_journal({"step": "backed_up", "staged": str(staged_dir),
                                  "backup": str(backup), "live": str(self.live)})
-            staged_dir.rename(self.live)                     # 2. staged -> live (atomic)
+            _rename_with_retry(staged_dir, self.live)        # 2. staged -> live (atomic)
             self._write_journal({"step": "swapped", "backup": str(backup), "live": str(self.live)})
         except OSError as exc:
             log(f"swap FAILED: {exc} - reconciling")
             self.reconcile()
+            self._record_swap_error(marker.get("version"), exc)
             return False
         self._write_backup_meta(backup, _release_version(backup))   # + DB snapshot of the OLD build
         self._clear_journal()
+        self._clear_swap_error()
         self._prune()
         log(f"swap done -> {_release_version(self.live)}; backup {bid}")
         return True
+
+    # -- swap-failure breadcrumb (surfaced on the Updates page) --
+    def _record_swap_error(self, version: str | None, exc: BaseException) -> None:
+        """A failed swap leaves the OLD build live and the launcher silently relaunches it,
+        so without a breadcrumb the operator just sees "relaunch requested" forever. Persist
+        the failure (with a strike count) beside the state dir; UpdateService.status() reads
+        it and the Updates page shows a real error."""
+        prior = {}
+        try:
+            prior = json.loads(self.swap_error.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        strikes = int(prior.get("strikes", 0)) + 1 if prior.get("version") == version else 1
+        try:
+            self.state.mkdir(parents=True, exist_ok=True)
+            self.swap_error.write_text(json.dumps({
+                "version": version, "error": str(exc), "strikes": strikes,
+                "at": self.clock()}, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+        log(f"swap error recorded for {version} (strike {strikes})")
+
+    def _clear_swap_error(self) -> None:
+        self.swap_error.unlink(missing_ok=True)
 
     def _write_backup_meta(self, backup: Path, version: str | None) -> None:
         db_dir = backup / "db-snapshot"
@@ -241,7 +385,7 @@ class SwapManager:
                              "live": str(self.live), "revert": True, "started_at": self.clock()})
         aside = self.backups / f"{self.live.name}.replaced-{int(self.clock())}"
         try:
-            self.live.rename(aside)
+            _rename_with_retry(self.live, aside)
             self._write_journal({"step": "backed_up", "staged": str(backup), "backup": str(aside),
                                  "live": str(self.live)})
             shutil.copytree(backup, self.live)               # copy LKG in (keep the backup)
@@ -253,6 +397,7 @@ class SwapManager:
             return False
         shutil.rmtree(aside, ignore_errors=True)
         self._clear_journal()
+        self._clear_swap_error()
         log(f"reverted to {backup_id} ({_release_version(self.live)})")
         return True
 
@@ -359,9 +504,16 @@ class Supervisor:
         swap = SwapManager(self.live, self.state, db_files=_db_files(self.state))
         swap.reconcile()                    # finish/undo any interrupted swap BEFORE booting
 
-        # A new process group so we can send a graceful CTRL_BREAK to just the backend
-        # child (request_stop) without hitting this process.
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        # CREATE_NEW_PROCESS_GROUP: send a graceful CTRL_BREAK to just the backend child
+        # (request_stop) without hitting this process.
+        # CREATE_NO_WINDOW: `run.exe` is a console-subsystem exe; when the launcher itself has
+        # no console (the frozen windowed run_station.exe) Windows would allocate a fresh
+        # visible console window for every backend spawn — one more command-prompt window on
+        # every relaunch. Suppress it here, at THIS spawn site only: `run.exe` run directly
+        # from a terminal (dev/debug) still gets a console normally.
+        flags = 0
+        if os.name == "nt":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         strikes = 0
         reverted = False
         child_env = {**os.environ, "TMF_STATE_DIR": str(self.state_root)}   # external config+data
@@ -371,6 +523,12 @@ class Supervisor:
             proc = subprocess.Popen(backend_cmd(self.live), cwd=str(self.live),
                                     env=child_env, creationflags=flags)
             self._proc = proc
+            # Put this backend generation (and any child it spawns — notably
+            # `run.exe --controller` on an app-track build) in a kill-on-close job, so the
+            # whole tree is guaranteed gone before the swap below, even if the backend's
+            # rc=42 hard-exit raced its own controller teardown (see _WinJob).
+            job = _WinJob()
+            job.assign(proc)
             log(f"backend started pid={proc.pid}")
             healthy = _await_boot(proc)
             self._healthy = healthy
@@ -387,6 +545,9 @@ class Supervisor:
             self._healthy = False
             if lkg_timer is not None:
                 lkg_timer.cancel()
+            # Sweep the job: the backend is dead, so this only kills anything it left behind
+            # (an orphaned controller grandchild), guaranteeing a clean tree before any swap.
+            job.terminate_and_close()
             log(f"backend exited rc={rc} (healthy_boot={healthy})")
 
             if self._stop.is_set():

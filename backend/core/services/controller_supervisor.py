@@ -56,7 +56,13 @@ class ControllerSupervisor:
         cfg_path = self._write_config()
         # A new process group (Windows) lets us deliver CTRL_BREAK for a GRACEFUL stop, so
         # the controller runs its own teardown (safe_state on every instrument) on app exit.
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+        # CREATE_NO_WINDOW: on a frozen app-track build this child is `run.exe --controller`,
+        # a console-subsystem exe; spawned from the windowed launcher (no console of its own)
+        # Windows would otherwise pop a fresh console window for it. Its stdout is a PIPE we
+        # pump into diagnostics, so suppressing the console loses nothing.
+        flags = 0
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         try:
             self._proc = subprocess.Popen(
                 [*cmd, str(cfg_path)], cwd=str(cwd),
@@ -71,10 +77,20 @@ class ControllerSupervisor:
         self._pump = threading.Thread(target=self._pump_logs, name="controller-logs", daemon=True)
         self._pump.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Stop the controller child and CONFIRM the whole tree is dead. Returns True once
+        no controller process remains.
+
+        Called from the lifespan shutdown AND — critically — from the relaunch / rollback
+        endpoints before ``os._exit(42)``. On an app-track build the backend spawns
+        ``run.exe --controller`` as its OWN child; a hard exit skips the lifespan teardown,
+        so without this the controller is orphaned: still alive, still holding ``run.dist``
+        open (which blocks the launcher's swap every time) and — the safety point — still a
+        second process driving instrument I/O. The tree must be gone before the backend exits.
+        """
         proc, self._proc = self._proc, None
         if proc is None or proc.poll() is not None:
-            return
+            return True
         # Graceful first — CTRL_BREAK (Windows) / SIGTERM (POSIX) so the controller unwinds
         # its run threads and drives every instrument to safe state before it dies.
         try:
@@ -87,8 +103,31 @@ class ControllerSupervisor:
         try:
             proc.wait(timeout=6)
         except subprocess.TimeoutExpired:
-            proc.kill()
-        self._diag.info("controller", "python controller stopped")
+            self._hard_kill(proc)
+        dead = proc.poll() is not None
+        self._diag.info("controller", "python controller stopped",
+                        pid=proc.pid, confirmed_dead=dead)
+        if not dead:
+            self._diag.warning("controller", "controller subprocess still alive after stop() — "
+                               "a relaunch swap may be blocked", pid=proc.pid)
+        return dead
+
+    def _hard_kill(self, proc: subprocess.Popen) -> None:
+        """Force-kill the controller AND every descendant. ``proc.kill()`` alone would miss
+        grandchildren (a driver's helper process, a VISA backend) which keep ``run.dist``
+        open just the same — on Windows use ``taskkill /T`` to take the whole tree."""
+        try:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                               capture_output=True, check=False)
+            else:
+                proc.kill()
+        except Exception:  # noqa: BLE001 — best effort; poll() below is the real check
+            pass
+        try:
+            proc.wait(timeout=6)
+        except subprocess.TimeoutExpired:
+            pass
 
     # -- internals ----------------------------------------------------------
 

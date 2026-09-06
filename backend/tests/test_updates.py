@@ -322,6 +322,34 @@ async def test_rollback_unknown_target_raises(tmp_path):
     await db.close()
 
 
+async def test_status_surfaces_launcher_swap_error(tmp_path):
+    """A relaunch swap that fails on the station (orphaned controller holding run.dist open,
+    say) leaves the offer stuck at `relaunch_requested` forever. The launcher drops
+    data/last_swap_error.json; status() turns that into a real `swap_failed` state the
+    Updates page can show."""
+    import json
+    svc, db = await _svc(_manifest(version="1.3.0"))
+    svc._data_dir = tmp_path
+    rec = await svc.ingest("dummy.ksupdate")
+    await svc.apply(rec["release_id"])
+    await svc.request_relaunch(rec["release_id"])
+    (tmp_path / "last_swap_error.json").write_text(json.dumps(
+        {"version": "1.3.0", "error": "[WinError 32] ... 'run.dist'", "strikes": 3, "at": 1.0}),
+        encoding="utf-8")
+    st = await svc.status()
+    assert st["state"] == "swap_failed"
+    assert st["swap_error"]["strikes"] == 3 and "WinError 32" in st["swap_error"]["error"]
+    await db.close()
+
+
+async def test_status_has_no_swap_error_when_clean(tmp_path):
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    st = await svc.status()
+    assert st["swap_error"] is None and st["state"] == "none"
+    await db.close()
+
+
 # --- Phase 4: AMC gate (build_timestamp vs amc.expires) --------------------
 
 class _AmcLic:

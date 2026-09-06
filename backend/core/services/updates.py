@@ -416,11 +416,31 @@ class UpdateService:
         self._diag.warning("updates", "rollback requested", target=want)
         return marker
 
+    def _swap_error(self) -> dict | None:
+        """The launcher's breadcrumb from a swap that failed on relaunch (data/last_swap_error.json).
+        A failed swap leaves the OLD build live and the launcher silently relaunches it, so the
+        offer status stays `relaunch_requested` forever — this is how the operator finds out."""
+        import json
+        from pathlib import Path
+        if self._data_dir is None:
+            return None
+        try:
+            e = json.loads((Path(self._data_dir) / "last_swap_error.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return {"version": e.get("version"), "error": e.get("error"),
+                "strikes": e.get("strikes", 1), "at": e.get("at")}
+
     async def status(self) -> dict:
         backups, lkg = self._read_backups()
         offers = await self.list_offers()
+        swap_error = self._swap_error()
+        state = offers[0]["status"] if offers else "none"
+        if swap_error and state == "relaunch_requested":
+            state = "swap_failed"
         return {"current": self.current(),
-                "state": offers[0]["status"] if offers else "none",
+                "state": state,
+                "swap_error": swap_error,
                 "last_known_good": lkg,
                 "backups": [{"id": b.get("backup_id"), "version": b.get("version"),
                              "installed_at": b.get("installed_at"),

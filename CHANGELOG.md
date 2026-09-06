@@ -5,6 +5,42 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.16.3 — 2026-09-06
+
+Both bugs reproduced live end-to-end against a real installed frozen station (`okaya_transformer`,
+app v1.0.3 on framework v1.16.2) actually attempting an in-app update apply. PATCH — but the first
+is safety-relevant: every app-track fork's in-app update-apply was non-functional and leaked a live
+controller per attempt.
+
+- **App-track relaunch swap ALWAYS failed, and leaked an orphaned controller each time.** On an
+  app-track build the backend (`run.exe`) spawns `run.exe --controller` as its **own** child. The
+  update relaunch/rollback endpoints exit the backend with a hard `os._exit(42)` that skips the
+  lifespan teardown — so that controller child was never stopped: it stayed alive across relaunch
+  generations, kept its image inside `run.dist` open (so `launcher.py`'s `live → .bak` rename
+  failed with `WinError 32` **every single time**), and `reconcile()` then silently relaunched the
+  OLD version with the Updates page stuck on `relaunch_requested` forever. Repro left 4 stray live
+  controller processes after 4 relaunch attempts — and more than one process driving instrument
+  I/O is a bench hazard, not just wasted memory. Fixed in depth: (1) the relaunch/rollback
+  endpoints (`core/app.py` `_exit_relaunch`) now stop the controller — graceful `CTRL_BREAK` →
+  every instrument to safe state → confirmed dead, hard `taskkill /T` on the whole tree on
+  timeout — **before** scheduling the exit; `ControllerSupervisor.stop()` returns that as a bool.
+  (2) `launcher.py` runs each backend generation in a Windows **Job Object** with
+  `KILL_ON_JOB_CLOSE` (`_WinJob`) and terminates it after `proc.wait()`, so any descendant that
+  outlived the backend is gone before the swap, unconditionally. (3) the swap rename retries with
+  backoff (`_rename_with_retry`) for the brief window a just-exited process can still hold a handle.
+  (4) a swap that still fails writes `data/last_swap_error.json`; `/update/status` surfaces
+  `swap_failed` and the Updates page shows the error + strike count instead of looping silently.
+  New tests: `stop()` confirms a real child tree is dead; the relaunch endpoint stops the
+  controller before `os._exit`; rename retry + failure-breadcrumb; status surfacing.
+- **Backend `run.exe` popped a visible console window on every spawn (every relaunch).** `run.exe`
+  is a console-subsystem exe and `launcher.py`'s `Supervisor` spawned it with only
+  `CREATE_NEW_PROCESS_GROUP`; launched from the windowed `run_station.exe` (no console of its own)
+  Windows allocated a fresh console window each time — "one more command prompt window" on every
+  relaunch of a kiosk station. Fixed: `CREATE_NO_WINDOW` bitwise-OR'd into the flags at that spawn
+  site only (running `run.exe` from a terminal still gets a console), and the same treatment for
+  the frozen `run.exe --controller` child in `core/services/controller_supervisor.py` (its stdout
+  is already piped into diagnostics, so the console showed nothing anyway).
+
 ## v1.16.2 — 2026-09-06
 
 Two bugs found running the update pipeline for real against a live GitHub Releases repo. PATCH.

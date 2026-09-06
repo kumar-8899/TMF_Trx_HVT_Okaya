@@ -41,6 +41,18 @@ desktop shortcut (or `dev.ps1` / `python station.py`) to bring it back. Closing 
 app window does the same safe shutdown — but use **Exit station** so nothing is left
 energised if the window is only minimised.
 
+## Application updates
+Check for, download and install signed application updates. Nothing installs on its
+own — **Check**, then **Download**, then **Install**, then **Relaunch**. The launcher
+swaps the new version in on the next start and automatically rolls back to the last
+known good build if the new one won't boot.
+
+- **"The last relaunch could not apply …"** — a red banner means the swap failed and
+  the **previous version is still running**. Press **Relaunch** on the offer to try
+  again; it usually clears on the second try. If it keeps failing, roll back to a
+  known-good build and reinstall, or send a developer `data/launcher.log` from the
+  station.
+
 ## Data management
 Select what to permanently delete, then **Reset selected**:
 - Runs & history, Reports, Logs, Recipes, Users (except super_admin).

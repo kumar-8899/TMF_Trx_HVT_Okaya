@@ -4,6 +4,10 @@ list is ignored, and an unconfigured app yields a controller with NO instruments
 even in simulation."""
 
 import json
+import subprocess
+import sys
+
+import pytest
 
 from core.services.controller_supervisor import ControllerSupervisor
 
@@ -83,3 +87,48 @@ def test_variable_map_still_resolved_relative_to_config_file(tmp_path):
     cfg = json.loads(sup._write_config().read_text(encoding="utf-8"))
     vm = cfg["stations"][0]["variable_map"]
     assert vm.endswith("st1.json") and (tmp_path / "maps" / "st1.json").as_posix() in vm.replace("\\", "/")
+
+
+# --- stop(): the controller child MUST be confirmed dead before a relaunch os._exit(42) ---
+# An app-track backend spawns `run.exe --controller` as its OWN child; a hard exit that
+# leaves it running orphans it — it keeps run.dist open (blocking every swap) and stays a
+# second process driving instrument I/O.
+
+def test_stop_confirms_child_is_dead_and_returns_true(tmp_path):
+    sup, _ = _sup(tmp_path)
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
+                            creationflags=flags)
+    sup._proc = proc
+    try:
+        assert sup.stop() is True
+        assert proc.poll() is not None          # actually terminated, not just signalled
+        assert sup._proc is None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_stop_is_idempotent_when_there_is_no_child(tmp_path):
+    sup, _ = _sup(tmp_path)
+    assert sup.stop() is True                     # "nothing to stop" is success, not None
+    assert sup.stop() is True
+
+
+def test_start_suppresses_console_window_on_windows(tmp_path, monkeypatch):
+    """Bug 2: the frozen `run.exe --controller` child is console-subsystem; spawned from the
+    windowed launcher it would pop a fresh console window on every relaunch."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only creationflags")
+    seen = {}
+
+    def spy(*a, **k):
+        seen["flags"] = k.get("creationflags", 0)
+        raise RuntimeError("don't actually spawn in the test")
+
+    monkeypatch.setattr(subprocess, "Popen", spy)
+    sup, _ = _sup(tmp_path, instruments=PAGE)
+    monkeypatch.setattr(sup, "_command", lambda: ([sys.executable, "-c", "pass"], tmp_path))
+    sup.start()                                   # start() swallows the RuntimeError (logs a warning)
+    assert seen["flags"] & subprocess.CREATE_NO_WINDOW
+    assert seen["flags"] & subprocess.CREATE_NEW_PROCESS_GROUP

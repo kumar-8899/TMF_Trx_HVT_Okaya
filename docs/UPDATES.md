@@ -215,6 +215,31 @@ Required:
 Without this, every other guarantee in this document is conditional on the
 power staying on.
 
+### 4.1 The swap needs a clean process tree first
+
+`live → .bak` is a **rename**, so it fails (`WinError 32`) if any process still
+holds a file inside `run.dist` open. On an **app-track** build the backend
+(`run.exe`) spawns `run.exe --controller` as its **own** child; a relaunch/rollback
+exits the backend with a hard `os._exit(42)` that skips the lifespan teardown, so
+that controller child would be orphaned — still alive, still holding its own image
+in `run.dist` open (blocking every swap), and still a second process driving
+instrument I/O. Three layers stop that:
+
+1. **The relaunch/rollback endpoints stop the controller first.** `_exit_relaunch`
+   in `core/app.py` calls `ControllerSupervisor.stop()` — graceful `CTRL_BREAK`
+   → every instrument to safe state → confirmed dead (hard `taskkill /T` on
+   timeout) — *before* scheduling `os._exit(42)`.
+2. **Each backend generation runs in a Windows Job Object** with
+   `KILL_ON_JOB_CLOSE` (`launcher.py` `_WinJob`). After `proc.wait()` the
+   supervisor terminates the job, so any descendant that outlived the backend is
+   gone before the swap — unconditionally, without trusting shutdown ordering.
+3. **The rename retries with backoff** (`_rename_with_retry`): a just-exited
+   process can hold its image open for a brief, non-deterministic window.
+
+If the swap still fails, the launcher writes `data/last_swap_error.json`; the
+Updates page shows `swap_failed` with the error and strike count instead of
+looping forever on `relaunch_requested`.
+
 ---
 
 ## 5. Backups and rollback

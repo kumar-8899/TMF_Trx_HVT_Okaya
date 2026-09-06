@@ -443,15 +443,28 @@ def create_app(
         app.state.diag.info("core", "debug config updated", enabled=dbg.get("enabled"), remote=host not in _LOOPBACK)
         return {"ok": True, **_debug_payload(dbg, await _probe_debug(dbg), restart=True)}
 
-    @app.post("/system/relaunch", dependencies=_SETTINGS)
-    async def system_relaunch() -> dict:
-        """Relaunch the station to apply a config change (exit 42 → the launcher restarts).
-        os._exit skips lifespan cleanup, so stop the child controller here first."""
+    def _exit_relaunch(reason: str) -> None:
+        """Stop the supervised Python controller, THEN schedule os._exit(42).
+
+        os._exit skips the lifespan teardown entirely, so the controller child
+        (`run.exe --controller` on an app-track build) is not stopped by the normal
+        shutdown path. Left running it is orphaned: it keeps run.dist open — which blocks
+        the launcher's rename-based swap on every attempt — and it stays a second process
+        driving instrument I/O. Stop it (and confirm the tree is dead) here first, so the
+        launcher observes rc=42 with a clean process tree. The timer fires after the HTTP
+        response is flushed so the UI still gets its ack."""
         sup = getattr(app.state, "controller", None)
         if sup is not None:
-            sup.stop()
-        app.state.diag.info("core", "station relaunch requested (config change)")
+            dead = sup.stop()
+            app.state.diag.info("core", "child controller stopped before relaunch",
+                                reason=reason, confirmed_dead=dead)
         threading.Timer(0.6, lambda: os._exit(42)).start()
+
+    @app.post("/system/relaunch", dependencies=_SETTINGS)
+    async def system_relaunch() -> dict:
+        """Relaunch the station to apply a config change (exit 42 → the launcher restarts)."""
+        app.state.diag.info("core", "station relaunch requested (config change)")
+        _exit_relaunch("config change")
         return {"ok": True, "relaunching": True, "note": "station is relaunching to apply configuration"}
 
     @app.post("/system/shutdown", dependencies=_SETTINGS)
@@ -608,15 +621,13 @@ def create_app(
         """Write the launcher marker + exit with the RELAUNCH code (42) so the
         supervisor swaps the staged artifact and restarts. Requires the launcher —
         a bare backend just exits."""
-        import threading
         try:
             marker = await app.state.updates.request_relaunch(release_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        # exit AFTER the HTTP response is flushed, so the UI gets the ack.
-        threading.Timer(0.6, lambda: os._exit(42)).start()
+        _exit_relaunch(f"update {marker.get('version')}")
         return {"ok": True, "relaunching": marker.get("version"),
                 "note": "station is relaunching to apply the update"}
 
@@ -631,13 +642,12 @@ def create_app(
         runs = runs.active.get("runs") if runs is not None else None
         if runs is not None and getattr(runs, "_active", None):
             raise HTTPException(status_code=409, detail="a run is active — cannot roll back mid-test")
-        import threading
         target = (body or {}).get("target", "last_known_good")
         try:
             marker = await app.state.updates.rollback(target)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        threading.Timer(0.6, lambda: os._exit(42)).start()
+        _exit_relaunch(f"rollback {marker.get('rollback')}")
         return {"ok": True, "rolling_back": marker.get("rollback"),
                 "note": "station is relaunching to roll back"}
 

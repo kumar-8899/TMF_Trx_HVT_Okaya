@@ -90,3 +90,38 @@ async def test_shutdown_requires_permission(config_dir):
         async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             assert (await c.post("/system/shutdown", json={})).status_code == 401
             assert (await c.post("/system/relaunch", json={})).status_code == 401
+
+
+async def test_relaunch_stops_the_controller_before_exiting(config_dir, monkeypatch):
+    """os._exit(42) skips the lifespan teardown, so the relaunch endpoints must stop the
+    supervised Python controller themselves — otherwise `run.exe --controller` is orphaned,
+    keeps run.dist open (blocking every swap) and stays a second process driving instruments."""
+    import core.app as core_app
+
+    events: list[str] = []
+    monkeypatch.setattr(core_app.os, "_exit", lambda code: events.append(f"exit{code}"))
+
+    class _ImmediateTimer:
+        def __init__(self, _delay, fn):
+            self._fn = fn
+
+        def start(self):
+            self._fn()
+
+    monkeypatch.setattr(core_app.threading, "Timer", _ImmediateTimer)
+
+    class _FakeController:
+        def stop(self):
+            events.append("stop")
+            return True
+
+    app = _app(config_dir)
+    async with app.router.lifespan_context(app):
+        app.state.controller = _FakeController()
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            admin = await _admin(c)
+            r = await c.post("/system/relaunch", json={}, headers=admin)
+            assert r.status_code == 200
+    # the controller is stopped BEFORE the process exit is scheduled (the trailing "stop" is
+    # the lifespan teardown, which os._exit(42) would skip in a real relaunch).
+    assert events[:2] == ["stop", "exit42"]

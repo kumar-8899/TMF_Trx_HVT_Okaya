@@ -86,6 +86,19 @@ export function UpdatesConfig() {
     <Section title="Updates" subtitle="signed application updates (Keystation) — notify-only, two-click install">
       {error && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>{error}</Alert>}
       {msg && <Alert severity="info" sx={{ mb: 1.5 }} onClose={() => setMsg(null)}>{msg}</Alert>}
+      {status?.swap_error && (
+        <Alert severity="error" sx={{ mb: 1.5 }}>
+          The last relaunch could <b>not</b> apply {status.swap_error.version ?? "the update"} —
+          the previous version is still running (attempt {status.swap_error.strikes}).
+          <Typography variant="caption" display="block" sx={{ mt: 0.5, fontFamily: MONO_STACK }}>
+            {status.swap_error.error}
+          </Typography>
+          <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+            Retry with <b>Relaunch</b> below; if it keeps failing, roll back and reinstall, or check
+            <code> data/launcher.log</code> on the station.
+          </Typography>
+        </Alert>
+      )}
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
         Installed:{" "}

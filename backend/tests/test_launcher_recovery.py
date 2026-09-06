@@ -3,8 +3,11 @@ last-known-good, revert. Drives SwapManager with temp dirs + fake run.dist trees
 backend, no subprocess."""
 
 import json
+from pathlib import Path
 
-from launcher import SwapManager, _release_version
+import pytest
+
+from launcher import SwapManager, _release_version, _rename_with_retry, _WinJob
 
 
 def _dist(path, version):
@@ -85,6 +88,64 @@ def test_revert_to_last_known_good_restores_binary_and_db(tmp_path):
     assert sm.revert_to_last_known_good() is True
     assert _release_version(live) == "1.0.0"           # binary reverted
     assert db.read_text() == "db-v1"                    # db snapshot restored
+
+
+# --- swap rename resilience + failure breadcrumb -------------------------
+
+def test_rename_with_retry_succeeds_after_a_transient_lock(tmp_path, monkeypatch):
+    monkeypatch.setattr("launcher.time.sleep", lambda _s: None)
+    src = tmp_path / "a"
+    src.mkdir()
+    dst = tmp_path / "b"
+    real = Path.rename
+    calls = {"n": 0}
+
+    def flaky(self, target):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError(32, "The process cannot access the file because it is being used")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    _rename_with_retry(src, dst, attempts=5, base_delay=0)
+    assert calls["n"] == 3 and dst.exists() and not src.exists()
+
+
+def test_rename_with_retry_eventually_gives_up(tmp_path, monkeypatch):
+    monkeypatch.setattr("launcher.time.sleep", lambda _s: None)
+    monkeypatch.setattr(Path, "rename", lambda self, target: (_ for _ in ()).throw(OSError(32, "locked")))
+    with pytest.raises(OSError):
+        _rename_with_retry(tmp_path / "x", tmp_path / "y", attempts=3, base_delay=0)
+
+
+def test_apply_staged_records_and_bumps_swap_error_breadcrumb(tmp_path, monkeypatch):
+    sm, live, state, db = _sm(tmp_path)
+    staged = _dist(tmp_path / "staged", "1.1.0")
+    monkeypatch.setattr("launcher.time.sleep", lambda _s: None)
+    monkeypatch.setattr(Path, "rename",
+                        lambda self, target: (_ for _ in ()).throw(OSError(32, "in use: run.dist")))
+    assert sm.apply_staged({"staged_dir": str(staged), "version": "1.1.0"}) is False
+    err = json.loads((state / "last_swap_error.json").read_text())
+    assert err["version"] == "1.1.0" and err["strikes"] == 1 and "run.dist" in err["error"]
+    assert sm.apply_staged({"staged_dir": str(staged), "version": "1.1.0"}) is False
+    assert json.loads((state / "last_swap_error.json").read_text())["strikes"] == 2
+
+
+def test_apply_staged_clears_a_stale_swap_error_on_success(tmp_path):
+    sm, live, state, db = _sm(tmp_path)
+    (state / "last_swap_error.json").write_text('{"version": "old", "strikes": 2}', encoding="utf-8")
+    staged = _dist(tmp_path / "staged", "1.1.0")
+    assert sm.apply_staged({"staged_dir": str(staged), "version": "1.1.0"}) is True
+    assert not (state / "last_swap_error.json").exists()
+
+
+def test_winjob_is_safe_to_construct_and_use_everywhere(tmp_path):
+    """Real Job Object on Windows, no-op elsewhere — either way it must never raise, even
+    handed a bogus process handle, and terminate_and_close must be idempotent."""
+    j = _WinJob()
+    j.assign(type("P", (), {"_handle": 0})())
+    j.terminate_and_close()
+    j.terminate_and_close()
 
 
 def test_prune_keeps_only_n_backups_but_never_lkg(tmp_path):
