@@ -5,6 +5,12 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.16.1 — 2026-09-06
+
+- **"Manage users" added to the account dropdown** (top-right avatar menu), alongside Log out —
+  a second path to the same `/users` page Administration → Users already opens. Gated on the same
+  `AUTH.MANAGE_USERS` permission as the sidebar entry, so visibility is identical between the two.
+
 ## v1.16.0 — 2026-09-06
 
 Nav simplification + a real bug fix hiding behind it: the `daq` module was LabVIEW-only and

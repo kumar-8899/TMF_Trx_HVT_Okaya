@@ -5,19 +5,21 @@
  * Exit station calls POST /system/shutdown — the full graceful backend shutdown (the
  * Python controller is stopped, instruments driven to safe state, bridge offline, DB
  * closed) then the process exits without relaunching. */
-import { CheckCircleOutline, Logout, PowerSettingsNew } from "@mui/icons-material";
+import { CheckCircleOutline, Logout, ManageAccountsOutlined, PowerSettingsNew } from "@mui/icons-material";
 import {
   Avatar, Backdrop, Box, ButtonBase, Chip, CircularProgress, Divider, ListItemIcon,
   ListItemText, Menu, MenuItem, Stack, Typography,
 } from "@mui/material";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmDialog } from "./ui";
 
 export function UserMenu() {
-  const { principal, logout } = useAuth();
+  const { principal, logout, can } = useAuth();
+  const navigate = useNavigate();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
   const [confirm, setConfirm] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -67,6 +69,12 @@ export function UserMenu() {
           <Chip size="small" label={principal.role} sx={{ height: 18, fontSize: 11, mt: 0.5 }} />
         </Box>
         <Divider />
+        {can("AUTH.MANAGE_USERS") && (
+          <MenuItem onClick={() => { close(); navigate("/users"); }}>
+            <ListItemIcon><ManageAccountsOutlined fontSize="small" /></ListItemIcon>
+            <ListItemText>Manage users</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem onClick={() => { close(); logout(); }}>
           <ListItemIcon><Logout fontSize="small" /></ListItemIcon>
           <ListItemText>Log out</ListItemText>
