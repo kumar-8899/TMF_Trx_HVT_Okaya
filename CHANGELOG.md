@@ -5,6 +5,16 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.15.2 — 2026-09-06
+
+- **Permissions page couldn't grant `DIAGNOSTICS.PURGE`.** It has gated `DELETE
+  /logs/{errors,actions}` since 2026-06-05 but was never added to `permissions_catalog.py` —
+  invisible to the role matrix (worked for `super_admin` only, via the `DIAGNOSTICS.*` wildcard;
+  no other role could be granted it). Added. New `test_permissions_catalog.py` scans every
+  `require_permission`/`permission_granted` call site and fails if one isn't cataloged, so the
+  next module can't reintroduce this gap silently — verified it actually catches the regression
+  (reverted the fix, test failed naming the exact gap; restored, green).
+
 ## v1.15.1 — 2026-09-06
 
 `build_release.py --track app` could not freeze `run_station.exe` on an MSVC-less builder, a

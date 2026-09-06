@@ -24,6 +24,7 @@ _CATALOG: list[tuple[str, str, str, str]] = [
     ("CONFIG.VIEW",         "Config",      "View config",         "Read instruments/transports, test connection."),
     ("CONFIG.EDIT",         "Config",      "Edit config",         "Create/update/delete instruments + config."),
     ("DIAGNOSTICS.VIEW",    "Diagnostics", "View diagnostics",    "Live event tail + logs + readiness."),
+    ("DIAGNOSTICS.PURGE",   "Diagnostics", "Purge logs",          "Delete action/error log records older than a cutoff (Logs page)."),
     ("HELP.VIEW",           "Help",        "View user docs",      "Open the in-app user documentation."),
     ("HELP.DEV",            "Help",        "View developer docs", "Open the developer documentation (super_admin)."),
     ("SYSTEM.RESET_DATA",   "System",      "Reset data",          "Purge runs/reports/logs/recipes/users (super_admin)."),
