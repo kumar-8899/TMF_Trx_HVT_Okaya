@@ -1,6 +1,6 @@
 import {
-  Alert, Button, Chip, Divider, Stack, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, Typography,
+  Alert, Button, Chip, CircularProgress, Divider, Stack, Table, TableBody, TableCell,
+  TableHead, TableRow, TextField, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 
@@ -25,6 +25,7 @@ export function UpdatesConfig() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reconnecting, setReconnecting] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -39,6 +40,33 @@ export function UpdatesConfig() {
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError(null); setMsg(null);
     try { await fn(); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /** After a relaunch/rollback the backend exits (~0.6s later) and the launcher swaps + boots
+   * the new build. Poll /healthz until it answers again, then re-fetch so the page shows the
+   * post-relaunch state instead of sitting on the stale pre-relaunch view. Times out at ~90s
+   * (the update system's BOOT_TIMEOUT convention) → "reload manually". */
+  const awaitRelaunch = async (what: string) => {
+    setReconnecting(`Station is ${what} — waiting for it to come back…`);
+    await sleep(3000);                                  // let the process actually exit first
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      try {
+        await api.get("/healthz", { auth: false });     // public; back up once this resolves
+        setReconnecting(null);
+        await refresh();
+        setMsg(`Station is back up — ${what} finished.`);
+        return;
+      } catch {
+        await sleep(2000);
+      }
+    }
+    setReconnecting(null);
+    throw new Error(
+      "The station has not come back after 90 seconds. If it is a windowed station, it may need "
+      + "to be reopened; otherwise reload this page once it has restarted.");
   };
 
   const check = () => run(async () => {
@@ -77,17 +105,22 @@ export function UpdatesConfig() {
   });
   const relaunch = (id: string) => run(async () => {
     await api.post(`/update/relaunch/${id}`, {});
-    setMsg("Station is relaunching to apply the update — this page will reconnect shortly.");
+    await awaitRelaunch("relaunching to apply the update");
   });
   const rollback = (target: string) => run(async () => {
     await api.post("/update/rollback", { target });
-    setMsg("Station is relaunching to roll back — this page will reconnect shortly.");
+    await awaitRelaunch("relaunching to roll back");
   });
 
   return (
     <Section title="Updates" subtitle="signed application updates (Keystation) — notify-only, two-click install">
       {error && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>{error}</Alert>}
       {msg && <Alert severity="info" sx={{ mb: 1.5 }} onClose={() => setMsg(null)}>{msg}</Alert>}
+      {reconnecting && (
+        <Alert severity="info" icon={<CircularProgress size={18} />} sx={{ mb: 1.5 }}>
+          {reconnecting}
+        </Alert>
+      )}
       {status?.swap_error && (
         <Alert severity="error" sx={{ mb: 1.5 }}>
           The last relaunch could <b>not</b> apply {status.swap_error.version ?? "the update"} —

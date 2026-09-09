@@ -10,9 +10,9 @@ from __future__ import annotations
 import shutil
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from core.framework.contract import CoreServices, Health, HealthStatus
+from core.services.config import migrate_cwd_state, resolve_state_path
 from modules.recipe import catalog
 from modules.recipe import registry as step_registry
 from modules.recipe import export_import as ei
@@ -40,7 +40,12 @@ class FilesystemRecipe:
         self.core = core
         self.config = config
         self.station = core.station
-        self.root = Path(config.get("root", "data/recipes"))
+        # Resolve against the EXTERNAL deploy root, not the CWD: a frozen station runs with
+        # cwd=run.dist, so a relative "data/recipes" would live inside the unit an update swap
+        # renames into the backup — the operator's recipes (no other copy) gone (UPDATES.md §4.1).
+        _root_cfg = config.get("root", "data/recipes")
+        self.root = resolve_state_path(_root_cfg)
+        migrate_cwd_state(_root_cfg, self.root, getattr(core, "diag", None))
         self.store = RecipeStore(self.root)
         self._schemas: SchemaSet | None = None
         self.router = build_router(self)

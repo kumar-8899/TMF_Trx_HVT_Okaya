@@ -47,6 +47,11 @@ own — **Check**, then **Download**, then **Install**, then **Relaunch**. The l
 swaps the new version in on the next start and automatically rolls back to the last
 known good build if the new one won't boot.
 
+After **Relaunch** (or a **Roll back**) the page shows a spinner and "waiting for it
+to come back" while the station restarts, then refreshes itself to the new version —
+you no longer need to reload it by hand. If it hasn't returned after ~90 seconds you
+get a message to reload manually (a windowed station may need to be reopened).
+
 This station is set to one update source (`updates.station_mode` in its config):
 **online** stations show **Check for application updates**; **air-gapped** stations
 hide that and show only **Install from file** (copy the release's `.ksupdate` +

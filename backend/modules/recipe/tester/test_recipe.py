@@ -153,6 +153,40 @@ async def fsmod(tmp_path):
     await db.close()
 
 
+async def test_relative_root_resolves_outside_the_swappable_tree(tmp_path, monkeypatch):
+    """A frozen station runs with cwd=run.dist. A relative recipe `root` must resolve under
+    TMF_STATE_DIR (external) so an update swap can't rename the operator's recipes into the
+    backup — the critical data-loss bug (UPDATES.md §4.1)."""
+    monkeypatch.setenv("TMF_STATE_DIR", str(tmp_path / "deploy"))
+    run_dist = tmp_path / "run.dist"
+    run_dist.mkdir()
+    monkeypatch.chdir(run_dist)                       # simulate the frozen launcher's cwd
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    mod = FilesystemRecipe.construct(core, {"root": "data/recipes"})   # the shipped default
+    await mod.init()
+    await mod.create_recipe(PAYLOAD)
+    assert mod.root == tmp_path / "deploy" / "data" / "recipes"
+    assert (mod.root / "inv-c" / "meta.json").is_file()
+    assert not (run_dist / "data").exists()           # nothing landed under run.dist
+    await db.close()
+
+
+async def test_legacy_cwd_recipes_are_migrated_on_construct(tmp_path, monkeypatch):
+    monkeypatch.setenv("TMF_STATE_DIR", str(tmp_path / "deploy"))
+    run_dist = tmp_path / "run.dist"
+    (run_dist / "data" / "recipes" / "old-r").mkdir(parents=True)
+    (run_dist / "data" / "recipes" / "old-r" / "meta.json").write_text('{"name":"Old"}', encoding="utf-8")
+    monkeypatch.chdir(run_dist)
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    mod = FilesystemRecipe.construct(core, {"root": "data/recipes"})
+    assert mod.store.read_meta("old-r")["name"] == "Old"   # rescued to the external root
+    await db.close()
+
+
 async def test_create_save_publish(fsmod):
     mod, db = fsmod
     created = await mod.create_recipe(PAYLOAD)

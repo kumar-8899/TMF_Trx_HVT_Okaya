@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 
+from core.services.config import resolve_state_path
 from core.services.interlock import InterlockResult
 
 
@@ -21,8 +21,10 @@ def _safe(serial: str) -> str:
 
 class FolderProvider:
     def __init__(self, config: dict, on_missing: str = "block") -> None:
-        self.upstream = Path(config.get("upstream_dir", "")) if config.get("upstream_dir") else None
-        self.downstream = Path(config["downstream_dir"]) if config.get("downstream_dir") else None
+        # Resolve under the external deploy root, not the CWD (=run.dist frozen), so the
+        # PASS/FAIL handoff files aren't renamed into the backup on an update swap (UPDATES.md §4.1).
+        self.upstream = resolve_state_path(config["upstream_dir"]) if config.get("upstream_dir") else None
+        self.downstream = resolve_state_path(config["downstream_dir"]) if config.get("downstream_dir") else None
         self.on_missing = on_missing
 
     async def check_upstream(self, serial: str) -> InterlockResult:

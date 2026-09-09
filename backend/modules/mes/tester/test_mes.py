@@ -39,6 +39,19 @@ async def ctx(tmp_path):
     await db.close()
 
 
+def test_folder_dirs_resolve_outside_the_swappable_tree(tmp_path, monkeypatch):
+    """cwd=run.dist on a frozen station: a relative upstream/downstream dir must resolve
+    under TMF_STATE_DIR so an update swap can't rename the MES handoff files into the backup."""
+    from modules.mes.providers.folder import FolderProvider
+    monkeypatch.setenv("TMF_STATE_DIR", str(tmp_path / "deploy"))
+    run_dist = tmp_path / "run.dist"
+    run_dist.mkdir()
+    monkeypatch.chdir(run_dist)
+    p = FolderProvider({"upstream_dir": "data/mes/upstream", "downstream_dir": "data/mes/downstream"})
+    assert p.upstream == tmp_path / "deploy" / "data" / "mes" / "upstream"
+    assert p.downstream == tmp_path / "deploy" / "data" / "mes" / "downstream"
+
+
 async def test_block_when_no_upstream(ctx):
     module, _, _, _ = ctx
     res = await module.check("SN1", {})

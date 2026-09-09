@@ -240,6 +240,37 @@ If the swap still fails, the launcher writes `data/last_swap_error.json`; the
 Updates page shows `swap_failed` with the error and strike count instead of
 looping forever on `relaunch_requested`.
 
+### 4.2 Config-supplied paths must resolve OUTSIDE run.dist
+
+A frozen station runs with `cwd = run.dist`. Any module that turns a **relative**
+config value into a filesystem path (`recipe.root`, `report.outbox_path`,
+`report.sinks[].path`, `mes.folder.upstream_dir`/`downstream_dir`) must resolve it
+against the external deploy root, or that data lands inside `run.dist` and an
+update swap renames it into the backup — silent data loss. `core.services.config`
+provides:
+
+- `state_root()` — `TMF_STATE_DIR` when frozen, `backend/` in source/tests.
+- `resolve_state_path(rel)` — `rel` if absolute, else `state_root() / rel`. So the
+  shipped `"data/recipes"` → `<deploy>/data/recipes`, the same tree that holds
+  `tmf.sqlite`. Source/test layout is unchanged.
+- `migrate_cwd_state(rel, resolved, diag)` — one-time rescue: if a pre-fix build
+  wrote data at the CWD-relative location and the corrected path is still empty,
+  copy it across (recipes + the report outbox do this; the folder mirror sinks and
+  MES handoff dirs just resolve correctly going forward — lower severity, they
+  regenerate).
+
+The recipe store was the **critical** case: operator-authored recipes with no
+other copy. The report **outbox** is second (reports queued for the pro DB but not
+yet forwarded). The folder sinks and MES dirs are export/integration convenience.
+
+### 4.3 The Updates page waits for the station to return
+
+`relaunch()` / `rollback()` in `UpdatesConfig.tsx` no longer just print "will
+reconnect shortly" and leave the page on the stale pre-relaunch state. After the
+POST they poll `/healthz` (2 s interval, ~90 s budget — the `BOOT_TIMEOUT_S`
+convention) and call `refresh()` once it answers, so the page resolves into the
+real post-relaunch view; a timeout shows a "reload manually" error.
+
 ---
 
 ## 5. Backups and rollback

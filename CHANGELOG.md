@@ -5,6 +5,36 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.17.1 — 2026-09-09
+
+Data-durability + UX fixes on the update path, found in a real frozen-station update. PATCH.
+
+- **CRITICAL — recipes were written inside `run.dist` and orphaned on every update.**
+  `FilesystemRecipe` resolved its store `root` (default `"data/recipes"`) relative to the
+  process CWD, which for a frozen station is `run.dist` — the unit the launcher renames into
+  `data/backups/bak-*` on a swap. Result: the operator's recipes (authored in-app, no other
+  copy) vanished from the UI on the next update. Fixed with a new
+  `core.services.config.resolve_state_path()` that resolves relative config paths against the
+  **external deploy root** (`TMF_STATE_DIR` when frozen, `backend/` in source — dev/test layout
+  unchanged), plus `migrate_cwd_state()` which, on module construct, does a one-time copy of a
+  pre-fix build's `run.dist/data/recipes` to the external root with a loud diag warning so
+  existing stations recover their recipes on upgrade.
+- **Same bug, lower severity — report outbox, report folder sinks, MES folder dirs.** The
+  report **outbox** (`outbox_path`, default `data/report_outbox.sqlite` — holds reports queued
+  for the professional DB but not yet forwarded) had the identical CWD-relative default and is
+  now resolved + migrated the same way. The result-routed **folder sinks**
+  (`report.sinks[].path`) and the **MES folder** handoff dirs
+  (`mes.folder.upstream_dir`/`downstream_dir`) also resolve through `resolve_state_path()` now,
+  but without auto-migration — they are a redundant export / transient per-serial interlock,
+  not operator-facing report data (that lives in the pro DB / `tmf.sqlite`, which was never
+  affected — the earlier "reports destroyed" claim was overstated).
+- **Updates page sat on the stale pre-relaunch view forever.** `relaunch()` / `rollback()` in
+  `UpdatesConfig.tsx` posted the request and showed a static "will reconnect shortly" line with
+  nothing behind it — the operator had to close and reopen the whole app to see the new version.
+  Now it polls `/healthz` (2 s interval, ~90 s budget) after the POST and calls `refresh()` once
+  the station answers, showing a real "waiting for it to come back" spinner that resolves into
+  the post-relaunch state; a timeout shows a "reload manually" error.
+
 ## v1.17.0 — 2026-09-06
 
 Two independent capabilities, both from real pain cutting fork releases on GitHub Free. MINOR

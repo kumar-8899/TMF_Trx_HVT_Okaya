@@ -34,6 +34,57 @@ def resolve_state_dirs():
     return DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_DIR, BACKEND_DIR / "data"
 
 
+def state_root() -> Path:
+    """The external deploy root a swap never touches — `TMF_STATE_DIR` when frozen, `backend/`
+    in source/tests. `data_dir` is `state_root()/data`."""
+    return resolve_state_dirs()[2].parent
+
+
+def resolve_state_path(rel: str | Path) -> Path:
+    """Resolve a config-supplied path against the EXTERNAL deploy root, never the process
+    CWD.
+
+    A frozen station runs with `cwd = run.dist` — the unit an update swap renames into the
+    backup — so a *relative* config value like `"data/recipes"` or `"data/reports/pass"`
+    would land INSIDE `run.dist` and be carried off on the next update, silently (UPDATES.md
+    §1, §4.1). Relative values resolve under `state_root()` (so `"data/recipes"` → the same
+    `<deploy>/data/recipes` that holds `tmf.sqlite`); an absolute value is returned unchanged.
+    In source/tests `state_root()` is `backend/`, so behaviour is exactly as before."""
+    p = Path(rel)
+    return p if p.is_absolute() else (state_root() / p)
+
+
+def migrate_cwd_state(rel: str | Path, resolved: Path, diag=None) -> None:
+    """One-time rescue for a station that ran a pre-fix build: if `rel` (resolved against
+    the CWD — the old wrong location) holds data and the corrected `resolved` path does not
+    yet exist, copy it across so the operator's data reappears after the upgrade. Handles a
+    file or a directory. Leaves the old copy in place — the next swap prunes it with the
+    backup. Best-effort; never fatal."""
+    old = Path(rel)
+    if old.is_absolute() or str(rel) == ":memory:":
+        return
+    old = old.resolve()
+    try:
+        if old == resolved.resolve() or resolved.exists():
+            return
+        if old.is_dir() and any(old.iterdir()):
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(old, resolved)
+        elif old.is_file():
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(old, resolved)
+        else:
+            return
+    except OSError as exc:
+        if diag is not None:
+            diag.warning("core", "legacy state migration skipped", path=str(old), error=str(exc))
+        return
+    if diag is not None:
+        diag.warning("core", "migrated state out of the swappable tree — a prior build wrote it "
+                     "under run.dist where an update would have lost it",
+                     legacy=str(old), moved_to=str(resolved))
+
+
 class ConfigError(Exception):
     """Config missing or failed schema validation. Loud and structured (PRINCIPLES §6)."""
 

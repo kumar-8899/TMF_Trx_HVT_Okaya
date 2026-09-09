@@ -243,6 +243,15 @@ data/recipes/
                 base_version: 3        # which version was forked from
 ```
 
+The store root is `config.root` (default `"data/recipes"`). A **relative** value
+resolves against the external deploy root (`core.services.config.resolve_state_path`
+→ `TMF_STATE_DIR` when frozen, `backend/` in source), **never** the process CWD —
+a frozen station runs with `cwd = run.dist`, so a CWD-relative store would sit
+inside the unit an update swap renames into the backup and the operator's recipes
+(no other copy) would vanish on the next update (UPDATES.md §4.1). A build from
+before this fix that already wrote recipes under `run.dist/data/recipes` is
+migrated to the external root once, on module construct, with a loud diag warning.
+
 ### 5.4 New product line = new recipe_id
 
 `inverter-board-rev-d` is a new `recipe_id`, not v4 of `rev-c`. The id

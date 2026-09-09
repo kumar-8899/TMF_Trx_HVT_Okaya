@@ -6,6 +6,7 @@ is always present (the queryable store); other sinks are result-routed mirrors.
 
 from __future__ import annotations
 
+from core.services.config import resolve_state_path
 from modules.report.sinks.folder import FolderSink
 from modules.report.sinks.sqlite import SqliteSink
 
@@ -20,7 +21,12 @@ def make_sink(spec: dict, db):
     if t == "sqlite":
         return SqliteSink(db, when)
     if t == "folder":
-        return FolderSink(spec["path"], when, spec.get("format", "json"))
+        # Resolve under the external deploy root, not the CWD (=run.dist frozen): a relative
+        # "data/reports/pass" would otherwise be renamed into the backup on an update swap.
+        # Lower severity than recipes — these are a redundant CSV/JSON export for an external
+        # shop-floor watcher, not the operator's report data (that's the pro DB) — so no
+        # legacy migration, just correct resolution going forward.
+        return FolderSink(str(resolve_state_path(spec["path"])), when, spec.get("format", "json"))
     if t == "mysql":
         # Seam built, impl deferred — fail loud at config-load (RP plan).
         raise ValueError("mysql report sink needs the 'mysql' extra (not built); use sqlite or folder")

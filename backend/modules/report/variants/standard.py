@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from core.framework.contract import CoreServices, Health, HealthStatus
+from core.services.config import migrate_cwd_state, resolve_state_path
 from modules.report.api import build_router
 from modules.report.assembly import build_report, result_is_pass
 from modules.report.outbox import Outbox
@@ -31,7 +32,16 @@ class StandardReport:
         self.station = core.station
         self._sinks = build_sinks(config, core.db)          # optional folder mirrors only
         self.store = ReportStore(core.diag)
-        outbox_path = config.get("outbox_path") or str(Path("data") / "report_outbox.sqlite")
+        # The outbox holds finished reports until the pro DB accepts them — resolve it under the
+        # EXTERNAL deploy root, never the CWD (=run.dist when frozen), or an update swap orphans
+        # any reports not yet forwarded (UPDATES.md §4.1).
+        _outbox_cfg = config.get("outbox_path") or "data/report_outbox.sqlite"
+        if _outbox_cfg == ":memory:" or Path(_outbox_cfg).is_absolute():
+            outbox_path = str(_outbox_cfg)
+        else:
+            _resolved = resolve_state_path(_outbox_cfg)
+            migrate_cwd_state(_outbox_cfg, _resolved, core.diag)
+            outbox_path = str(_resolved)
         self.outbox = Outbox(outbox_path)
         self._kick = asyncio.Event()
         self._forwarder: asyncio.Task | None = None

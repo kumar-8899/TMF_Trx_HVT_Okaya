@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mockFetch } from "../../test/fetchMock";
 import { UpdatesConfig } from "./UpdatesConfig";
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe("UpdatesConfig", () => {
   it("shows a distinct failure message when the check itself fails (not 'up to date')", async () => {
@@ -66,5 +68,35 @@ describe("UpdatesConfig", () => {
     await waitFor(() => expect(screen.getByLabelText(".ksupdate path")).toBeInTheDocument());
     expect(screen.queryByText("Check for application updates")).not.toBeInTheDocument();
     expect(screen.getByText(/Online check .* download is disabled/)).toBeInTheDocument();
+  });
+
+  it("relaunch waits for the backend to return, then re-fetches (not a static message)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let offersCalls = 0;
+    globalThis.fetch = vi.fn(async (url: any, opts: any = {}) => {
+      const method = (opts.method || "GET").toUpperCase();
+      const path = String(url).split("?")[0];
+      let body: any = null;
+      if (path === "/update/offers") {
+        offersCalls += 1;
+        body = { current: { version: "1.0.3" }, source: "o/r",
+          offers: [{ release_id: "x1", track: "app", version: "1.0.4", verified: true,
+            verdict: { applicable: true }, status: "apply_pending" }] };
+      } else if (path === "/update/status") body = { backups: [], last_known_good: null };
+      else if (path === "/update/relaunch/x1" && method === "POST") body = { ok: true };
+      else if (path === "/healthz") body = { status: "ok", version: "1.0.4" };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) } as Response;
+    }) as any;
+
+    render(<UpdatesConfig />);
+    const relaunchBtn = await screen.findByRole("button", { name: "Relaunch" });
+    expect(offersCalls).toBe(1);
+    fireEvent.click(relaunchBtn);
+
+    await screen.findByText(/waiting for it to come back/);        // real "reconnecting" state
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });   // past the 3s settle + first poll
+    await waitFor(() => expect(screen.queryByText(/waiting for it to come back/)).not.toBeInTheDocument());
+    expect(offersCalls).toBeGreaterThan(1);                        // refresh() re-ran after /healthz came back
+    expect(screen.getByText(/Station is back up/)).toBeInTheDocument();
   });
 });

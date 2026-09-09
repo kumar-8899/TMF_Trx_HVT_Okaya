@@ -168,6 +168,32 @@ async def test_folder_mirror_still_works(tmp_path):
         await mod.outbox.close(); await db.close()
 
 
+async def test_relative_outbox_and_folder_sink_resolve_outside_run_dist(tmp_path, monkeypatch):
+    """Frozen station: cwd=run.dist. A relative outbox_path / folder-sink path must resolve
+    under TMF_STATE_DIR so an update swap can't orphan queued reports or the mirror export
+    (UPDATES.md §4.1)."""
+    monkeypatch.setenv("TMF_STATE_DIR", str(tmp_path / "deploy"))
+    run_dist = tmp_path / "run.dist"
+    run_dist.mkdir()
+    monkeypatch.chdir(run_dist)
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    mod = StandardReport.construct(core, {
+        "sinks": [{"type": "folder", "when": "all", "path": "data/reports/pass", "format": "json"}]})
+    await mod.outbox.connect()
+    try:
+        await _seed_run(db, "R1", "PASS")
+        await mod._on_event("tmf/st1/event/run-finished",
+                            {"type": "run-finished", "ts": 3.0, "payload": {"run_id": "R1", "result": "PASS"}})
+        assert (tmp_path / "deploy" / "data" / "reports" / "pass" / "PASS" / "R1.json").exists()
+        assert (tmp_path / "deploy" / "data" / "report_outbox.sqlite").exists()
+        assert not (run_dist / "data").exists()
+    finally:
+        await mod.outbox.close()
+        await db.close()
+
+
 async def test_export_gated_and_formats(ctx):
     mod, core, db = ctx
     await _finish(mod, db, "R1", "PASS")
