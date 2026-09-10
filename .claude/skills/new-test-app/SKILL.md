@@ -45,7 +45,10 @@ Ask, or read from a supplied spec (a bench/product spec document the user provid
    (drive a line, settle, read a signal, compare a window → core step types) vs product-specific
    (non-scalar instruments, custom judgement → an app step type).
 6. **Signals/actions** — the named I/O lines and which instrument capability + args each maps to
-   (this becomes the variable map).
+   (this becomes the variable map). If the engineer has (or would rather fill in) a spreadsheet
+   of the whole I/O system, use the **`system-blueprint`** skill to generate the variable map +
+   instrument checklist from it — including later, as the full I/O is nailed down — instead of
+   hand-authoring the map.
 
 A missing answer produces an app that looks right and behaves wrong — stop and ask.
 
@@ -162,7 +165,9 @@ Create the app-owned tree (TEMPLATE.md §1.1):
   `{instance, read|write, args, scale?, clamp?, units?}`; `actions`: non-scalar capabilities →
   `{instance, capability}`. One map per station, **same names** across identical stations.
   Tip for a shared analog input read into several windows: pass a **context** string as an
-  extra read arg and have the sim driver key its value off it.
+  extra read arg and have the sim driver key its value off it. If the I/O is captured in a
+  System Blueprint spreadsheet, generate + maintain this file with the **`system-blueprint`**
+  skill (`python -m tools.blueprint generate`) rather than editing it by hand.
 - **`<name>_steps/`** — the controller step-type package. Author product-specific step types
   with the **`test-step-authoring`** skill (handler + schema + sim + tests; limits from
   `params`; `ctx.invoke` for non-scalar actions; the sequencer computes the verdict). Use the

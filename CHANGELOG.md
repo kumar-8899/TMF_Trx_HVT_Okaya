@@ -5,6 +5,34 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.18.0 — 2026-09-10
+
+**System Blueprint — author an app's I/O from a spreadsheet (MINOR).**
+
+A new app-authoring aid: an Excel workbook a test engineer fills in to declare one
+application's I/O system — its instruments and every input/output signal with the address
+relative to an instrument — and a deterministic generator that turns it into the framework's
+canonical artifacts. It defines the system's topology, never the tests.
+
+- **Tooling** `backend/tools/blueprint/` (`python -m tools.blueprint make-template|generate`):
+  builds the blank workbook (the generator script is the git source of truth; the `.xlsx` is
+  generated on demand), and generates/reconciles `app/<name>/maps/<station>.json` (the
+  controller-side variable map), a `maps/.blueprint.lock.json` tag ledger, `docs/INSTRUMENTS.md`
+  (the Config → Instruments checklist + a paste-ready `controller.json` `instances` block),
+  `docs/MULTIPLEXING.md`, and a `blueprint-report.md`.
+- **Stable per-row `tag`** is the reconcile key: a fuller sheet supplied later updates in place
+  (fills TBDs, renames/moves by tag, adds new) instead of clobbering work; a signal with no
+  read/write is kept pending; a signal dropped from the sheet is kept-and-warned (`--prune` to
+  delete). Validation vocabularies (capability methods, transports) are read live from the
+  framework code, so the template never drifts from what the variable engine accepts.
+- **Multiplexing** (one shared reader scanned via relays) is modelled as a composite driver:
+  each scan point is an ordinary signal on the composite instrument, and the relay switching is
+  captured on a Multiplexing sheet that becomes the `create-instrument-library` build spec — a
+  digital output that only steers the mux is a selector element, not a signal.
+- New **`system-blueprint`** skill (both `.claude/skills/` and `plugins/tmf-tools/` copies);
+  `new-test-app` points at it. New `docs/SYSTEM_BLUEPRINT.md` contract + dev help page.
+- `openpyxl` added to the `dev` extra (authoring-time only; not a station runtime dependency).
+
 ## v1.17.1 — 2026-09-09
 
 Data-durability + UX fixes on the update path, found in a real frozen-station update. PATCH.
@@ -99,7 +127,6 @@ controller per attempt.
   site only (running `run.exe` from a terminal still gets a console), and the same treatment for
   the frozen `run.exe --controller` child in `core/services/controller_supervisor.py` (its stdout
   is already piped into diagnostics, so the console showed nothing anyway).
-
 ## v1.16.2 — 2026-09-06
 
 Two bugs found running the update pipeline for real against a live GitHub Releases repo. PATCH.

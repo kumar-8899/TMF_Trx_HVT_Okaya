@@ -60,3 +60,8 @@ backend/data/launcher.log
 
 # Nuitka crash report (build junk)
 nuitka-crash-report.xml
+
+# System Blueprint — generated authoring artifacts (docs/SYSTEM_BLUEPRINT.md); the
+# generator script is the source of truth, a filled workbook belongs to the app.
+SystemBlueprint*.xlsx
+blueprint-report.md

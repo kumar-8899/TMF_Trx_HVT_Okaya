@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.17.1"
+version = "1.18.0"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -38,6 +38,7 @@ dev = [
     "ruff>=0.4",
     "pyinstaller>=6.6",
     "cryptography>=42",    # test_release_signer verifies Ed25519 signatures
+    "openpyxl>=3.1",       # System Blueprint authoring tool (tools/blueprint) — read/write .xlsx
 ]
 
 [tool.setuptools.packages.find]
