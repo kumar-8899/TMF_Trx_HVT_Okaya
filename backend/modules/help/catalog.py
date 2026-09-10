@@ -69,6 +69,7 @@ PAGES: list[Page] = [
     Page("dev-principles", "Principles", "dev", "Overview", "PRINCIPLES.md"),
     Page("dev-architecture", "Architecture", "dev", "Overview", "ARCHITECTURE.md"),
     Page("dev-template", "Application template", "dev", "Overview", "TEMPLATE.md"),
+    Page("dev-system-blueprint", "System Blueprint", "dev", "Overview", "SYSTEM_BLUEPRINT.md"),
     Page("dev-app-repo", "Building an app repo", "dev", "Overview", "APP_REPO.md"),
     Page("dev-module-framework", "Module framework", "dev", "Overview", "help/dev/module-framework.md"),
     Page("dev-core-services", "Core services", "dev", "Overview", "help/dev/core-services.md"),

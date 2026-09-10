@@ -50,8 +50,9 @@ to my global Claude skills folder and confirm they're installed.
 ```
 
 Claude copies them to your global skills folder (`C:\Users\<you>\.claude\skills`). After that the
-four skills work in **every** project you open:
+skills work in **every** project you open:
 - **new-test-app** — make a new app
+- **system-blueprint** — turn a spreadsheet of a system's I/O into an app's variable map
 - **add-bench-test** — add a test to an app
 - **test-step-authoring** — add a new kind of test step
 - **create-instrument-library** — add a driver for a new instrument
@@ -138,6 +139,7 @@ folder, make your change on a new branch, and open a Pull Request to
 | You want to… | Skill |
 |--------------|-------|
 | Start a new app | `new-test-app` |
+| Turn a spreadsheet of a system's I/O into an app's variable map | `system-blueprint` |
 | Add a test to an app | `add-bench-test` |
 | Add a new kind of test step | `test-step-authoring` |
 | Add a driver for a new instrument | `create-instrument-library` |
