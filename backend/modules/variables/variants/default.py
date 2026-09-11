@@ -122,7 +122,14 @@ class DefaultVariables:
                 pass   # config module not loaded — inline instances only
         self._instance_stations = {c["id"]: list(c.get("stations") or self._stations)
                                    for c in configs if c.get("id")}
-        self.instances.build(configs, on_command=self._on_cmd)
+        # Single-client-instrument race fix (instances.py module docstring): under a
+        # supervised Python controller, that subprocess already owns the one live
+        # connection to every owner=python instrument — this registry must never open a
+        # second one. Proxy through the bridge instead; under "labview" there is no
+        # controller to proxy through, so instances connect directly as before.
+        proxy_bridge = self.core.bridge if self.core.controller_kind == "python" else None
+        self.instances.build(configs, on_command=self._on_cmd,
+                             bridge=proxy_bridge, station=self._default_station)
         await self.instances.connect_all()
         await self._load_db_bindings()
         self._validate_no_lease()      # §9.3 shared-instrument rule, loud at startup
@@ -154,6 +161,11 @@ class DefaultVariables:
 
     def instance_status(self) -> list[dict]:
         return self.instances.status()
+
+    async def refresh_instance_status(self) -> None:
+        """Live-refresh proxied instances' state before instance_status() is read for
+        display (GET /variables/instances) — a no-op when controller.kind != "python"."""
+        await self.instances.refresh_proxied_status()
 
     # --- live values relay (operator window) --------------------------------
 

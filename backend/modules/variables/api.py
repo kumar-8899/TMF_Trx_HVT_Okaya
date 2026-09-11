@@ -59,6 +59,7 @@ def build_router(module) -> APIRouter:
 
     @router.get("/variables/instances", dependencies=_VIEW)
     async def instances() -> list[dict]:
+        await module.refresh_instance_status()
         return module.instance_status()
 
     # Live station-variable values for the operator window (Runs/Maintenance live-values panel).

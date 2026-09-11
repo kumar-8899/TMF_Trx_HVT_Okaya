@@ -203,6 +203,7 @@ state) over every core and app step type.
 ```
 hello.echo
 variable.read | variable.write | variable.read_many | instrument.test
+instrument.call | instrument.status
 run.start | run.abort | sequencer.list_test_classes
 daq.ai.stream.start | daq.ai.stream.stop | daq.ai.read
 daq.di.stream.start | daq.di.stream.stop | daq.di.read
@@ -213,6 +214,22 @@ Controller → app queries: `recipe.fetch`. Events published on
 `tmf/{station}/event/<type>` (`run-started`, `step-started`, `step-completed`,
 `test-result`, `run-finished`, `run-aborted`, `safety-trip`). Streams on
 `tmf/{station}/stream/{ai|di}`; retained last values on `value/<name>`.
+
+**`instrument.call` / `instrument.status`** exist for one reason: under a supervised
+Python controller, **this process holds the only live connection to every owner=python
+instrument, always** — the backend's own variable engine (`backend/modules/variables/`)
+never opens a second one. A single-client instrument (a VISA `...::SOCKET` resource, most
+serial gear) refuses a second session outright; two independent connections to the SAME
+multi-client device is still two processes able to drift on tracked state for no reason.
+So the backend proxies through these two verbs instead of connecting directly:
+`instrument.call {instance_id, method, args}` generalizes `instrument.test`'s "resolve id →
+invoke" pattern to any capability method (reply: `{ok, result}` or `{ok:false,
+error:{code, message, detail}}`, `code` = the raised `instrumentlib` exception's own class
+name — `NotConnected`/`NotSupported`/`DeviceError`/`CommandTimeout`/`GarbageResponse`/
+`IdentityMismatch` — so the backend reconstructs the same exception rather than a generic
+one); `instrument.status {ids?}` is this process's `InstrumentRegistry.status()`, optionally
+filtered. Under `controller.kind == "labview"` there is no controller subprocess and these
+are unused — the backend connects to owner=python instruments directly, exactly as before.
 
 ---
 

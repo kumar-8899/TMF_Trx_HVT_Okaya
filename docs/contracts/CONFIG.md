@@ -38,13 +38,23 @@ Every instrument declares one **execution owner** (INSTRUMENT_LIBRARY §0 — di
   library. The form is driven by the chosen **library's `connection_params`** (from
   the library index), plus a `simulated` flag. Validated against the registry
   (unknown library / missing required param → 422). `test connection` reports the
-  **live instance state** from the variable engine (Python instruments connect at
-  startup — edits **apply on restart**).
+  **live instance state** from the variable engine (edits **apply on restart**).
+  Under a supervised Python controller (`controller.kind=="python"`), that state is
+  a live poll of the controller's own connection (`instrument.status`,
+  PYTHON_CONTROLLER.md §7) — the backend never opens its own; under `"labview"` the
+  variable engine connects directly at startup, as it always has.
 
-The `config` module is the **single instrument registry** (DB `instrument` records).
-The `variables` (variable-engine) module consumes `config.python_instruments()` at
-startup to build its instances — one source of truth, no duplication. Non-scalar
-capabilities appear in the variable map as **actions**, never signals (INSTRUMENT_LIBRARY §2.2).
+The `config` module is the **single instrument registry** (DB `instrument` records) —
+one source of truth for the *config*. The `variables` (variable-engine) module consumes
+`config.python_instruments()` at startup to build its instances, but that is only "no
+duplication" of records; it is not a claim that only one process ever talks to the
+device. **Exactly one process ever holds the LIVE connection**, and which one depends on
+`controller.kind`: the supervised controller when `"python"` (the backend proxies through
+it instead of connecting itself — the fix for a real bug where both connected
+independently and a single-client instrument's loser stuck at "disconnected" forever), or
+the backend itself when `"labview"` (no controller subprocess exists to proxy through).
+Non-scalar capabilities appear in the variable map as **actions**, never signals
+(INSTRUMENT_LIBRARY §2.2).
 
 **Multi-station (`MULTI_STATION.md` §4.3):** each instrument record carries `stations[]`
 (a single-station value migrates to a one-element list). The instruments form gains a

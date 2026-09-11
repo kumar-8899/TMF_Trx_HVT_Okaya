@@ -5,9 +5,18 @@ by name, resolved against the station's map) and `instrument.test` (open + ident
 pass/fail). Each variable read/write also republishes the retained `value/<name>` snapshot
 (§3.3) so the app's last-value cache stays warm. Run/sequencer ops arrive in C3.
 
+`instrument.call` / `instrument.status` (single-client-instrument race fix): when the app
+runs a supervised Python controller, the backend's own instrument registry never opens a
+direct connection to an owner=python instrument any more — it proxies every call and every
+status read through THIS process's one live connection instead, via these two verbs. They
+generalize `instrument.test`'s existing "resolve id -> call the instrument" pattern from
+identify()-only to any method, and expose this registry's already-existing `status()`.
+
 A handler returns the dict merged into the reply after `{id, ok}`; nesting a scalar read
 under `result` matches the app's `variable.read` consumer, and returning an explicit `ok`
-lets `instrument.test` report fail without raising."""
+lets `instrument.test`/`instrument.call` report fail without raising (a handler exception
+here would otherwise collapse to the generic `handler_failed` code and lose the specific
+InstrumentError type the backend needs to reconstruct)."""
 
 from __future__ import annotations
 
@@ -61,10 +70,48 @@ def register_station_ops(client: StationClient, variables: StationVariables,
         except Exception as exc:  # noqa: BLE001 — an open failure is a fail verdict, not a crash
             return {"ok": False, "status": "fail", "detail": str(exc)}
 
+    def instrument_call(args: dict) -> dict:
+        """Backend proxy seam: `{instance_id, method, args}` -> the same
+        `registry.require(id).invoke(method, *args)` path `instrument.test`/StationVariables
+        already use, generalized to any capability method. On failure, `code` carries the
+        instrumentlib exception's own class name so the backend can reconstruct it
+        (NotConnected/NotSupported/DeviceError/CommandTimeout/GarbageResponse/
+        IdentityMismatch) rather than collapsing to a generic error."""
+        iid = args.get("instance_id") or args.get("id") or args.get("instance")
+        method = args.get("method")
+        call_args = args.get("args") or []
+        if not iid or not method:
+            return {"ok": False, "error": {"code": "NotSupported",
+                                           "message": "instrument.call needs 'instance_id' and 'method'",
+                                           "detail": None}}
+        inst = registry.get(iid)
+        if inst is None:
+            return {"ok": False, "error": {"code": "NotConnected",
+                                           "message": f"no instance '{iid}' loaded",
+                                           "detail": None}}
+        try:
+            result = loop.run(inst.invoke(method, *call_args), timeout=20.0)
+            return {"ok": True, "result": result}
+        except Exception as exc:  # noqa: BLE001 — structured error, never raise out of a bridge handler
+            return {"ok": False, "error": {"code": type(exc).__name__, "message": str(exc),
+                                           "detail": getattr(exc, "detail", None)}}
+
+    def instrument_status(args: dict) -> dict:
+        """Backend proxy seam: live per-instance state, straight off this registry's
+        existing `status()` — optionally filtered to `ids`. Never fails."""
+        ids = args.get("ids")
+        rows = registry.status()
+        if ids:
+            want = set(ids)
+            rows = [r for r in rows if r.get("id") in want]
+        return {"ok": True, "result": {"instances": rows}}
+
     client.serve("variable.read", variable_read)
     client.serve("variable.write", variable_write)
     client.serve("variable.read_many", variable_read_many)
     client.serve("instrument.test", instrument_test)
+    client.serve("instrument.call", instrument_call)
+    client.serve("instrument.status", instrument_status)
 
 
 def register_run_ops(client: StationClient, engine) -> None:

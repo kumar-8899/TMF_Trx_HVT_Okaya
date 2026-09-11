@@ -5,6 +5,46 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.18.1 — 2026-09-11
+
+**Backend no longer opens a second connection to a python-owned instrument (PATCH).**
+
+Found on a real bench (Okaya, ITECH IT7300 AC source over VISA `...::SOCKET`, single-client
+— accepts exactly one session). Under a supervised Python controller, the backend's own
+variable engine has always independently built and connected its own `instrumentlib`
+instances from the same `owner=python` Config → Instruments records the controller
+subprocess already connects to. Invisible for a multi-client instrument; for a
+single-client one the loser of that race gets refused and its `InstrumentBase.state`
+sticks at `disconnected` **forever** (a failed *initial* connect never retries) — Config →
+Instruments / Maintenance then falsely shows a fully working instrument as permanently
+broken.
+
+- **Fix:** when `controller.kind=="python"`, the backend never opens its own connection to
+  an `owner=python` instrument any more. It reaches each one through the supervised
+  controller's own live connection instead — exactly how LabVIEW already does — via two
+  new bridge verbs, `instrument.call` (any method + args, generalizing `instrument.test`'s
+  identify()-only pattern) and `instrument.status` (live per-instance state).
+  `InstanceRegistry.build()` gains a proxy mode (a new `ProxiedInstrument` that never opens
+  a transport); under `controller.kind=="labview"` nothing changes (no controller
+  subprocess exists to proxy through, and this path was never racy).
+- Confirmed by tracing the codebase, not assumed: recipe execution (`TEST.RUN`) never
+  touches this registry at all — it drives everything through `run.start`/`run.abort` to
+  the controller's own, separate `StationVariables`. So backend-side instrument access
+  (Maintenance's Variables panel, the Instrument Test Bench) was always manual/UI-only,
+  and proxying it costs nothing on any latency-sensitive path.
+- `GET /variables/instances` now does one live `instrument.status` poll before answering,
+  instead of trusting a cached flag that could never un-stick itself — strictly more
+  honest than before, and self-heals the moment the controller comes up.
+- `CoreServices` gains a `controller_kind` field (mirrors the existing `stations`/
+  `station` topology fields) so a module can tell without a new contract method.
+- Docs: `PYTHON_CONTROLLER.md` §7 (the two new verbs + the ownership invariant),
+  `LABVIEW_BRIDGE.md` §5.1, `docs/contracts/CONFIG.md`, `INSTRUMENT_LIBRARY.md` §0,
+  `ARCHITECTURE.md`, `docs/help/dev/instrument-library.md`.
+
+Tests: +19 backend (`tests/test_variables_proxy.py` + 2 in `modules/variables/tester/`),
++7 controller (`tester/test_instrument_call.py`). Full suites green: 489 backend passed,
+115 controller passed.
+
 ## v1.18.0 — 2026-09-10
 
 **System Blueprint — author an app's I/O from a spreadsheet (MINOR).**

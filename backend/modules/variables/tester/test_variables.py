@@ -39,9 +39,15 @@ class FakeBridge:
 
     def __init__(self):
         self.served: dict = {}
+        self.requests: list = []      # (op, args, station) — proxy-mode calls, if any
+        self.reply: dict | None = None
 
     def serve(self, op, handler):
         self.served[op] = handler
+
+    async def request(self, op, args, *, station, timeout=None):
+        self.requests.append((op, args, station))
+        return self.reply
 
 
 def _cfg():
@@ -194,3 +200,51 @@ def test_unknown_library_skipped_not_fatal():
     reg = InstanceRegistry(Diagnostics("st1", "0.0.0", sinks=[lambda e: None]))
     reg.build([{"id": "x", "library": "does_not_exist"}])
     assert reg.all() == [] and reg.skipped[0]["library"] == "does_not_exist"
+
+
+# --- single-client-instrument race fix: controller.kind=="python" proxies instances ----
+
+
+async def test_controller_kind_python_proxies_instead_of_connecting_directly():
+    from modules.variables.instances import ProxiedInstrument
+
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    bridge = FakeBridge()
+    core = CoreServices(db=db, bridge=bridge, controller_kind="python",
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    m = DefaultVariables.construct(core, {"instances": [
+        {"id": "load_1", "library": "vtest_supply", "simulated": True}], "variables": {}})
+    await m.start()
+    inst = m.instances.get("load_1")
+    assert isinstance(inst, ProxiedInstrument)          # never the real driver class
+    assert bridge.requests == []                        # connect_all() touched nothing
+    assert m.instance_status()[0]["state"] == "disconnected"   # unrefreshed until asked
+
+    bridge.reply = {"ok": True, "result": {"instances": [
+        {"id": "load_1", "state": "connected", "simulated": True, "library": "vtest_supply"}]}}
+    await m.refresh_instance_status()
+    assert m.instance_status()[0]["state"] == "connected"
+    op, args, station = bridge.requests[0]
+    assert op == "instrument.status" and args["ids"] == ["load_1"] and station == "st1"
+    await m.stop()
+    await db.close()
+
+
+async def test_controller_kind_labview_connects_directly_unchanged():
+    """Regression guard: without a supervised Python controller there is nothing to proxy
+    through, and owner=python instruments must keep connecting directly, exactly as before."""
+    from modules.variables.instances import ProxiedInstrument
+
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, bridge=FakeBridge(), controller_kind="labview",
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    m = DefaultVariables.construct(core, {"instances": [
+        {"id": "load_1", "library": "vtest_supply", "simulated": True}], "variables": {}})
+    await m.start()
+    inst = m.instances.get("load_1")
+    assert not isinstance(inst, ProxiedInstrument)
+    assert m.instance_status()[0]["state"] == "connected"
+    await m.stop()
+    await db.close()

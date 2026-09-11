@@ -72,6 +72,7 @@ class CoreServices:
     licensing: Any = None    # licensing provider (stub | keystation): session() + load_and_verify()
     stations: list[str] = field(default_factory=list)   # this PC's sockets (MULTI_STATION.md §2.3)
     station: str = ""        # DEPRECATED alias = stations[0]; per-station code takes it from the request
+    controller_kind: str = "labview"   # app.json controller.kind — topology, not a declared dep
     get_contract: Callable[[str], Any] | None = None
 
 
@@ -91,6 +92,7 @@ class Core:
         licensing: Any = None,
         stations: list[str] | None = None,
         station: str = "",
+        controller_kind: str = "labview",
     ) -> None:
         self.db = db
         self.bridge = bridge
@@ -102,6 +104,7 @@ class Core:
         self.licensing = licensing
         self.stations = stations if stations is not None else ([station] if station else [])
         self.station = station or (self.stations[0] if self.stations else "")
+        self.controller_kind = controller_kind
         self.contracts: dict[str, Any] = {}  # active module_id -> instance (CORE.md §6.3)
 
     def get_contract(self, name: str) -> Any:
@@ -111,6 +114,7 @@ class Core:
 
     def select(self, deps: list[str]) -> CoreServices:
         services = CoreServices(stations=list(self.stations), station=self.station,
+                                controller_kind=self.controller_kind,
                                 get_contract=self.get_contract)
         for dep in deps:
             field_name = SERVICE_ALIASES.get(dep)

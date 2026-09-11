@@ -159,7 +159,8 @@ def create_app(
 
         # 2-3. Activate + start modules through the gate (CORE.md §4-§5).
         core = Core(db=db, bridge=bridge, config=config, auth=auth, diag=diag, web=web,
-                    interlock=interlock, licensing=licensing, stations=stations, station=station)
+                    interlock=interlock, licensing=licensing, stations=stations, station=station,
+                    controller_kind=controller_cfg.get("kind", "labview"))
         # The LICENSED unit's identity. For the framework repo this is the framework
         # itself (dev); a derived customer app sets licensing.product to its own
         # app-track slug (SECURE_DISTRIBUTION.md; TEMPLATE.md two-tier model).

@@ -187,6 +187,8 @@ LabVIEW reads `reply_to` + `id` from each command payload (§5).
 | `maintenance.enter` | `{ operator, reason }` | `{ accepted, state }` \| `{ refused, reason }` |
 | `maintenance.exit` | `{ operator }` | `{ accepted, state }` |
 | `instrument.test` | `{ transport, params, address }` | `{ ok, status, identity?, detail? }` |
+| `instrument.call` *(Python controller only)* | `{ instance_id, method, args? }` | `{ ok, result }` \| `{ ok:false, error }` |
+| `instrument.status` *(Python controller only)* | `{ ids? }` | `{ ok, result:{ instances:[…] } }` |
 
 `health.check.<id>`: the Health module dispatches `bridge`/`hardware` checks that
 have no Python executor to a LabVIEW handler (HEALTH_CHECK.md §12). The handler
@@ -201,6 +203,16 @@ summary:"queue ok", data:{depth:2}}`. Connectivity checks `bridge.online` /
 `{transport, params, address}` and report reachability (and `*IDN?`-style
 `identity` where possible). Offline bridge → the module returns `unavailable`
 without dispatching (CONFIG.md).
+
+`instrument.call` / `instrument.status` are **Python-controller-only** (`controller.kind
+== "python"`, `PYTHON_CONTROLLER.md` §7) — the LabVIEW engine never serves them. When a
+Python controller is supervised, it holds the only live connection to every owner=python
+instrument; the backend's variable engine (INSTRUMENT_LIBRARY.md §5.3) proxies every
+read/write/Test-Bench call through `instrument.call` (by instance id + method, generalizing
+`instrument.test`'s pattern) and every status display through `instrument.status`, rather
+than opening a second, competing connection (a permanent-false-"disconnected" bug for a
+single-client instrument). Under `"labview"` the backend connects to owner=python
+instruments directly and these two ops are unused.
 
 Maintenance mode is a **LabVIEW-owned** station state: the controller publishes
 retained `state/maintenance { state: off|entering|on|exiting, since, by, reason }`

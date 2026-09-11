@@ -85,6 +85,18 @@ app — the variable engine AND the supervised Python controller. Nothing reache
 instrument (even simulated) until configured there; each instrument runs simulated
 or real by its own **Simulated** toggle (v1.5.1+ — no app-level switch).
 
+**Only one process ever holds the live connection (v1.18.1+).** Under a supervised
+Python controller (`controller.kind=="python"`), that controller subprocess is the one
+that connects — the variable engine's own instances are built in *proxy mode* and reach
+the instrument through the controller's connection instead (`instrument.call`/
+`instrument.status`, `PYTHON_CONTROLLER.md` §7): every Test Bench call and every
+`GET /variables/instances` state is one MQTT round trip through the controller, never a
+second direct connection. This fixes a real bug where both independently connected to
+the same physical instrument — invisible for a multi-client device, but a permanent false
+"disconnected" for a single-client one (VISA `...::SOCKET`, most serial gear), since the
+loser of that race never retried. Under `"labview"` there is no controller subprocess and
+the variable engine connects directly, exactly as before.
+
 The explicit `variables` module config below remains for dev setups and tests
 (inline `instances` build in addition to the page's records):
 ```json
