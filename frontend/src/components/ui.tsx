@@ -28,6 +28,7 @@ const KIND_BY_WORD: Record<string, StatusKind> = {
   pending: "running", password_reset_required: "running", degraded: "running", draft: "running",
   idle: "idle", stopped: "idle", inactive: "idle", skipped: "idle", unknown: "idle",
   "not ready": "fail", notready: "fail",
+  info: "info",
 };
 
 /** Map a backend status string to a StatusKind (falls back to idle). */
