@@ -4,9 +4,32 @@
 import time
 
 import controller.step_types  # noqa: F401 — registers the 8 core types
+from controller import registry as step_registry
+from controller.context import StepFailed
 from controller.results import FAIL, PASS
 from controller.runstate import FAULTED, IDLE, RunEngine
 from controller.sequencer import Sequencer
+
+
+class _RaisesPlainException:
+    """Test-only step type: execute() raises, unconditionally — the crashed-step regression
+    fixture (a leaf handler must never report PASS just because it produced 0 measurements)."""
+
+    def execute(self, params, ctx):
+        raise RuntimeError("boom")
+
+
+class _RaisesStepFailed:
+    def execute(self, params, ctx):
+        raise StepFailed("deliberately failed")
+
+
+if "test_crasher" not in step_registry.STEP_REGISTRY:
+    step_registry.register_step_type(type_id="test_crasher",
+                                     display_name="Test crasher")(_RaisesPlainException)
+if "test_step_failed" not in step_registry.STEP_REGISTRY:
+    step_registry.register_step_type(type_id="test_step_failed",
+                                     display_name="Test StepFailed")(_RaisesStepFailed)
 
 
 class _Vars:
@@ -66,6 +89,30 @@ def test_handler_cannot_report_pass_over_a_failed_measurement():
     r, ev, _ = _run({"steps": [{"type": "measure_and_compare", "id": "hi",
                                 "params": {"signal": "v", "max": 1}}]}, _Vars({"v": 99}))
     assert r == FAIL
+
+
+def test_crashed_step_reports_fail_not_pass_with_zero_measurements():
+    """Regression: a leaf step whose handler raises a plain Exception must FAIL, even
+    though it produced zero measurements — step_status()'s "empty list is PASS" rule
+    governs a normal return with nothing to check, never a raised exception. Before the
+    fix, the exception-forced FAIL was silently overwritten back to PASS."""
+    r, ev, _ = _run({"steps": [{"type": "test_crasher", "id": "boom", "params": {}}]})
+    assert r == FAIL
+    sc = [p for t, p in ev if t == "step-completed"][0]
+    assert sc["status"] == FAIL
+    assert sc["measurement_count"] == 0
+    assert "boom" in sc["message"]
+
+
+def test_step_failed_exception_also_reports_fail_with_zero_measurements():
+    """Same regression, via the StepFailed path (lines 86-87) rather than the generic
+    Exception path (lines 88-89) — both except blocks were equally clobbered."""
+    r, ev, _ = _run({"steps": [{"type": "test_step_failed", "id": "boom", "params": {}}]})
+    assert r == FAIL
+    sc = [p for t, p in ev if t == "step-completed"][0]
+    assert sc["status"] == FAIL
+    assert sc["measurement_count"] == 0
+    assert sc["message"] == "deliberately failed"
 
 
 # ---- step types -----------------------------------------------------------

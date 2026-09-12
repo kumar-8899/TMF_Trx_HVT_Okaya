@@ -186,8 +186,11 @@ Eight core types, and nothing else, live in the framework
 
 Everything hardware- or product-specific is an **app step-type package** (§C10).
 The **sequencer computes the verdict** — a step FAILs if any `Measurement` FAILs;
-a handler cannot report PASS over a failed measurement. Limits come from `params`,
-never from handler code.
+a handler cannot report PASS over a failed measurement. **A handler that raises
+(`StepFailed` or any other exception) FAILs unconditionally, regardless of
+measurements** — an exception-forced FAIL is never recomputed from (and so never
+overridden by) the empty measurement list a crashed step necessarily produced (v1.18.2;
+`sequencer.py` `_attempt()`). Limits come from `params`, never from handler code.
 
 A handler touches only `ctx` (`context.py`): `read/write/read_many/invoke`,
 `wait/aborted/deadline_exceeded/remaining_ms`, `diag`, `execute_child`. **No

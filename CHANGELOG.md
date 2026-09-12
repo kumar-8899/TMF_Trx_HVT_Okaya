@@ -5,6 +5,37 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.18.2 — 2026-09-12
+
+**A crashed step reported PASS with zero measurements instead of FAIL (PATCH).**
+
+In `controller/controller/sequencer.py` `Sequencer._attempt()`: when a leaf step's
+`handler.execute()` raised (`StepFailed` or any other `Exception`), the except blocks
+correctly built a FAIL result — but the non-composite branch right after unconditionally
+recomputed status from `results.step_status(result.measurements)` and overwrote it. A
+crashed step has zero measurements, and `step_status()`'s documented "an empty list is
+PASS" rule — correct for a handler that legitimately returned nothing to check — silently
+clobbered the exception-forced FAIL back to PASS before `step-completed` ever emitted it.
+This directly contradicted `results.py`'s own stated invariant ("structurally impossible
+to report PASS over a failed measurement") and PRINCIPLES.md's "failures must be loud and
+structured, never bare exceptions" — the blind spot was exactly a step that failed
+*before* producing any measurement. A second symptom stacked on top: with zero
+measurements, the `test-result` emit loop never fires either, so a downstream consumer
+that only renders `test-result` events (e.g. an app's `run_sim.py` printer) sees nothing
+at all for that step, not even a FAIL row — the `step-completed` event's `message` field
+was already correct, this just went unseen by anything not watching that event.
+
+- **Fix:** track whether the attempt took the exception path (`crashed`); the
+  measurements-based `step_status()` computation now only applies when `execute()`
+  returned normally — it can never override a status already forced to FAIL by a raised
+  exception. The composite branch (`status = result.status`, trusting the handler's own
+  aggregated verdict) is unaffected.
+- Tests: `controller/tester/test_c3_sequencer.py` +2 — a leaf step type whose `execute()`
+  raises a plain `Exception`, and one that raises `StepFailed` (both except paths), each
+  asserting `step-completed.status == FAIL`, `measurement_count == 0`, the run verdict
+  `FAIL`, and the exception message present. Verified both fail on the pre-fix code
+  (reproducing PASS with 0 measurements exactly as reported) and pass after.
+
 ## v1.18.1 — 2026-09-11
 
 **Backend no longer opens a second connection to a python-owned instrument (PATCH).**
