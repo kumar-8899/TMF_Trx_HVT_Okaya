@@ -79,13 +79,16 @@ class Sequencer:
         self._diag("info", "step.start", step_id=step_id, step_type=type_id, attempt=attempt)
         t0 = time.monotonic()
         handler = entry.handler_cls()
+        crashed = False
         try:
             result = handler.execute(step.get("params", {}) or {}, ctx) or results.StepResult()
         except StepAborted:
             raise
         except StepFailed as exc:
+            crashed = True
             result = results.StepResult(status=results.FAIL, message=str(exc))
         except Exception as exc:  # noqa: BLE001 — an impossible condition fails the step (§7.3 r7)
+            crashed = True
             result = results.StepResult(status=results.FAIL, message=f"{type(exc).__name__}: {exc}")
 
         if entry.composite:
@@ -95,7 +98,11 @@ class Sequencer:
                 if m.sequence is None:
                     m.sequence = ctx.sequence
             results.finalize(result.measurements)
-            status = results.step_status(result.measurements)
+            # A crashed step is FAIL regardless of measurements (§8.2's "empty list is PASS"
+            # rule governs a NORMAL return with nothing to check, never a raised exception —
+            # step_status() must not be allowed to override a status already forced FAIL by
+            # a raised exception; that would silently launder a crash into a reported PASS).
+            status = results.FAIL if crashed else results.step_status(result.measurements)
         result.status = status
         result.attempt = attempt
         result.elapsed_ms = int((time.monotonic() - t0) * 1000)
