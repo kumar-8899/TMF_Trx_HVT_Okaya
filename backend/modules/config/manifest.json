@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "contract_version": 1,
     "display_name": "Configuration",
-    "description": "Station configuration centre (cascaded Config menu). Instrument connection profiles with a transport-driven UI + LabVIEW connection test; barcode/shift/MES sections follow."
+    "description": "Station configuration centre (cascaded Config menu). Instrument connection profiles with a transport-driven UI + LabVIEW connection test, shift schedule, and barcode structure/recipe-id extraction."
   },
   "entitlement_key": "config",
   "variants": ["default"],

@@ -1,7 +1,7 @@
-import { PlayArrow, QrCodeScanner, Stop } from "@mui/icons-material";
+import { PlayArrow, Stop } from "@mui/icons-material";
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack,
-  Tab, Tabs, TextField, Typography,
+  TextField, Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 
@@ -21,10 +21,12 @@ import { MONO_STACK } from "../theme/theme";
 
 interface EventEnvelope { type: string; ts: number; payload?: Record<string, any> }
 interface Profile {
-  acquisition: { default_mode: string; barcode: { length: number } };
   live_variables: LiveVariable[];
   ui: { verdict_banner: boolean; message_line: boolean; today_strip: boolean };
 }
+interface BarcodePart { name: string; start: number; length: number }
+interface BarcodeConfig { enabled: boolean; length: number; parts: BarcodePart[]; recipe_part: string | null }
+const NO_BARCODE: BarcodeConfig = { enabled: false, length: 0, parts: [], recipe_part: null };
 
 const FINAL = new Set(["PASS", "FAIL", "ABORTED"]);
 
@@ -45,7 +47,7 @@ export function Runs() {
 
   // start dialog
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"barcode" | "recipe">("barcode");
+  const [barcodeCfg, setBarcodeCfg] = useState<BarcodeConfig>(NO_BARCODE);
   const [barcode, setBarcode] = useState("");
   const [pickRecipe, setPickRecipe] = useState("");
   const [recipes, setRecipes] = useState<{ recipe_id: string; name: string }[]>([]);
@@ -56,7 +58,8 @@ export function Runs() {
   const refresh = () => api.get("/runs").then(setRuns).catch((e) => setError(e.message));
   useEffect(() => {
     refresh();
-    api.get("/runs/config").then((p) => { setProfile(p); setMode(p.acquisition?.default_mode === "recipe" ? "recipe" : "barcode"); }).catch(() => {});
+    api.get("/runs/config").then(setProfile).catch(() => {});
+    api.get("/config/barcode").then(setBarcodeCfg).catch(() => {});
     api.get("/recipes").then(setRecipes).catch(() => {});
   }, []);
 
@@ -70,18 +73,17 @@ export function Runs() {
   }, []);
 
   const running = runStatus === "running";
-  const prefixLen = profile?.acquisition?.barcode?.length ?? 3;
-  const resolvedPreview = barcode.trim().slice(0, prefixLen);
+  const recipeSlicePart = barcodeCfg.parts.find((p) => p.name === barcodeCfg.recipe_part);
+  const resolvedPreview = recipeSlicePart
+    ? barcode.trim().slice(recipeSlicePart.start, recipeSlicePart.start + recipeSlicePart.length)
+    : "";
 
   // #6.5 lock the shell to this screen while a run runs (only Abort reachable).
   const { setActive } = useRunActivity();
   useEffect(() => { setActive(running); return () => setActive(false); }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // After a run ends, auto-prompt for the next unit (operator presses Start once).
-  const reopenForNext = () => {
-    setMode(profile?.acquisition?.default_mode === "recipe" ? "recipe" : "barcode");
-    setBarcode(""); setPickRecipe(""); setOpen(true);
-  };
+  const reopenForNext = () => { setBarcode(""); setPickRecipe(""); setOpen(true); };
 
   // Every station event, without loss (onMessage fires per frame — see useStream). A run
   // bursts its test-results, so accumulating from `last` would drop most of them.
@@ -124,7 +126,7 @@ export function Runs() {
   const startRun = async () => {
     setError(null);
     try {
-      const reqBody: any = mode === "barcode" ? { barcode } : { recipe_id: pickRecipe };
+      const reqBody: any = barcodeCfg.enabled ? { barcode } : { recipe_id: pickRecipe };
       if (station) reqBody.station = station;
       const res = await api.post("/runs/start", reqBody);
       setRunId(res.run_id); setModel(res.model || res.recipe_id || ""); setSerial(res.serial_no || "");
@@ -197,21 +199,17 @@ export function Runs() {
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Start test</DialogTitle>
         <DialogContent>
-          <Tabs value={mode} onChange={(_, v) => setMode(v)} sx={{ mb: 2 }}>
-            <Tab icon={<QrCodeScanner fontSize="small" />} iconPosition="start" label="Barcode" value="barcode" />
-            <Tab label="Select recipe" value="recipe" />
-          </Tabs>
-          {mode === "barcode" ? (
-            <Stack spacing={1.5}>
-              <TextField label="Scan / enter barcode" value={barcode} autoFocus
+          {barcodeCfg.enabled ? (
+            <Stack spacing={1.5} sx={{ mt: 1 }}>
+              <TextField label="Serial number" value={barcode} autoFocus
                 onChange={(e) => setBarcode(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && barcode) startRun(); }} />
               <Typography variant="caption" color="text.secondary">
-                Model / recipe: <b style={{ fontFamily: MONO_STACK }}>{resolvedPreview || "—"}</b> · Serial: <b style={{ fontFamily: MONO_STACK }}>{barcode || "—"}</b>
+                Recipe: <b style={{ fontFamily: MONO_STACK }}>{resolvedPreview || "—"}</b>
               </Typography>
             </Stack>
           ) : (
-            <TextField select fullWidth label="Recipe" value={pickRecipe} onChange={(e) => setPickRecipe(e.target.value)}>
+            <TextField select fullWidth sx={{ mt: 1 }} label="Recipe" value={pickRecipe} onChange={(e) => setPickRecipe(e.target.value)}>
               {recipes.length === 0 && <MenuItem value="" disabled>No recipes</MenuItem>}
               {recipes.map((r) => <MenuItem key={r.recipe_id} value={r.recipe_id}>{r.name} ({r.recipe_id})</MenuItem>)}
             </TextField>
@@ -220,7 +218,7 @@ export function Runs() {
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="contained" startIcon={<PlayArrow />}
-            disabled={mode === "barcode" ? !barcode : !pickRecipe} onClick={startRun}>Start</Button>
+            disabled={barcodeCfg.enabled ? !barcode : !pickRecipe} onClick={startRun}>Start</Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -41,6 +41,16 @@ def build_router(module) -> APIRouter:
     async def current_shift() -> dict:
         return await module.current_shift()
 
+    # --- barcode ------------------------------------------------------------
+
+    @router.get("/config/barcode", dependencies=_VIEW)
+    async def get_barcode() -> dict:
+        return await module.get_barcode_config()
+
+    @router.put("/config/barcode", dependencies=_EDIT)
+    async def set_barcode(body: dict) -> dict:
+        return await _guard(module.set_barcode_config(body))
+
     @router.get("/config/instruments", dependencies=_VIEW)
     async def list_instruments() -> list[dict]:
         return await module.list_instruments()

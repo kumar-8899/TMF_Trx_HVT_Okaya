@@ -44,10 +44,6 @@ async def _guard(coro):
 def build_router(module) -> APIRouter:
     router = APIRouter(tags=["runs"])
 
-    @router.get("/runs/acquisition")
-    async def acquisition() -> dict:
-        return module.acquisition_config()
-
     @router.get("/runs/config")
     async def run_config() -> dict:
         return module.profile()

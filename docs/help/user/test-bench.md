@@ -3,8 +3,12 @@
 The operator's main testing window. Full-width, side menu hidden so you can focus on the unit under test.
 
 ## Start a test
-- **Barcode** — scan/type the unit serial. The model and recipe are derived from it (by default, the first characters select the recipe).
-- **Select recipe** — pick a recipe directly.
+
+What the Start popup shows depends on **Config → Barcode** (see its help page):
+
+- **Barcode enabled** — one **Serial number** field. Scan or type the unit's barcode;
+  the recipe is resolved automatically from the barcode part configured as the recipe id.
+- **Barcode disabled** — one **Recipe** dropdown. Pick the recipe directly.
 
 Press **Start**. The controller (LabVIEW) runs the sequence.
 

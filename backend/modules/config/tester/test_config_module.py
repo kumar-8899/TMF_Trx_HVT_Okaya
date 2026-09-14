@@ -94,6 +94,93 @@ async def test_shift_disabled_falls_back_to_calendar(ctx):
     assert r["enabled"] is False and r["business_day"] == "2026-07-05" and r["shift_label"] is None
 
 
+async def test_barcode_config_validation(ctx):
+    module, _, _ = ctx
+    with pytest.raises(ConfigError):
+        await module.set_barcode_config({"length": 0})
+    with pytest.raises(ConfigError):  # part start < 0
+        await module.set_barcode_config({"length": 8, "parts": [{"name": "model", "start": -1, "length": 3}]})
+    with pytest.raises(ConfigError):  # part length < 1
+        await module.set_barcode_config({"length": 8, "parts": [{"name": "model", "start": 0, "length": 0}]})
+    with pytest.raises(ConfigError):  # exceeds total length
+        await module.set_barcode_config({"length": 5, "parts": [{"name": "model", "start": 0, "length": 8}]})
+    with pytest.raises(ConfigError):  # duplicate names
+        await module.set_barcode_config({"length": 8, "parts": [
+            {"name": "model", "start": 0, "length": 3}, {"name": "model", "start": 3, "length": 5}]})
+    with pytest.raises(ConfigError):  # enabled with no parts
+        await module.set_barcode_config({"enabled": True, "length": 8, "parts": []})
+    with pytest.raises(ConfigError):  # enabled, recipe_part doesn't reference a part
+        await module.set_barcode_config({"enabled": True, "length": 8,
+            "parts": [{"name": "model", "start": 0, "length": 3}], "recipe_part": "nope"})
+
+
+async def test_barcode_config_round_trip(ctx):
+    module, _, _ = ctx
+    saved = await module.set_barcode_config({"enabled": True, "length": 8, "parts": [
+        {"name": "model", "start": 0, "length": 3}, {"name": "serial", "start": 3, "length": 5}],
+        "recipe_part": "model"})
+    assert saved["enabled"] is True and saved["length"] == 8
+    cfg = await module.get_barcode_config()
+    assert cfg == {"enabled": True, "length": 8, "parts": [
+        {"name": "model", "start": 0, "length": 3}, {"name": "serial", "start": 3, "length": 5}],
+        "recipe_part": "model"}
+
+
+async def test_resolve_recipe_from_barcode_disabled(ctx):
+    module, _, _ = ctx
+    out = await module.resolve_recipe_from_barcode("INV12345")
+    assert out == {"ok": False, "error": "barcode acquisition not enabled"}
+
+
+async def _enable(module, length=8, recipe_part="model"):
+    await module.set_barcode_config({"enabled": True, "length": length, "parts": [
+        {"name": "model", "start": 0, "length": 3}, {"name": "serial", "start": 3, "length": 5}],
+        "recipe_part": recipe_part})
+
+
+async def test_resolve_recipe_from_barcode_success(ctx):
+    module, _, _ = ctx
+    await _enable(module)
+    out = await module.resolve_recipe_from_barcode("INV12345")
+    assert out == {"ok": True, "recipe_id": "INV", "parts": {"model": "INV", "serial": "12345"}}
+
+
+async def test_resolve_recipe_from_barcode_empty(ctx):
+    module, _, _ = ctx
+    await _enable(module)
+    out = await module.resolve_recipe_from_barcode("   ")
+    assert out == {"ok": False, "error": "empty barcode"}
+
+
+async def test_resolve_recipe_from_barcode_wrong_length(ctx):
+    module, _, _ = ctx
+    await _enable(module)
+    assert (await module.resolve_recipe_from_barcode("SHORT"))["ok"] is False
+    assert (await module.resolve_recipe_from_barcode("WAYTOOLONG123"))["ok"] is False
+
+
+async def test_resolve_recipe_from_barcode_no_recipe_part(ctx):
+    module, _, _ = ctx
+    # enabled + a valid recipe_part first (set_barcode_config requires it), then simulate
+    # a stale reference by re-saving with a part rename — no recipe_part matches any more
+    await _enable(module)
+    rec = await module.get_barcode_config()
+    rec["recipe_part"] = "does_not_exist"
+    await module.core.db.repo.put("barcode_config", rec, id="barcode", summary="stale")
+    out = await module.resolve_recipe_from_barcode("INV12345")
+    assert out == {"ok": False, "error": "no recipe part configured"}
+
+
+async def test_resolve_recipe_from_barcode_empty_extracted_value(ctx):
+    module, _, _ = ctx
+    # recipe part is a single space in the middle -> empty once stripped, but the overall
+    # barcode itself has no leading/trailing whitespace (so it still passes the length check)
+    await module.set_barcode_config({"enabled": True, "length": 5, "parts": [
+        {"name": "model", "start": 2, "length": 1}], "recipe_part": "model"})
+    out = await module.resolve_recipe_from_barcode("AB CD")
+    assert out == {"ok": False, "error": "extracted recipe id is empty"}
+
+
 async def test_instrument_stations_multi_and_migration():
     # M5: instruments carry stations[]; singular migrates; absent -> all sockets;
     # an unknown socket is rejected (MULTI_STATION.md §4.3).
