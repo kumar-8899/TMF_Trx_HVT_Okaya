@@ -5,6 +5,36 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.19.0 — 2026-09-14
+
+**Config → Barcode: a generic, operator-editable barcode structure replaces the old
+prefix/fixed acquisition strategy (MINOR).**
+
+The old `runs.acquisition.barcode.strategy` (`prefix` = first N chars are the recipe id,
+`fixed` = barcode is just a serial, always run one hardcoded recipe) had no operator UI —
+it was edited by hand in `app.json` — and couldn't express a barcode made of several
+distinct fields at fixed positions.
+
+- **New:** Config → Barcode page. Define the barcode's total length, its named parts
+  (each an offset + length), which part is the recipe-id part, and whether barcode
+  acquisition is enabled at all — all operator-editable (`CONFIG.EDIT`), same pattern as
+  the existing Shifts page. Persisted as a single `barcode_config` DB record via
+  `GET`/`PUT /config/barcode`.
+- The Start dialog's Barcode/Recipe tab picker is gone — the popup now shows exactly one
+  thing, driven by the Barcode page's enabled flag: a serial-number field (recipe
+  auto-resolved from the configured recipe-id part) when enabled, or a recipe dropdown
+  when not.
+- `runs` module delegates recipe-id resolution to the new `config.resolve_recipe_from_barcode`
+  contract method (a soft cross-module call, mirroring the existing `_delegate_reset`/
+  `_python_test` pattern — no hard `contract_dependencies` edge, since module activation
+  has no topological sort and `runs` activates before `config`).
+- **Removed:** `modules/runs/acquisition.py`'s `resolve_recipe_id` (prefix/fixed
+  strategies), the `/runs/acquisition` route, and `runs.config.schema.json`'s
+  `acquisition.*` properties. `runs`'s `contract_version` bumps `1` → `2`.
+- **Migration:** an app.json that still sets `acquisition.*` under the `runs` module config
+  is not rejected (`additionalProperties: true`) — it's just silently inert now. Configure
+  Config → Barcode instead.
+
 ## v1.18.2 — 2026-09-12
 
 **A crashed step reported PASS with zero measurements instead of FAIL (PATCH).**

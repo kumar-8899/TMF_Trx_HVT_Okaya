@@ -3,7 +3,7 @@
   "module": {
     "id": "runs",
     "version": "1.0.0",
-    "contract_version": 1,
+    "contract_version": 2,
     "display_name": "Runs",
     "description": "Controller run control proxy and run-record persistence from event/run-* (CORE.md §7)."
   },

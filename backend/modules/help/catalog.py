@@ -58,6 +58,7 @@ PAGES: list[Page] = [
     Page("user-instruments", "Instruments", "user", "Configuration", "help/user/instruments.md", "/config/instruments"),
     Page("user-variable-map", "Variable Map", "user", "Configuration", "help/user/variable-map.md", "/config/variables"),
     Page("user-shift", "Shifts", "user", "Configuration", "help/user/shift.md", "/config/shift"),
+    Page("user-barcode", "Barcode", "user", "Configuration", "help/user/barcode.md", "/config/barcode"),
     Page("user-mes", "MES interlock", "user", "Configuration", "help/user/mes.md", "/config/mes"),
     Page("user-users", "Users", "user", "Administration", "help/user/users.md", "/users"),
     Page("user-permissions", "Permissions", "user", "Administration", "help/user/permissions.md", "/permissions"),

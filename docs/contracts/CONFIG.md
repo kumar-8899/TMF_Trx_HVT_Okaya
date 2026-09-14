@@ -1,9 +1,9 @@
 # CONFIG — station configuration centre
 
 The `config` module backs the cascaded **Config** menu: a home for operator-editable
-station configuration, each concern its own scalable section. First section:
-**Instruments**. Planned: **Barcode**, **Shift**, and **MES** (the MES interlock
-controls moved here from Settings).
+station configuration, each concern its own scalable section — **Instruments**,
+**Shifts**, **Barcode**. **MES** (the interlock controls) is its own top-level module,
+mounted separately, since it has runtime behavior beyond pure configuration.
 
 It is a **pure config surface** — it captures connection profiles and asks LabVIEW
 to probe them. It performs **no instrument I/O itself** (PRINCIPLES §0: hardware is
@@ -27,6 +27,35 @@ The **Shift** section configures the production schedule and, with it, the
   `business_day` + `shift_label` (via `config.shift_for(run_start_ts)`). Analytics
   group day-counts by `business_day` (fallback calendar date for old reports) and add
   a **shift** filter + `by_shift` breakdown. The Test Bench shows the current shift.
+
+## Barcode (structure + recipe-id extraction)
+
+The **Barcode** section defines the shape of the barcode/label an operator scans or
+types at run-start, and which slice of it is the recipe id.
+
+- Config: `{enabled, length, parts:[{name, start, length}], recipe_part}` (DB record
+  `barcode_config`, fixed id `"barcode"` — one global record, like Shifts, not
+  per-station: barcode format is a labeling-scheme fact, not per-socket wiring).
+  `length` is the barcode's total, exact-match-validated length; each `parts[]` entry is
+  a named fixed-width slice (`start`/`length` offsets into the barcode string);
+  `recipe_part` names which part's extracted value is used **directly** as the
+  `recipe_id` (no indirection through `recipe.barcode_prefixes` — that mechanism is
+  separate and unused by this path). Validated on save: `length >= 1`; each part's name
+  non-empty + unique, `start >= 0`, `length >= 1`, `start+length <= length`; when
+  `enabled`, at least one part exists and `recipe_part` references one of them.
+- `resolve_recipe_from_barcode(barcode) -> {"ok": True, "recipe_id", "parts": {name: value}}`
+  or `{"ok": False, "error"}` lives on the config module (contract + `GET /config/barcode`,
+  `PUT /config/barcode`) — it's how `runs` resolves a scanned barcode to a recipe id
+  (`docs/contracts/runs.md` §Acquisition), returning an envelope rather than raising,
+  since it's called across the module boundary. It does not verify the recipe id exists;
+  that happens later, when the recipe is actually fetched.
+- **Drives the Start dialog directly:** when `enabled`, the operator sees one serial/
+  barcode field (recipe auto-resolved from `recipe_part`); when not, one recipe dropdown
+  (operator picks manually). No manual mode switch — the config's `enabled` flag is the
+  only thing that decides which the operator sees.
+- This replaced the old `runs.acquisition.barcode.strategy` (`prefix`/`fixed`) mechanism,
+  which had no operator UI and could only express "first N chars" or "always this one
+  recipe" (v1.19.0 — CHANGELOG).
 
 ## Instrument ownership (one registry, two owners)
 

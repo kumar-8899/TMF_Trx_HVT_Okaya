@@ -5,31 +5,38 @@ LabVIEW owns execution; this module relays control and turns controller events
 into durable records (CORE.md §7). One variant: `default`. Entitlement key `runs`.
 
 ## Acquisition (which recipe to run)
-A run learns its recipe either from a **barcode** (EOL benches — the leading
-characters encode the model/recipe) or a **directly chosen recipe id** (endurance
-benches — operator picks from a list). Resolution is a pluggable strategy
-(`modules/runs/acquisition.py`); phase-1 ships `prefix` (first N barcode chars).
+A run learns its recipe either from a **barcode** (EOL benches — a configured part of
+the barcode encodes the model/recipe id) or a **directly chosen recipe id** (endurance
+benches — operator picks from a list). Whether the Start dialog shows a barcode/serial
+field or a recipe dropdown, and how a scanned barcode resolves to a recipe id, is owned
+entirely by the **`config` module's Barcode page** (`docs/contracts/CONFIG.md` §Barcode),
+not by this module — `runs` just delegates:
 
-Config (`acquisition`):
-```json
-{ "default_mode": "barcode", "barcode": { "strategy": "prefix", "length": 3 } }
+```python
+result = await core.get_contract("config").resolve_recipe_from_barcode(barcode)
+# {"ok": True, "recipe_id": ..., "parts": {...}} or {"ok": False, "error": ...}
 ```
-`GET /runs/acquisition` returns this so the Runs UI can render the Start dialog.
+
+This is a **soft** cross-module call (`try/except KeyError` around `get_contract`, the
+same idiom `_delegate_reset` uses) — `runs` does not declare `config` in
+`contract_dependencies`, since module activation has no topological sort and `runs`
+activates before `config` in `app.json`'s module list; a hard dependency would silently
+skip-activate the whole module at boot. A `{"ok": False}` result or an absent `config`
+module both raise `AcquisitionError` → HTTP 422.
 
 ### Bench profile (operator window)
 The operator testing window is **config-driven**: `GET /runs/config` returns a
 declarative profile so the window's composition changes by config, not code.
 ```json
-{ "acquisition": { … },
-  "identity": { "model": "prefix", "serial": "barcode" },
+{ "identity": { "model": "prefix", "serial": "barcode" },
   "live_variables": [ { "name": "vbus_main", "label": "DC Bus", "unit": "V", "format": "0.0" } ],
   "analytics": { "daily": true },
   "ui": { "verdict_banner": true, "message_line": true, "today_strip": true } }
 ```
-`identity` derives **Model** (= resolved recipe id, `prefix`) and **Serial No**
-(= full `barcode`) at run start; both are written to `run_parameters` and the run
-record. `live_variables` are streamed to the window over the DAQ values WS
-(`/instruments/values/ws`). Daily pass/fail uses `GET /reports/analytics?since=<midnight>`.
+`identity` derives **Model** (= resolved recipe id) and **Serial No** (= full `barcode`)
+at run start; both are written to `run_parameters` and the run record. `live_variables`
+are streamed to the window over the DAQ values WS (`/instruments/values/ws`). Daily
+pass/fail uses `GET /reports/analytics?since=<midnight>`.
 
 ## Commands issued (Py → LV)
 - `run.start` `{ run_id, recipe_id, version?, run_parameters? }` — Python resolves
@@ -64,8 +71,7 @@ One result row per event (multiple may arrive during a run):
 ## HTTP / WS surface
 | Method | Path | Behaviour |
 |---|---|---|
-| GET  | `/runs/acquisition` | acquisition config for the Start dialog |
-| GET  | `/runs/config` | bench profile (acquisition + identity + live_variables + analytics + ui) for the operator window |
+| GET  | `/runs/config` | bench profile (identity + live_variables + analytics + ui) for the operator window |
 | POST | `/runs/start` | body `{ recipe_id? \| barcode?, version?, run_parameters? }` → resolve + mint run_id + `run.start`; returns `{ run_id, recipe_id }` |
 | POST | `/runs/abort` | `run.abort` |
 | GET  | `/runs` | run records (`since`, `limit`) |

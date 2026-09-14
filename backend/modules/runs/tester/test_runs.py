@@ -10,7 +10,7 @@ from httpx import ASGITransport
 from core.framework.contract import CoreServices
 from core.services.db import Database
 from core.services.diagnostics import Diagnostics
-from modules.runs.acquisition import AcquisitionError, resolve_recipe_id
+from modules.runs.acquisition import AcquisitionError
 from modules.runs.variants.default import DefaultRuns
 
 
@@ -26,15 +26,31 @@ class FakeBridge:
         return {"id": "x", "ok": True, "result": {}}
 
 
+class FakeConfig:
+    """Stands in for the `config` module's contract — `resolve()` reaches it only via
+    `core.get_contract("config")` (a soft cross-module call, see runs/variants/default.py)."""
+
+    # default acquisition: first 3 chars of the barcode are the recipe id
+    def __init__(self, length=3):
+        self.length = length
+
+    async def resolve_recipe_from_barcode(self, barcode):
+        rid = (barcode or "")[: self.length]
+        if not rid:
+            return {"ok": False, "error": "barcode too short"}
+        return {"ok": True, "recipe_id": rid, "parts": {"model": rid}}
+
+
 @pytest.fixture
 async def ctx():
     db = Database(":memory:", station="st1", source_version="0.0.0")
     await db.connect()
     bridge = FakeBridge()
+    contracts = {"config": FakeConfig()}
     core = CoreServices(
         db=db, bridge=bridge,
         diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]),
-        station="st1",
+        station="st1", get_contract=lambda name: contracts[name],
     )
     module = DefaultRuns.construct(core, {})
     yield module, bridge, db
@@ -60,7 +76,7 @@ async def test_run_start_resolves_id_and_mints_run_id(ctx):
 
 
 async def test_run_start_from_barcode(ctx):
-    # default acquisition is prefix length 3 -> "INV12345" resolves to "INV"
+    # resolution delegates to the config module's FakeConfig (length-3 prefix, see above)
     module, bridge, _ = ctx
     out = await module.run_start({"barcode": "INV12345"})
     assert out["recipe_id"] == "INV"
@@ -72,6 +88,26 @@ async def test_run_start_from_barcode(ctx):
     # identity persisted on the run record
     run = await module.get_run(out["run_id"])
     assert run["data"]["model"] == "INV" and run["data"]["serial_no"] == "INV12345"
+
+
+async def test_run_start_from_barcode_resolution_failure(ctx):
+    module, _, _ = ctx
+    with pytest.raises(AcquisitionError):
+        await module.run_start({"barcode": ""})   # FakeConfig -> {"ok": False, ...}
+
+
+async def test_run_start_from_barcode_no_config_module():
+    # config module not active (soft dependency) -> AcquisitionError, not a crash
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, bridge=FakeBridge(),
+                        diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    module = DefaultRuns.construct(core, {})
+    try:
+        with pytest.raises(AcquisitionError):
+            await module.run_start({"barcode": "INV12345"})
+    finally:
+        await db.close()
 
 
 async def test_reset_data_purges_records(ctx):
@@ -105,7 +141,7 @@ async def test_reset_data_targets_select(ctx):
 async def test_profile_shape(ctx):
     module, _, _ = ctx
     p = module.profile()
-    assert p["acquisition"]["default_mode"] == "barcode"
+    assert "acquisition" not in p   # owned by config.resolve_recipe_from_barcode now
     assert "identity" in p and "live_variables" in p and "analytics" in p and "ui" in p
     assert p["ui"]["verdict_banner"] is True
 
@@ -114,24 +150,6 @@ async def test_run_start_requires_recipe_or_barcode(ctx):
     module, _, _ = ctx
     with pytest.raises(AcquisitionError):
         await module.run_start({})
-
-
-async def test_acquisition_config(ctx):
-    module, _, _ = ctx
-    cfg = module.acquisition_config()
-    assert cfg["default_mode"] == "barcode"
-    assert cfg["barcode"]["length"] == 3
-
-
-def test_fixed_acquisition_scans_serial_runs_one_recipe():
-    """#6.2: a single-product bench scans a SERIAL, not a model code — `fixed` always
-    resolves to the configured recipe (prefix would give a bogus 3-char id → abort)."""
-    assert resolve_recipe_id("WF-000512", strategy="fixed", recipe_id="default_feeder") == "default_feeder"
-    # empty scan still rejected; missing recipe_id is a config error
-    with pytest.raises(AcquisitionError):
-        resolve_recipe_id("", strategy="fixed", recipe_id="default_feeder")
-    with pytest.raises(AcquisitionError):
-        resolve_recipe_id("WF-1", strategy="fixed")
 
 
 # --- event -> records ------------------------------------------------------
@@ -219,8 +237,9 @@ async def test_rest_surface(ctx):
         bad = await c.post("/runs/start", json={})
         assert bad.status_code == 422
 
-        acq = await c.get("/runs/acquisition")
-        assert acq.status_code == 200 and acq.json()["default_mode"] == "barcode"
+        # the old /runs/acquisition route is gone — resolution moved to config.resolve_recipe_from_barcode
+        gone = await c.get("/runs/acquisition")
+        assert gone.status_code == 404
 
         ids = [r["id"] for r in (await c.get("/runs")).json()]
         assert "R1" in ids

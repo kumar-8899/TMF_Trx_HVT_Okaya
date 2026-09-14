@@ -16,7 +16,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from core.framework.contract import CoreServices, Health, HealthStatus
 from core.services.streaming import StreamHub
-from modules.runs.acquisition import resolve_recipe_id
+from modules.runs.acquisition import AcquisitionError
 from modules.runs.api import build_router
 from modules.runs.errors import RunActiveError, RunError
 
@@ -28,9 +28,6 @@ class DefaultRuns:
     def __init__(self, core: CoreServices, config: dict) -> None:
         self.core = core
         self.config = config
-        acq = config.get("acquisition", {}) or {}
-        self.acq_default_mode = acq.get("default_mode", "barcode")
-        self._barcode_cfg = acq.get("barcode", {}) or {}
         self._identity_cfg = config.get("identity", {}) or {}
         self._live_variables = config.get("live_variables", []) or []
         self._analytics_cfg = config.get("analytics", {"daily": True}) or {}
@@ -67,22 +64,14 @@ class DefaultRuns:
         )
 
     # --- acquisition -------------------------------------------------------
-
-    def acquisition_config(self) -> dict:
-        """What the Start dialog needs (default mode + hints)."""
-        return {
-            "default_mode": self.acq_default_mode,
-            "barcode": {
-                "strategy": self._barcode_cfg.get("strategy", "prefix"),
-                "length": self._barcode_cfg.get("length", 3),
-            },
-        }
+    # Whether the Start dialog shows a barcode/serial field or a recipe dropdown, and
+    # how a scanned barcode resolves to a recipe id, is entirely owned by the `config`
+    # module's Barcode page now (GET /config/barcode) — not this module's profile.
 
     def profile(self) -> dict:
         """The bench profile that drives the operator testing window — declarative,
         so the window's composition changes by config, not code."""
         return {
-            "acquisition": self.acquisition_config(),
             "identity": {
                 "model": self._identity_cfg.get("model", "prefix"),
                 "serial": self._identity_cfg.get("serial", "barcode"),
@@ -103,13 +92,23 @@ class DefaultRuns:
             out["serial_no"] = barcode if self._identity_cfg.get("serial", "barcode") == "barcode" else barcode
         return out
 
-    def resolve(self, barcode: str) -> str:
-        return resolve_recipe_id(
-            barcode,
-            strategy=self._barcode_cfg.get("strategy", "prefix"),
-            length=self._barcode_cfg.get("length", 3),
-            recipe_id=self._barcode_cfg.get("recipe_id"),
-        )
+    async def resolve(self, barcode: str) -> str:
+        """Delegate to the `config` module's barcode structure (Config → Barcode page).
+        A soft cross-module call (like `_delegate_reset`/`config._python_test`) — `runs`
+        does NOT declare `config` in contract_dependencies (module activation order in
+        app.json lists `runs` before `config`; a hard dependency would silently skip
+        activating the whole `runs` module at boot)."""
+        get = getattr(self.core, "get_contract", None)
+        try:
+            config_mod = get("config") if get else None
+        except KeyError:
+            config_mod = None
+        if config_mod is None:
+            raise AcquisitionError("config module not active — barcode resolution unavailable")
+        result = await config_mod.resolve_recipe_from_barcode(barcode)
+        if not result.get("ok"):
+            raise AcquisitionError(result.get("error") or "could not resolve recipe from barcode")
+        return result["recipe_id"]
 
     # --- run control -------------------------------------------------------
 
@@ -143,9 +142,8 @@ class DefaultRuns:
         recipe_id = body.get("recipe_id")
         barcode = body.get("barcode")
         if not recipe_id and barcode:
-            recipe_id = self.resolve(barcode)  # AcquisitionError -> 422
+            recipe_id = await self.resolve(barcode)  # AcquisitionError -> 422
         if not recipe_id:
-            from modules.runs.acquisition import AcquisitionError
             raise AcquisitionError("recipe_id or barcode required")
 
         station = self._resolve_station(body)

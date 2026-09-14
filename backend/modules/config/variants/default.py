@@ -22,6 +22,7 @@ _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _TEST_TIMEOUT_S = 8.0
 _SHIFT_ID = "shift"
+_BARCODE_ID = "barcode"
 
 
 def _to_min(hhmm: str) -> int:
@@ -220,6 +221,78 @@ class DefaultConfig:
 
     async def current_shift(self) -> dict:
         return await self.shift_for(time.time())
+
+    # --- barcode (structure + recipe-id extraction) ------------------------
+    # A barcode is a fixed total length divided into named parts, each an
+    # {start, length} slice; one part is designated the recipe-id part. Global
+    # to the app (a labeling scheme, not per-socket wiring like Instruments).
+
+    async def get_barcode_config(self) -> dict:
+        rec = await self.core.db.repo.get("barcode_config", _BARCODE_ID)
+        data = rec["data"] if rec else {}
+        return {"enabled": bool(data.get("enabled", False)),
+                "length": int(data.get("length", 0)),
+                "parts": data.get("parts", []) or [],
+                "recipe_part": data.get("recipe_part")}
+
+    async def set_barcode_config(self, body: dict) -> dict:
+        enabled = bool(body.get("enabled", False))
+        length = int(body.get("length") or 0)
+        if length < 1:
+            raise ConfigError("length must be >= 1")
+        cleaned = []
+        seen = set()
+        for i, p in enumerate(body.get("parts") or []):
+            name = (p.get("name") or "").strip()
+            if not name:
+                raise ConfigError(f"part #{i + 1}: name required")
+            if name in seen:
+                raise ConfigError(f"duplicate part name '{name}'")
+            start, plen = int(p.get("start", -1)), int(p.get("length", 0))
+            if start < 0:
+                raise ConfigError(f"part '{name}': start must be >= 0")
+            if plen < 1:
+                raise ConfigError(f"part '{name}': length must be >= 1")
+            if start + plen > length:
+                raise ConfigError(f"part '{name}': exceeds total barcode length ({length})")
+            seen.add(name)
+            cleaned.append({"name": name, "start": start, "length": plen})
+        recipe_part = body.get("recipe_part")
+        if enabled:
+            if not cleaned:
+                raise ConfigError("enable barcode requires at least one part")
+            if not recipe_part or recipe_part not in seen:
+                raise ConfigError("recipe_part must reference a configured part")
+        rec = {"enabled": enabled, "length": length, "parts": cleaned,
+               "recipe_part": recipe_part, "updated_ts": time.time()}
+        await self.core.db.repo.put("barcode_config", rec, id=_BARCODE_ID,
+                                    summary=f"{len(cleaned)} part(s)" + (" · enabled" if enabled else ""))
+        self.core.diag.info("config", "barcode config updated", enabled=enabled, parts=len(cleaned))
+        return rec
+
+    async def resolve_recipe_from_barcode(self, barcode: str) -> dict:
+        """{"ok": True, "recipe_id", "parts": {name: value}} or {"ok": False, "error"}.
+        A dict envelope, not a raised exception — this is called across the module
+        boundary (by `runs`) and there's no established pattern here for one module's
+        exception classes propagating through another's. Does NOT verify the extracted
+        recipe id actually exists (a later fetch, e.g. LabVIEW's recipe.fetch, does)."""
+        cfg = await self.get_barcode_config()
+        if not cfg["enabled"]:
+            return {"ok": False, "error": "barcode acquisition not enabled"}
+        barcode = (barcode or "").strip()
+        if not barcode:
+            return {"ok": False, "error": "empty barcode"}
+        if len(barcode) != cfg["length"]:
+            return {"ok": False, "error": f"barcode length {len(barcode)} != configured {cfg['length']}"}
+        recipe_part = cfg.get("recipe_part")
+        parts_by_name = {p["name"]: p for p in cfg["parts"]}
+        if not recipe_part or recipe_part not in parts_by_name:
+            return {"ok": False, "error": "no recipe part configured"}
+        values = {p["name"]: barcode[p["start"]:p["start"] + p["length"]] for p in cfg["parts"]}
+        recipe_id = values.get(recipe_part, "").strip()
+        if not recipe_id:
+            return {"ok": False, "error": "extracted recipe id is empty"}
+        return {"ok": True, "recipe_id": recipe_id, "parts": values}
 
     # --- test connection (LabVIEW owns the I/O) ----------------------------
 
