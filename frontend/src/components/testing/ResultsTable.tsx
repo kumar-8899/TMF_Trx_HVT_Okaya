@@ -1,4 +1,7 @@
-import { Table, TableBody, TableCell, TableHead, TableRow } from "@mui/material";
+import { useState } from "react";
+import {
+  FormControlLabel, Switch, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+} from "@mui/material";
 
 import { EmptyState, Section, StatusChip, statusKind } from "../ui";
 import { MONO_STACK } from "../../theme/theme";
@@ -8,12 +11,44 @@ export interface ResultRow {
   result?: string; cycle_time_ms?: number;
 }
 
-/** The live test-result table (one row per `test-result` event). */
+/** The live test-result table (one row per `test-result` event).
+ *
+ * Setup/actuation measurements — status "INFO" (no limits/context, not pass/fail; e.g.
+ * `set_output` recording the value it wrote for traceability) — are hidden by default so
+ * the operator sees only graded PASS/FAIL rows, matching what this table exists to show.
+ * "Show setup steps" reveals them without losing anything: `rows` is always the full,
+ * untruncated stream this component receives — nothing is discarded here, so persistence
+ * / report export (which read the same underlying record, not this component's state)
+ * are completely unaffected either way. This is display-only. */
 export function ResultsTable({ rows, subtitle }: { rows: ResultRow[]; subtitle?: string }) {
+  const [showInfo, setShowInfo] = useState(false);
+  const hiddenCount = rows.filter((r) => r.result === "INFO").length;
+  const visible = showInfo ? rows : rows.filter((r) => r.result !== "INFO");
+
   return (
-    <Section title="Test results" subtitle={subtitle} bodyPad={0}>
-      {rows.length === 0 ? (
-        <EmptyState message="No results yet." />
+    <Section
+      title="Test results"
+      subtitle={subtitle}
+      bodyPad={0}
+      actions={hiddenCount > 0 && (
+        <FormControlLabel
+          sx={{ color: "inherit", m: 0 }}
+          control={<Switch size="small" checked={showInfo}
+            onChange={(e) => setShowInfo(e.target.checked)} />}
+          label={
+            <Typography variant="caption" sx={{ color: "inherit" }}>
+              {showInfo ? "Showing setup steps" : `Show setup steps (${hiddenCount} hidden)`}
+            </Typography>
+          }
+        />
+      )}
+    >
+      {visible.length === 0 ? (
+        <EmptyState message={
+          rows.length === 0
+            ? "No results yet."
+            : `No graded results yet (${rows.length} setup step${rows.length === 1 ? "" : "s"} recorded).`
+        } />
       ) : (
         <Table stickyHeader>
           <TableHead>
@@ -27,7 +62,7 @@ export function ResultsTable({ rows, subtitle }: { rows: ResultRow[]; subtitle?:
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((r, i) => (
+            {visible.map((r, i) => (
               <TableRow key={i}>
                 <TableCell sx={{ fontFamily: MONO_STACK }}>{r.serial_no ?? i + 1}</TableCell>
                 <TableCell>{r.test_name}</TableCell>
