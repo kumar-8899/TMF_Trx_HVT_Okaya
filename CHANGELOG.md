@@ -5,6 +5,29 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.22.0 — 2026-09-15
+
+**Frontend: forks can add a brand-new page, not just replace one of the 5 fixed screens (MINOR).**
+
+Found on a downstream bench (framework Issue 3): the screen-override registry
+(`frontend/src/app/overrides/`) only let a fork *replace* Runs/Recipes/recipe-editor/
+recipe-detail/Maintenance — there was no way to *add* a new top-level page without editing
+framework-owned `App.tsx` (routes) and `Layout.tsx` (nav), which breaks the clean-merge
+boundary `docs/TEMPLATE.md` §1 exists to protect.
+
+- **New:** any file in `overrides/` can export a named `pages: AppPage[]`
+  (`{ path, navLabel, navIcon?, permission?, component }`) alongside or instead of its
+  `default` screen override. Each entry becomes a route — permission-gated via
+  `RequirePermission` the same way a built-in route is — and a nav-drawer item,
+  automatically; `App.tsx`/`Layout.tsx` render `APP_PAGES` without knowing what a fork put
+  in it.
+- `path` **must start with `"/app/"`** — reserved for app-contributed pages so they can never
+  collide with a framework route added in a later release. An entry that doesn't (or is
+  missing `navLabel`/`component`) is skipped with a console warning, not a crash.
+- Registry logic (`frontend/src/app/registry.ts`) is now a pure, unit-tested `buildRegistry()`
+  the Vite `import.meta.glob` result feeds — new coverage in `registry.test.ts`. Docs:
+  `docs/TEMPLATE.md` §1.3, `frontend/src/app/overrides/README.md`.
+
 ## v1.21.0 — 2026-09-15
 
 **Python controller: hardware ops no longer block command dispatch (MINOR).**
