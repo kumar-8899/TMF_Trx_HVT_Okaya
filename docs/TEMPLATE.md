@@ -196,8 +196,9 @@ your `<app>_*` modules against the new `contract_version` before merging.
 ### App-build acceptance (run before tagging an app release)
 
 A build that boots the shell but can't run an app step type is a FAIL. After
-`build_release.py --track app --product <slug>`, from `release-build/`:
-1. Launch (`python run_station.py --no-window`), with a broker on :1883.
+`deploy/cut-release.ps1 -BuildOnly` (which runs `build_release.py --track app` internally),
+from `release-build/`:
+1. Launch (`python station.py --no-window`), with a broker on :1883.
 2. Confirm the diag shows `python controller started` + `step-type package loaded: <slug>_steps`,
    `/readyz` reports the station **online**, and `/recipes/step-types` lists the app's own step
    type(s) with schema.

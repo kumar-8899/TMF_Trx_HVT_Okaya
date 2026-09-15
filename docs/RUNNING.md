@@ -1,18 +1,18 @@
 # RUNNING — launching the station
 
-Two ways to run the app, one shared edge. Both bring up the same three processes
-(broker, backend, controller); they differ only in how the UI is served and shown.
+**`station.py` is the one entrypoint** — source or frozen, dev or production. It brings up the
+same processes (broker, supervised backend, controller) every way; a flag picks how the UI is
+served and shown. `dev.ps1` is just a shim for `python station.py --dev`.
 
-| | `dev.ps1` | `station.py` |
+| | `python station.py --dev` (`.\dev.ps1`) | `python station.py` |
 |---|---|---|
-| Windows | three (mosquitto, Vite, backend) + browser tab | one process |
 | Frontend | Vite dev server on `:5173` (HMR), proxying the API to `:8000` | backend serves the **built** bundle on `:8000` (single origin) |
-| Shown in | the default browser | a native **pywebview** window (or browser) |
+| Shown in | a native **pywebview** window (points at Vite) | a native **pywebview** window (or `--browser`) |
 | For | frontend development (live reload) | operators, demos, a production-feel run |
 
 ```pwsh
-powershell -ExecutionPolicy Bypass -File .\dev.ps1   # dev: Vite + HMR
-python station.py                                    # one-click: built UI in a native window
+python station.py --dev          # dev: Vite + HMR   (or: .\dev.ps1)
+python station.py                # one-click: built UI in a native window
 ```
 
 ---
@@ -58,9 +58,11 @@ What it does, in order:
 1. **Broker** — starts the vendored `mosquitto` if `:1883` isn't already up (prefers
    `deploy/vendor/mosquitto/`, then PATH, then Program Files). An already-running
    broker is left alone.
-2. **Backend** — spawns `backend/launcher.py` (so the "Relaunch to apply" + signed
-   update loop keeps working), in a new process group so shutdown can signal it. The
-   backend in turn supervises the Python controller when `controller.kind = "python"`.
+2. **Backend** — runs the `launcher.Supervisor` loop **in-process, on a thread** (so the
+   "Relaunch to apply" + signed-update loop keeps working with no second Python spawned),
+   which starts the backend in its own process group so shutdown can signal it. The backend
+   in turn supervises the Python controller when `controller.kind = "python"`. This is the
+   same supervision path source and frozen use — `station.py` is the one entrypoint for both.
 3. **Frontend** — production mode serves the built bundle; if it's **missing or
    stale** (any `frontend/src` file newer than `dist/index.html`) it runs
    `npm run build` first, so a source checkout never serves an old UI. A frozen
@@ -88,23 +90,24 @@ reconnects when the backend comes back.
 
 ## Running a frozen app build (`release-build/`)
 
-`python build_release.py --track app --product <slug>` produces a self-contained
-`release-build/` (SECURE_DISTRIBUTION.md §5). Run it like a shipped station — from the
-`release-build/` root (the deploy root), NOT from inside `run.dist/`:
+`deploy/cut-release.ps1 -BuildOnly` produces a self-contained `release-build/`
+(SECURE_DISTRIBUTION.md §5; it runs `build_release.py --track app` internally). Run it like a
+shipped station — from the `release-build/` root (the deploy root), NOT from inside `run.dist/`:
 
 ```pwsh
 cd release-build
 run_station.exe                  # frozen window: broker + supervised backend + controller (NO Python)
 run_station.exe --fullscreen     # kiosk (what the installed Desktop shortcut runs)
-python run_station.py            # same code from source (dev; needs Python + pywebview)
+python station.py                # the SAME entrypoint from source (dev; needs Python + pywebview)
 python run.dist\launcher.py      # backend + controller only, no window
 ```
 
-- **`run_station.exe`** (v1.14.0) bundles pywebview + the launcher and runs the supervision loop
-  in-process, so a client needs **no system Python, no pip**. It ships in the deploy root beside
-  `run.dist`; `run_station.py` is the same code from source for dev. The vendored broker inside
-  `run.dist/vendor/mosquitto/` means **no Mosquitto install/service** either.
-- `run_station`/`launcher.py` set `TMF_STATE_DIR` to the deploy root, so live config + DB +
+- **`run_station.exe`** is the one `station.py` entrypoint Nuitka-compiled: it bundles pywebview
+  + the launcher and runs the supervision loop in-process, so a client needs **no system Python,
+  no pip**. It ships in the deploy root beside `run.dist`; `python station.py` from the deploy
+  root is the same code from source for dev (it detects the `run.dist` layout). The vendored
+  broker inside `run.dist/vendor/mosquitto/` means **no Mosquitto install/service** either.
+- `station.py`/`launcher.py` set `TMF_STATE_DIR` to the deploy root, so live config + DB +
   backups land in `release-build/config` + `release-build/data` (outside the swappable `run.dist`).
 - On first boot `config/app.example.json` (promoted from the app's `app.release.json`) is copied to
   the live config, so the app boots with its **own** branding + `controller.kind=python`.
@@ -113,8 +116,9 @@ python run.dist\launcher.py      # backend + controller only, no window
   package (compiled in) and brings the station online (`/readyz`). Configure instrument instances on
   **Config → Instruments** (site config, held in the DB — not in the artifact), then restart to run
   the app's sequence.
-- For a real client PC, don't run these by hand — build the offline **`setup.exe`**
-  (`deploy/build-installer.ps1`) which lays this out + a fullscreen Desktop shortcut (DEPLOY_STATION.md).
+- For a real client PC, don't run these by hand — build the offline **`setup.exe`** via
+  **`deploy/cut-release.ps1`** (the one build/release entry; it invokes `build-installer.ps1`
+  internally), which lays this out + a fullscreen Desktop shortcut (DEPLOY_STATION.md).
 
 ---
 
@@ -124,11 +128,11 @@ The SVG favicon (`frontend/public/favicon.svg`) covers the **browser tab / WebVi
 icon** and the in-app title bar (`BrandMark`). The **OS window title-bar + taskbar icon**
 of the pywebview window needs a real `.ico`/`.png`, not the SVG — wired as of v1.14.x:
 
-- **Title-bar icon (both source + frozen):** `station.py` / `run_station.py` pass
+- **Title-bar icon (both source + frozen):** `station.py` passes
   `webview.start(icon=<favicon.ico>)` — resolved from the built SPA (`frontend/public` or
   `run.dist/frontend`), so a fork's own `favicon.ico` is used automatically.
-- **Taskbar icon before the window opens (frozen):** `build_release.py`'s `run_station.exe`
-  Nuitka step embeds it via `--windows-icon-from-ico=frontend/public/favicon.ico`.
+- **Taskbar icon before the window opens (frozen):** the `run_station.exe` Nuitka step (compiling
+  `station.py`) embeds it via `--windows-icon-from-ico=frontend/public/favicon.ico`.
 
 `frontend/public/favicon.ico` (multi-res) is generated from `favicon.svg`; regenerate it if
 the SVG changes. A source run still shows Python's icon in the taskbar (only the title-bar

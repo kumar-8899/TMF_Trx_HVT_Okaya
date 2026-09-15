@@ -117,7 +117,7 @@ mints a dev lease — verified green on this workstation.
       app.release.json` (or `--app-config`); credentials are stripped. This is what `ensure_live`
       copies to the external live config on first boot, so the frozen app boots with the app's own
       branding + controller block, not the framework shell.
-  - plus `docs/` + `frontend/` (built SPA) + `run_station.py` + `keystation_core.dll` +
+  - plus `docs/` + `frontend/` (built SPA) + `station.py` + `keystation_core.dll` +
     `RELEASE.json` (version + framework_version + pinned_fw_version + SHA-256 of every file +
     `full_artifact_hash`).
   `--track framework` builds the backend-only shell (framework self-test).

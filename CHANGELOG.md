@@ -5,6 +5,40 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.20.0 — 2026-09-15
+
+**One run entrypoint + one build/release entrypoint, and two clean-PC first-install fixes (MINOR).**
+
+Consolidation — fewer files to run and to release:
+- **`station.py` is now the single run entrypoint** for every layout (source dev/prod + frozen).
+  It always supervises the backend via `launcher.Supervisor` in-process (the proven model), adds
+  Vite/HMR + frontend build only in a source checkout, and detects the frozen `run.dist` layout
+  automatically. The duplicate **`run_station.py` is removed** — `run_station.exe` is now
+  `station.py` Nuitka-compiled (same exe name, so installers/shortcuts are unchanged).
+  **`dev.ps1` is now a one-line shim** for `python station.py --dev`.
+- **`deploy/cut-release.ps1` is now the single build/release entrypoint** — a plain file every fork
+  inherits (no more `.template` render; it auto-detects the app under `app/`, or takes `-Slug`). It
+  invokes `fetch-mosquitto.ps1`, `build_release.py`, the signer and `build-installer.ps1` internally;
+  a new **`-BuildOnly`** mode builds the artifacts without committing/tagging/publishing. Framework
+  releases stay the git-tag flow (RELEASE_HOWTO.md — the framework builds no binary).
+- `launcher.Supervisor` gained a `show_backend_console` flag so a source/dev run shows the backend's
+  logs while the frozen windowed launcher keeps suppressing a console window.
+
+Fixes (first-install blockers on a genuinely clean client PC):
+- **Issue 4 — the frozen windowed launcher is now verified to actually open a window.** The build's
+  runtime smoke test used to launch `run_station.exe --no-window` and only check `/healthz`, so an
+  exe that booted the backend but could never open a pywebview window (a Nuitka/pywebview plugin
+  interaction) shipped "verified." It now launches the exe **windowed** and confirms a real window
+  appears (matched by the owning process's image name, since Nuitka onefile spawns a child), failing
+  soft — removing the exe with an unlink backoff — if none does. The adaptive-retry compile is
+  unchanged; windowed verification catches a bad exe regardless of how it was compiled.
+- **Issue 5 — the vendored Mosquitto broker now ships the MSVC runtime it needs.** `mosquitto.exe`
+  hard-imports `VCRUNTIME140.dll` (+`140_1` for `mosquittopp.dll`); a clean PC without the VC++
+  redistributable couldn't start it, so the broker never bound `:1883` and it surfaced as a bare
+  connection-refused. The build now copies the `vcruntime140*.dll` Nuitka already places next to
+  `run.exe` into the broker's own directory (Windows checks an exe's own dir first), with a build-gate
+  assert so a future Mosquitto dep-set change is caught on the builder, not a bench.
+
 ## v1.19.0 — 2026-09-14
 
 **Config → Barcode: a generic, operator-editable barcode structure replaces the old

@@ -52,6 +52,12 @@ Both produce the same GitHub Release with the same four assets
 (`<slug>-<ver>.ksupdate`, `<slug>-<ver>.zip`, `run_station.exe`, `<AppShort>-Setup-<ver>.exe`),
 so the in-app updater and first-install docs are identical.
 
+`deploy/cut-release.ps1` is the **single build/release entry** — it runs every step
+(`fetch-mosquitto.ps1`, `build_release.py`, the signer, `build-installer.ps1`) itself; you never
+call those directly. It auto-detects the app under `app/` (pass `-Slug` to override). Use
+**`.\deploy\cut-release.ps1 -BuildOnly`** to build the artifacts locally without committing,
+tagging, or publishing (no `gh` needed).
+
 ### Prerequisites for the local script
 
 - **Python 3.11 or 3.12** + `pip install -e "backend[dev,release]"` (pulls Nuitka, zstandard, pywebview)
