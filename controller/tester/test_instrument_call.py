@@ -18,7 +18,7 @@ class FakeClient:
     def __init__(self):
         self.served: dict = {}
 
-    def serve(self, op, handler):
+    def serve(self, op, handler, *, blocking=False):
         self.served[op] = handler
 
     def publish(self, topic, payload, *, retain=False):

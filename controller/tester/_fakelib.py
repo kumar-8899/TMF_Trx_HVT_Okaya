@@ -2,6 +2,8 @@
 the real instrumentlib decorator so the registry resolves it, but self-contained (no
 dependency on the Instrument_Library repo path)."""
 
+import asyncio
+
 from instrumentlib import (IPowerSource, InstrumentBase, Multiplexer, SimTransport,
                           instrument_library)
 from instrumentlib.registry import REGISTRY
@@ -44,6 +46,13 @@ class FakePsu(InstrumentBase, IPowerSource):
 
     async def emergency_disable(self):
         pass
+
+    async def slow_op(self, seconds):
+        """A stand-in for a real device round-trip that takes a while — used by the
+        controller dispatch tests to prove one instrument's I/O never freezes the
+        network thread or a different instrument's calls (PYTHON_CONTROLLER.md §3.4)."""
+        await asyncio.sleep(seconds)
+        return {"slept": seconds}
 
 
 class FakeMux(InstrumentBase, Multiplexer):

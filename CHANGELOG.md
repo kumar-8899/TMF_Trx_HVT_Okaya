@@ -5,6 +5,32 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.21.0 — 2026-09-15
+
+**Python controller: hardware ops no longer block command dispatch (MINOR).**
+
+Found on a real Okaya bench running the supervised Python controller (framework Issue 2).
+paho dispatches every MQTT message on **one network thread**; the controller's hardware
+handlers (`variable.read/write/read_many`, `instrument.test`, `instrument.call`) blocked
+that thread for the full device round-trip via `loop.run(inst.invoke(...), timeout=...)`.
+A slow or hung instrument therefore froze **all** command handling — every other
+instrument's reads, `hello.echo`, `instrument.status`, keepalive — and could make shutdown
+miss its grace window.
+
+- **`StationClient.serve(op, handler, blocking=True)`** now routes an op to a small daemon
+  dispatch pool (`controller/controller/bridge/client.py::_DispatchPool`, 8 workers) instead
+  of running it inline on the network thread; `_on_message` hands off and returns at once.
+  Hardware ops are served `blocking=True`; fast, non-hardware ops (`hello.echo`,
+  `instrument.status`, run/safety/maintenance) stay inline for minimum latency.
+- Per-instrument serialization is unchanged — `InstrumentBase`'s per-instance `asyncio.Lock`
+  still means same-instrument calls serialize while distinct instruments run concurrently.
+  The pool's workers are daemon threads, so a hung device call can never block
+  `StationClient.stop()` or process exit.
+- New live-broker acceptance (`controller/tester/test_integration_c2_dispatch.py`): a slow
+  `instrument.call` in flight no longer delays a concurrent `hello.echo`, `instrument.status`,
+  or a different instrument's call; same-instrument calls still serialize; `stop()` returns
+  promptly with a hung call in flight.
+
 ## v1.20.0 — 2026-09-15
 
 **One run entrypoint + one build/release entrypoint, and two clean-PC first-install fixes (MINOR).**

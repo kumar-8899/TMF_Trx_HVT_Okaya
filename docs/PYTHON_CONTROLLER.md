@@ -68,6 +68,24 @@ station threads and MQTT callbacks submit coroutines with `run_coroutine_threads
 and block for the result. The per-instance lock inside `InstrumentBase` then
 arbitrates a shared instrument in-process, with no cross-thread races.
 
+**Command dispatch off the network thread (v1.21.0+):** paho reads and dispatches
+every MQTT message on **one network thread**. A served op that blocks it — a
+hardware round-trip via `loop.run(inst.invoke(...), timeout=...)` — used to freeze
+*all* command handling until it returned: no other instrument's read, no
+`hello.echo`, no `instrument.status`, and a slow/hung instrument could make
+shutdown miss its grace window. `client.serve(op, handler, blocking=True)` now
+routes an op to a small **daemon dispatch pool** (`bridge/client.py::_DispatchPool`,
+default 8 workers) instead of running it inline; `_on_message` hands off and
+returns immediately, so the network thread keeps pumping. The hardware ops
+(`variable.read/write/read_many`, `instrument.test`, `instrument.call`) are served
+`blocking=True`; fast, non-hardware ops (`hello.echo`, `instrument.status`,
+run/safety/maintenance) stay inline for minimum latency. Per-instrument
+serialization is unchanged — it still comes from `InstrumentBase`'s per-instance
+`asyncio.Lock`, so distinct instruments run concurrently on the pool while
+same-instrument calls still serialize on that lock. The pool's worker threads are
+daemon, so a hung device call never blocks `StationClient.stop()` or process exit
+(live acceptance: `controller/tester/test_integration_c2_dispatch.py`).
+
 ---
 
 ## 3. Config (`controller.json`)
