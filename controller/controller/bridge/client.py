@@ -7,14 +7,26 @@ LABVIEW_BRIDGE.md §8:
     set LWT -> connect -> publish status=online (retained)
             -> subscribe cmd/+ -> start periodic status republish
 
-Served ops register via `serve(op, handler)`; `handler(args) -> dict` runs on paho's
-network thread and its return is replied to the request's `reply_to`. C1 serves only
-`hello.echo`; the sequencer ops arrive in C3.
+Served ops register via `serve(op, handler, blocking=?)`; `handler(args) -> dict` and its
+return is replied to the request's `reply_to`. C1 serves only `hello.echo`; the sequencer
+ops arrive in C3.
+
+**Dispatch (why fast ops stay fast):** paho reads and dispatches every message on ONE
+network thread. A handler that blocks it — e.g. an instrument read that waits the full
+device timeout — freezes ALL command handling until it returns: no other instrument's read,
+no `hello.echo`, no keepalive. So a handler registered `blocking=True` (the hardware ops:
+`variable.*`, `instrument.test`/`call`) runs on a small **daemon dispatch pool** instead,
+and `_on_message` returns immediately and keeps pumping. Fast, non-hardware ops (`hello.echo`,
+`instrument.status`, run/safety/maintenance) run INLINE, so they are never queued behind a
+slow instrument. Per-instrument serialization is unchanged — it comes from InstrumentBase's
+per-instance `asyncio.Lock`, so distinct instruments run concurrently while same-instrument
+calls serialize on that lock (PYTHON_CONTROLLER.md §3.4).
 """
 
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import time
 import uuid
@@ -30,9 +42,41 @@ _STATUS_ONLINE = {"state": "online"}
 _STATUS_OFFLINE = {"state": "offline"}
 
 
+class _DispatchPool:
+    """A tiny pool of DAEMON worker threads for off-network-thread command dispatch. Daemon so a
+    hung handler can never block controller shutdown — the process exits and the OS reaps the
+    stuck thread; the backend's job-object backstop (launcher._WinJob) then guarantees no orphan.
+    Ordering is not preserved (replies carry their request `id`, so the app correlates by id)."""
+
+    def __init__(self, size: int, name: str) -> None:
+        self._q: queue.Queue = queue.Queue()
+        self._threads = [threading.Thread(target=self._worker, name=f"{name}-{i}", daemon=True)
+                         for i in range(max(1, size))]
+        for t in self._threads:
+            t.start()
+
+    def submit(self, fn: Callable[[], None]) -> None:
+        self._q.put(fn)
+
+    def _worker(self) -> None:
+        while True:
+            fn = self._q.get()
+            if fn is None:
+                return
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 — a job builds its own structured reply; never crash a worker
+                pass
+
+    def stop(self) -> None:
+        for _ in self._threads:
+            self._q.put(None)   # best-effort poison; workers are daemon, so exit never blocks
+
+
 class StationClient:
     def __init__(self, station: str, *, host: str = "127.0.0.1", port: int = 1883,
                  keepalive: int = 30, status_period_s: float = 15.0,
+                 dispatch_workers: int = 8,
                  on_log: Callable[[str, str], None] | None = None) -> None:
         self.station = station
         self._host = host
@@ -40,7 +84,9 @@ class StationClient:
         self._keepalive = keepalive
         self._status_period_s = status_period_s
         self._on_log = on_log
-        self._served: dict[str, Handler] = {}
+        self._served: dict[str, tuple[Handler, bool]] = {}   # op -> (handler, blocking)
+        # Off-network-thread dispatch for blocking (hardware) handlers — see module docstring.
+        self._pool = _DispatchPool(dispatch_workers, f"tmf-dispatch-{station}")
 
         self._status_topic = f"tmf/{station}/status"
         self._cmd_filter = f"tmf/{station}/cmd/+"
@@ -61,8 +107,11 @@ class StationClient:
 
     # --- registration ------------------------------------------------------
 
-    def serve(self, op: str, handler: Handler) -> None:
-        self._served[op] = handler
+    def serve(self, op: str, handler: Handler, *, blocking: bool = False) -> None:
+        """Register a cmd-op handler. `blocking=True` (hardware ops that wait on device I/O)
+        runs it on the dispatch pool so it never freezes the network thread; the default
+        (fast, non-hardware ops) runs inline for minimum latency (module docstring)."""
+        self._served[op] = (handler, blocking)
 
     def publish(self, sub_topic: str, payload: dict, *, qos: int = 1, retain: bool = False) -> None:
         """Publish to `tmf/{station}/{sub_topic}` (e.g. retained `value/<name>`)."""
@@ -96,6 +145,7 @@ class StationClient:
     def stop(self) -> None:
         if self._status_timer is not None:
             self._status_timer.cancel()
+        self._pool.stop()   # poison the dispatch workers (daemon — a hung one never blocks exit)
         try:
             # graceful offline (retained) so subscribers see it without waiting for the LWT
             self._client.publish(self._status_topic, json.dumps(_STATUS_OFFLINE), qos=1, retain=True)
@@ -140,19 +190,33 @@ class StationClient:
         if op is None or op == "resp":
             return
         request = decode(message.payload) or {}
-        handler = self._served.get(op)
-        if handler is None:
-            reply = reply_payload(request, error={"code": "unknown_op",
-                                                  "message": f"no handler for '{op}'"})
+        entry = self._served.get(op)
+        if entry is None:
+            self._publish_reply(request, reply_payload(request, error={
+                "code": "unknown_op", "message": f"no handler for '{op}'"}))
+            return
+        handler, blocking = entry
+        if blocking:
+            # Hand off to the dispatch pool so a slow device I/O never freezes the network thread
+            # (and every other op behind it). _on_message returns immediately and keeps pumping.
+            self._pool.submit(lambda: self._invoke_and_reply(handler, request))
         else:
-            try:
-                reply = reply_payload(request, result=handler(request.get("args") or {}))
-            except Exception as exc:  # noqa: BLE001 — structured error, never crash the thread
-                reply = reply_payload(request, error={"code": "handler_failed",
-                                                      "message": str(exc)})
-        dest = reply_topic(request)
+            self._invoke_and_reply(handler, request)   # fast, non-hardware op: inline, lowest latency
+
+    def _invoke_and_reply(self, handler: Handler, request: dict) -> None:
+        """Run a served handler and publish its reply. Any exception collapses to the structured
+        `handler_failed` error (unchanged contract) — a handler that itself returns an `ok:false`
+        envelope, e.g. instrument.call, keeps its specific error code by not raising."""
+        try:
+            reply = reply_payload(request, result=handler(request.get("args") or {}))
+        except Exception as exc:  # noqa: BLE001 — structured error, never crash the thread/worker
+            reply = reply_payload(request, error={"code": "handler_failed", "message": str(exc)})
+        self._publish_reply(request, reply)
+
+    def _publish_reply(self, request: dict, reply: dict) -> None:
+        dest = reply_topic(request)   # the reply goes to the request's reply_to
         if dest:
-            client.publish(dest, json.dumps(reply), qos=1)
+            self._client.publish(dest, json.dumps(reply), qos=1)
 
     # --- periodic status ---------------------------------------------------
 

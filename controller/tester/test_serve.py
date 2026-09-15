@@ -22,7 +22,7 @@ class _FakeClient:
         self.served = {}
         self.published = []
 
-    def serve(self, op, handler):
+    def serve(self, op, handler, *, blocking=False):
         self.served[op] = handler
 
     def publish(self, sub, payload, *, qos=1, retain=False):

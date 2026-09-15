@@ -106,11 +106,14 @@ def register_station_ops(client: StationClient, variables: StationVariables,
             rows = [r for r in rows if r.get("id") in want]
         return {"ok": True, "result": {"instances": rows}}
 
-    client.serve("variable.read", variable_read)
-    client.serve("variable.write", variable_write)
-    client.serve("variable.read_many", variable_read_many)
-    client.serve("instrument.test", instrument_test)
-    client.serve("instrument.call", instrument_call)
+    # Hardware ops wait on device I/O — dispatch them OFF the network thread (blocking=True) so a
+    # slow/hung instrument never freezes command handling for every other op. instrument.status is
+    # a cached read (no I/O), so it stays inline and answers instantly even while a read is stuck.
+    client.serve("variable.read", variable_read, blocking=True)
+    client.serve("variable.write", variable_write, blocking=True)
+    client.serve("variable.read_many", variable_read_many, blocking=True)
+    client.serve("instrument.test", instrument_test, blocking=True)
+    client.serve("instrument.call", instrument_call, blocking=True)
     client.serve("instrument.status", instrument_status)
 
 
