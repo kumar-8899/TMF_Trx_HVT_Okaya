@@ -1,5 +1,5 @@
 import {
-  Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
+  AppsOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
   Fullscreen, FullscreenExit,
   GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Link as RouterLink, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { api } from "../api/client";
+import { APP_PAGES } from "../app/registry";
 import { useAuth } from "../auth/AuthContext";
 import { useBranding } from "../hooks/useBranding";
 import { useRunActivity } from "./RunActivity";
@@ -70,6 +71,10 @@ const NAV: NavItem[] = [
       { label: "Logs", to: "/logs", icon: <Article />, perm: "DIAGNOSTICS.VIEW" },
     ],
   },
+  // App-contributed pages (TEMPLATE.md §1.3) — one flat nav item per registered page.
+  ...APP_PAGES.map((p): NavItem => (
+    { label: p.navLabel, to: p.path, icon: p.navIcon ?? <AppsOutlined />, perm: p.permission }
+  )),
   { label: "Help", to: "/help", icon: <HelpOutlineOutlined />, perm: "HELP.VIEW" },
 ];
 

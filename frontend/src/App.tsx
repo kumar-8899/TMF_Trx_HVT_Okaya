@@ -27,7 +27,7 @@ import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
 import { Settings } from "./screens/Settings";
 import { Users } from "./screens/Users";
-import { screen } from "./app/registry";
+import { APP_PAGES, screen } from "./app/registry";
 
 function Protected() {
   const { principal, loading, mustChangePassword } = useAuth();
@@ -81,6 +81,14 @@ export function App() {
           <Route path="/permissions" element={<RequirePermission perm="AUTH.MANAGE_ROLES"><Permissions /></RequirePermission>} />
           <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />
           <Route path="/help" element={<RequirePermission perm="HELP.VIEW"><Help /></RequirePermission>} />
+          {/* App-contributed pages (TEMPLATE.md §1.3) — path always starts with "/app/". */}
+          {APP_PAGES.map((p) =>
+            p.permission ? (
+              <Route key={p.path} path={p.path} element={<RequirePermission perm={p.permission}><p.component /></RequirePermission>} />
+            ) : (
+              <Route key={p.path} path={p.path} element={<p.component />} />
+            ),
+          )}
         </Route>
         {/* Operator testing window — same AppBar, no side-menu drawer. */}
         <Route element={<Layout hideNav />}>

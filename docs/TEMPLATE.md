@@ -26,7 +26,7 @@ framework repo and release — never patch it in the app fork.
 | `app/<name>/` | the **app payload** — controller step-type packages, variable maps, recipes, the app's controller config, app tools/tests/docs. See §1.1. |
 | `instrument_libs/` (repo root) | instrument **drivers this app uses**, COPIED from the central `Instrument_Library` repo — the app is self-contained, it does not reference the central repo at runtime. See §1.2. |
 | `labview/App/` | application LabVIEW: test-case VIs, HAL, station wiring (see §4) |
-| `frontend/src/app/overrides/` | app **screen overrides** — per-app Runs/Recipe/Maintenance UI. The framework ships this dir empty; a fork drops `*.tsx` files here to replace a screen without editing framework `screens/*`. See §1.3. |
+| `frontend/src/app/overrides/` | app **screen overrides** — per-app Runs/Recipe/Maintenance UI — **and app-contributed pages**, new top-level routes/nav entries. The framework ships this dir empty; a fork drops `*.tsx` files here to replace a screen or add a page without editing framework `screens/*`, `App.tsx`, or `Layout.tsx`. See §1.3. |
 | branding block + `controller` block in `app.json` | name/product shown in the UI; controller selection (labview\|python) + `config_file` (no source edits) |
 
 ### Framework-owned (read-only in an application)
@@ -95,6 +95,32 @@ How it works (`frontend/src/app/registry.ts`):
 The permission wrappers (`RequirePermission`/`RequireRole`) stay in the framework `App.tsx` —
 an override replaces only the inner screen, never the gate. Overrides reuse the framework API
 client and run-stream hooks. See `frontend/src/app/overrides/README.md`.
+
+### Adding a brand-new page (not just replacing one of the 5 above)
+
+The 5 keys above only let a fork *replace* an existing screen — there was no way to *add* a
+new top-level page without editing framework-owned `App.tsx` (routes) and `Layout.tsx` (nav),
+which breaks the clean-merge boundary this section exists to protect (framework Issue 3).
+
+Any file in `overrides/` can additionally export a named `pages: AppPage[]`
+(`frontend/src/app/registry.ts`):
+
+```tsx
+// overrides/myAppPages.tsx
+import type { AppPage } from "../registry";
+import { GaugeBoard } from "./wire_feeder/GaugeBoard";
+
+export const pages: AppPage[] = [
+  { path: "/app/gauges", navLabel: "Gauges", permission: "TEST.RUN", component: GaugeBoard },
+];
+```
+
+Each entry becomes a route (permission-gated via `RequirePermission`, same as a built-in route)
+and a nav-drawer item, automatically — `App.tsx`/`Layout.tsx` render `APP_PAGES` without
+knowing what's in it. `path` **must start with `"/app/"`** — reserved for app-contributed pages
+so they can never collide with a framework route added in a later release; an entry that
+doesn't (or is missing `navLabel`/`component`) is skipped with a console warning. `permission`
+is optional (omit to always show).
 
 ---
 
