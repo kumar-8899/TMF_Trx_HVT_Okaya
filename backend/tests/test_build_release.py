@@ -11,6 +11,8 @@ these tests lock in the two bugs found running that pipeline against a live app 
      for real: an exe with no run.dist exited in <1s, an unrelated already-running station on :8000
      answered the probe instead, and the smoke test returned True)."""
 
+import pytest
+
 import build_release as br
 
 
@@ -86,3 +88,69 @@ def test_verify_proceeds_to_spawn_when_port_is_free(monkeypatch, tmp_path):
     assert result is False              # the fake process "exited early" — correctly not verified
     assert spawned.get("polled") is True  # but we DID get past the pre-flight guard and spawn it
     assert str(tmp_path / "run_station.exe") in spawned["cmd"]
+
+
+def test_verify_launches_windowed_not_no_window(monkeypatch, tmp_path):
+    """Issue 4: the smoke test must launch the exe WINDOWED (no args) so a build that boots the
+    backend but can never open a window is caught — the old `--no-window` probe missed it."""
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+
+    class _FakeProc:
+        pid = 4242
+        returncode = 1
+        def poll(self): return 1     # exits immediately; we only inspect the launch args
+        def wait(self, timeout=None): pass
+
+    captured = {}
+    def _fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return _FakeProc()
+    monkeypatch.setattr(br.subprocess, "Popen", _fake_popen)
+
+    br._verify_run_station_exe(tmp_path, timeout=1)
+    assert "--no-window" not in captured["cmd"]   # windowed, not headless
+    assert captured["cmd"] == [str(tmp_path / "run_station.exe")]
+
+
+# --- _process_has_visible_window: ctypes window enumeration ----------------
+
+def test_process_has_visible_window_false_for_unknown_image():
+    """The window-enumeration plumbing must run without error and report no window for a process
+    image that isn't running (regardless of platform)."""
+    assert br._process_has_visible_window("no_such_process_zzz_9999.exe") is False
+
+
+# --- copy_vendor_broker: vcruntime beside mosquitto.exe (Issue 5) ---------
+
+def _fake_broker_tree(tmp_path, with_vcruntime=True):
+    repo = tmp_path / "repo"
+    dist = tmp_path / "dist"
+    src = repo / "deploy" / "vendor" / "mosquitto" / "win64"
+    src.mkdir(parents=True)
+    (src / "mosquitto.exe").write_text("exe")
+    (src / "pthreadVC3.dll").write_text("dll")
+    dist.mkdir(parents=True)
+    if with_vcruntime:
+        (dist / "vcruntime140.dll").write_text("rt")
+        (dist / "vcruntime140_1.dll").write_text("rt1")
+    return repo, dist
+
+
+def test_copy_vendor_broker_places_vcruntime_beside_mosquitto(monkeypatch, tmp_path):
+    repo, dist = _fake_broker_tree(tmp_path, with_vcruntime=True)
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    br.copy_vendor_broker()
+    dest = dist / "vendor" / "mosquitto" / "win64"
+    assert (dest / "mosquitto.exe").is_file()
+    assert (dest / "vcruntime140.dll").is_file()      # the Issue-5 fix: broker's own dir
+    assert (dest / "vcruntime140_1.dll").is_file()
+
+
+def test_copy_vendor_broker_gate_fails_without_vcruntime(monkeypatch, tmp_path):
+    repo, dist = _fake_broker_tree(tmp_path, with_vcruntime=False)
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    with pytest.raises(SystemExit):                   # build-gate: never ship a broker that can't start
+        br.copy_vendor_broker()

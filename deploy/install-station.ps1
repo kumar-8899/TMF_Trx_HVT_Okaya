@@ -14,12 +14,12 @@ unchanged, parameterized by the app's product slug + its GitHub repo.
                         [-Channel stable|beta] [-InstallDir <path>]
 
 What it does:
-  1. Ensure a system Python (the launcher + run_station.py are NOT frozen — they need Python).
+  1. Ensure a system Python (the launcher + station.py are NOT frozen — they need Python).
   2. Install the Mosquitto broker (service on :1883) if absent.
   3. pip install pywebview (the native window); WebView2 note.
   4. Download the latest app-track Release's <slug>-<ver>.zip (private-repo asset API), verify its
      sha256 against the .ksupdate manifest's full_artifact_hash, extract to <InstallDir>\run.dist,
-     and place run_station.py beside it.
+     and place station.py beside it.
   5. Launch the station in a window.
 After this, EVERY new version arrives via the in-app updater (Config -> Updates) — config + data
 (instruments, users, recipes) are preserved across updates.
@@ -98,7 +98,7 @@ Info "latest release: $($rel.tag_name)"
 
 $zipAsset = $rel.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
 $ksAsset  = $rel.assets | Where-Object { $_.name -like "*.ksupdate" } | Select-Object -First 1
-$rsAsset  = $rel.assets | Where-Object { $_.name -eq "run_station.py" } | Select-Object -First 1
+$rsAsset  = $rel.assets | Where-Object { $_.name -eq "station.py" } | Select-Object -First 1
 if (-not $zipAsset) { throw "no .zip artifact asset in $($rel.tag_name)" }
 
 function Get-Asset($asset, $outFile) {
@@ -139,18 +139,18 @@ Info "extracting to $distDir..."
 Expand-Archive -Path $tmpZip -DestinationPath $distDir -Force   # zip root = run.dist contents
 Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
 
-# run_station.py (the windowed launcher) lives at the deploy root, beside run.dist
+# station.py (the one windowed launcher) lives at the deploy root, beside run.dist
 if ($rsAsset) {
-  Info "downloading run_station.py..."
-  Get-Asset $rsAsset (Join-Path $InstallDir "run_station.py")
+  Info "downloading station.py..."
+  Get-Asset $rsAsset (Join-Path $InstallDir "station.py")
 } else {
-  Warn "run_station.py not in the release - will launch headless via run.dist\launcher.py."
+  Warn "station.py not in the release - will launch headless via run.dist\launcher.py."
 }
 
 # --- 5. Launch -------------------------------------------------------------------------------
 Info "starting the station..."
-if (Test-Path (Join-Path $InstallDir "run_station.py")) {
-  Start-Process python -ArgumentList "run_station.py" -WorkingDirectory $InstallDir
+if (Test-Path (Join-Path $InstallDir "station.py")) {
+  Start-Process python -ArgumentList "station.py" -WorkingDirectory $InstallDir
 } else {
   Start-Process python -ArgumentList "run.dist\launcher.py" -WorkingDirectory $InstallDir
 }

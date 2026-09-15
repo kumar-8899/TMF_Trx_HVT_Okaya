@@ -81,7 +81,7 @@ An app repo ships two workflows the framework does not (framework repo = `ci.yml
   tag: tag-matches-version guard → tests → `build_release.py` (Nuitka + a hashed artifact `.zip` +
   `full_artifact_hash` in `RELEASE.json`) → sign the `.ksupdate` → publish a Release with the
   CHANGELOG section as the body and its assets: `<slug>-<version>.ksupdate` (trust) +
-  `<slug>-<version>.zip` (the run.dist the station verifies and swaps) + `run_station.py`.
+  `<slug>-<version>.zip` (the run.dist the station verifies and swaps) + `station.py`.
   Tag `app-v<version>` and push **only that tag** (never `git push --tags` — a fork inherits
   every framework `v*` tag; the `app-v` prefix keeps the app's version line from colliding with
   them and scopes the trigger). The prefix is a tag convention only — asset names + the updater's

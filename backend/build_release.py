@@ -21,13 +21,13 @@ Output layout (SECURE_DISTRIBUTION.md §5):
         instrument_libs/   copied drivers (provenance; imports use the compiled-in copy)
         vendor/mosquitto/  vendored broker (win64: mosquitto.exe + DLLs + loopback conf) — the
                            frozen station starts its OWN broker: no Mosquitto install/service/admin
-      run_station.exe      frozen windowed launcher (deploy root, BESIDE run.dist) — bundles
-                           pywebview + the launcher module: client needs NO Python/pip. Its own
-                           release asset; survives the run.dist swap because it's a sibling.
-                           FAIL-SOFT (build_run_station_exe): a compile or runtime-smoke-test
-                           failure WARNS + returns rather than aborting — run.dist below still
-                           gets built either way, since only the offline setup.exe needs this exe.
-      run_station.py       windowed launcher SOURCE (deploy root; kept for the scripted fallback)
+      run_station.exe      frozen windowed launcher (deploy root, BESIDE run.dist) — the ONE
+                           `station.py` entrypoint Nuitka-compiled, bundling pywebview + the
+                           launcher module: client needs NO Python/pip. Its own release asset;
+                           survives the run.dist swap because it's a sibling. FAIL-SOFT
+                           (build_run_station_exe): a compile or runtime-smoke-test failure WARNS
+                           + returns rather than aborting — run.dist below still gets built either
+                           way, since only the offline setup.exe needs this exe.
       keystation_core.dll  native licensing core (app.json licensing.core_lib)
       RELEASE.json         version + SHA-256 manifest of the above
     Everything the running app SERVES (UI, help, app def, drivers) is inside run.dist, so the
@@ -239,12 +239,14 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
         if not fe.exists():
             _run(["npm", "run", "build"], cwd=REPO / "frontend")   # builds the fork's UI incl. overrides
         shutil.copytree(fe, DIST / "frontend", dirs_exist_ok=True)
-    # Windowed launcher — a small deploy-root script (NOT the swap unit; it launches run.dist). It is
-    # published as its own tiny release asset so install-station.ps1 can place it beside run.dist.
-    win_entry = REPO / "run_station.py"
+    # Windowed launcher SOURCE — the one `station.py` entrypoint, shipped to the deploy root (NOT
+    # the swap unit; it launches run.dist) as the scripted fallback: `python station.py` beside
+    # run.dist works even without the compiled run_station.exe (station.py detects the run.dist
+    # layout and supervises it in-process).
+    win_entry = REPO / "station.py"
     if win_entry.is_file():
-        shutil.copy2(win_entry, OUT / "run_station.py")
-        print("windowed entry: run_station.py -> deploy root")
+        shutil.copy2(win_entry, OUT / "station.py")
+        print("windowed entry: station.py -> deploy root")
     for candidate in (
         BACKEND / "keystation_core.dll",
         Path("D:/Experiment/Build License Track/core/target/release/keystation_core.dll"),
@@ -271,8 +273,28 @@ def copy_vendor_broker() -> None:
         return
     dest = DIST / "vendor" / "mosquitto" / "win64"
     shutil.copytree(src, dest, dirs_exist_ok=True)
+    # Mosquitto's binaries hard-import the MSVC runtime (VCRUNTIME140.dll, +140_1 for
+    # mosquittopp.dll). The official Windows build assumes the system-wide VC++ redistributable is
+    # present; a genuinely clean client PC doesn't have it, so mosquitto.exe fails to launch with a
+    # missing-DLL error, the broker never binds :1883, and it surfaces three layers away as a bare
+    # connection-refused. Nuitka already dropped its own private copies next to run.exe (DIST/), but
+    # Windows' DLL search checks an exe's OWN directory first, never a sibling — so copy them into the
+    # broker's dir too. No new download (Issue 5).
+    for name in ("vcruntime140.dll", "vcruntime140_1.dll"):
+        src_dll = DIST / name
+        if src_dll.is_file():
+            shutil.copy2(src_dll, dest / name)
+    # Build-gate: at minimum vcruntime140.dll MUST sit beside mosquitto.exe now, or a clean-PC
+    # first-install ships a broker that can't start. Catch a future Mosquitto dep-set change here,
+    # on the builder, instead of on a customer bench.
+    if not (dest / "vcruntime140.dll").is_file():
+        raise SystemExit(
+            "vendored broker is missing vcruntime140.dll beside mosquitto.exe — Nuitka did not place "
+            f"one in {DIST} to copy. mosquitto.exe would fail to start on a clean client PC. Ensure "
+            "the backend build ran first (it drops vcruntime140.dll next to run.exe).")
     n = sum(1 for _ in dest.iterdir())
-    print(f"vendored broker: deploy/vendor/mosquitto/win64 -> run.dist/vendor/mosquitto/win64 ({n} files)")
+    print(f"vendored broker: deploy/vendor/mosquitto/win64 -> run.dist/vendor/mosquitto/win64 ({n} files, "
+          "+ vcruntime140 beside mosquitto.exe)")
 
 
 # pywebview.platforms submodules that are UNCONDITIONALLY non-Windows — Nuitka's own pywebview
@@ -302,18 +324,68 @@ def _nuitka_webview_conflict(output: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _process_has_visible_window(image_name: str) -> bool:
+    """True if any VISIBLE top-level window is owned by a process whose image basename matches
+    `image_name` (case-insensitive). Matches by image name, not PID: Nuitka `--onefile` is a
+    bootstrap process that spawns a CHILD to run the real payload, and the window belongs to the
+    child, not the PID we launched — but both carry the same exe name. Windows-only; else False."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]; user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                               ctypes.POINTER(wintypes.DWORD)]
+    k32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]; k32.CloseHandle.restype = wintypes.BOOL
+    found: list = []
+    WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _cb(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        h = k32.OpenProcess(0x1000, False, pid.value)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return True
+        try:
+            buf = ctypes.create_unicode_buffer(32768)
+            size = wintypes.DWORD(len(buf))
+            if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                if Path(buf.value).name.lower() == image_name.lower():
+                    found.append(hwnd)
+                    return False   # stop enumerating
+        finally:
+            k32.CloseHandle(h)
+        return True
+
+    user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]; user32.EnumWindows.restype = wintypes.BOOL
+    user32.EnumWindows(WNDENUMPROC(_cb), 0)
+    return bool(found)
+
+
 def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
-    """Best-effort GATE: actually RUN the frozen `run_station.exe --no-window` from a real station
-    root and confirm it reaches `/healthz`. Nuitka onefile wrapping — and, on an MSVC-less builder,
-    the zig/clang C backend — can produce an exe that COMPILES but never boots (the old controller.exe
-    'Failed to import encodings' failure mode, same class of bug). A failure here does not abort the
-    release (see build_run_station_exe) — the caller downgrades the windowed launcher to "missing",
-    same as a compile failure, rather than ship a launcher nobody can start.
+    """Best-effort GATE: actually RUN the frozen `run_station.exe` **windowed** (no args) from a real
+    station root and confirm BOTH that it reaches `/healthz` AND that a real window appears. The
+    backend boots fine right up until pywebview throws (e.g. the Nuitka/pywebview `win32` plugin
+    conflict, Issue 4), so a `--no-window` /healthz probe alone "verified" an exe that could never
+    open a window — it opened a console that closed itself on every launch. Checking for an actual
+    window closes that blind spot. A failure here does not abort the release (see
+    build_run_station_exe) — the caller downgrades the windowed launcher to "missing".
 
     `/healthz` answering 200 is only meaningful if it's OUR spawned process answering — refuse to
-    "verify" against a stray process a dev already has bound to :8000 (silently proved a false pass:
-    the exe had no run.dist, exited in <1s with rc=1, and an unrelated already-running station on
-    :8000 answered the probe instead — "verified" a build that never actually booted)."""
+    "verify" against a stray process a dev already has bound to :8000 (silently proved a false pass).
+
+    Note: windowed verification needs an interactive desktop session; `cut-release.ps1` builds on a
+    developer machine (its own docstring), so this holds there. On a headless CI runner a window
+    cannot appear — build run_station.exe on a machine with a desktop (DEPLOY_STATION.md)."""
     import urllib.request
     try:
         with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=2) as r:
@@ -326,21 +398,30 @@ def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
         pass   # good: the port is free, so a later 200 can only be from the process we spawn below
     exe = station_root / "run_station.exe"
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-    proc = subprocess.Popen([str(exe), "--no-window"], cwd=str(station_root), creationflags=flags)
+    proc = subprocess.Popen([str(exe)], cwd=str(station_root), creationflags=flags)   # windowed
     try:
         deadline = time.time() + timeout
+        booted = False
         while time.time() < deadline:
             if proc.poll() is not None:
                 print(f"run_station.exe smoke test: process exited early (rc={proc.returncode})")
                 return False
-            try:
-                with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=2) as r:
-                    if r.status == 200:
-                        return True
-            except OSError:
-                pass
+            if not booted:
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=2) as r:
+                        booted = r.status == 200
+                except OSError:
+                    pass
+            # The window is the point: the backend can boot yet pywebview never open one.
+            if booted and _process_has_visible_window("run_station.exe"):
+                return True
             time.sleep(1)
-        print(f"run_station.exe smoke test: timed out waiting for /healthz ({timeout:.0f}s)")
+        if booted:
+            print(f"run_station.exe smoke test: backend booted but NO window appeared within "
+                  f"{timeout:.0f}s — pywebview could not open one (the 'window opens and closes' bug). "
+                  "This build cannot show a UI; treating it as failed.")
+        else:
+            print(f"run_station.exe smoke test: timed out waiting for /healthz ({timeout:.0f}s)")
         return False
     finally:
         if proc.poll() is None:
@@ -374,16 +455,16 @@ def build_run_station_exe(jobs: int) -> bool | None:
     e.g. the release CI runner — build-installer.ps1 treats a missing run_station.exe as "build in CI").
 
     Returns True (built + verified runnable), False (attempted and failed — compile, missing exe, or
-    failed the runtime smoke test), or None (skipped: non-Windows, or run_station.py missing)."""
+    failed the runtime smoke test), or None (skipped: non-Windows, or station.py missing)."""
     import os
     if sys.platform != "win32":
         print("note: run_station.exe is a Windows target — skipping on this platform")
         return None
-    run_station = REPO / "run_station.py"
-    if not run_station.is_file():
-        print(f"WARNING: {run_station} not found — no frozen run_station.exe built")
+    station = REPO / "station.py"
+    if not station.is_file():
+        print(f"WARNING: {station} not found — no frozen run_station.exe built")
         return None
-    # `run_station.py` does `import launcher`; make backend/ importable so Nuitka can bundle it.
+    # `station.py` does `import launcher`; make backend/ importable so Nuitka can bundle it.
     env = dict(os.environ)
     env["PYTHONPATH"] = str(BACKEND) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     icon = REPO / "frontend" / "public" / "favicon.ico"
@@ -405,7 +486,7 @@ def build_run_station_exe(jobs: int) -> bool | None:
         # title-bar icon is set at runtime via webview.start(icon=...)). A fork's own favicon.ico wins.
         if icon.is_file():
             cmd.append(f"--windows-icon-from-ico={icon}")
-        cmd.append(str(run_station))
+        cmd.append(str(station))
         return cmd
 
     # Adaptive retry (see _nuitka_webview_conflict): start with the always-non-Windows four, and
@@ -452,14 +533,26 @@ def build_run_station_exe(jobs: int) -> bool | None:
     if not _verify_run_station_exe(OUT):
         # A compiled-but-unrunnable exe is worse than a missing one: it looks like a release asset
         # but bricks first-install. Remove it so downstream (build-installer.ps1) sees "missing" and
-        # falls back to "build in CI" instead of shipping a broken setup.exe.
-        exe.unlink(missing_ok=True)
-        print("WARNING: run_station.exe compiled but FAILED the runtime smoke test (did not reach "
-              "/healthz) — removed it. This backend/C-toolchain combination cannot produce a runnable "
-              "windowed launcher; build it on a machine with the tested MSVC toolchain instead "
-              "(e.g. the release CI runner). run.dist is unaffected.")
+        # falls back to "build in CI" instead of shipping a broken setup.exe. Windows can hold the
+        # just-killed onefile exe's own file lock for a short, non-deterministic moment after the
+        # test process tree dies, so retry the unlink with backoff rather than fail on WinError 32.
+        for i in range(1, 7):
+            try:
+                exe.unlink(missing_ok=True)
+                break
+            except OSError as unlink_exc:
+                if i == 6:
+                    print(f"WARNING: could not remove the unverified run_station.exe ({unlink_exc}) — "
+                          "delete release-build/run_station.exe manually before packaging.")
+                    break
+                time.sleep(0.4 * i)
+        print("WARNING: run_station.exe compiled but FAILED the runtime smoke test (backend did not "
+              "reach /healthz, or no window appeared) — removed it. This backend/C-toolchain "
+              "combination cannot produce a runnable windowed launcher; build it on a machine with "
+              "the tested MSVC toolchain + a desktop session instead (e.g. the release CI runner). "
+              "run.dist is unaffected.")
         return False
-    print("run_station.exe smoke test: OK (reached /healthz)")
+    print("run_station.exe smoke test: OK (reached /healthz and opened a window)")
     return True
 
 

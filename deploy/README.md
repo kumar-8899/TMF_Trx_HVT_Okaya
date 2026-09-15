@@ -8,12 +8,13 @@ per station, bound to loopback.
 
 | File | Purpose |
 |---|---|
+| **`cut-release.ps1`** | **The ONE build/release entry.** Builds (and, without `-BuildOnly`, publishes) an app release — it invokes `fetch-mosquitto.ps1`, `backend/build_release.py`, the signer, and `build-installer.ps1` internally. Run this, not the sub-scripts. (To *run* the app, use `station.py`.) |
 | `mosquitto.conf` | Station broker config — loopback `127.0.0.1:1883`, anonymous (local trust boundary). Central-uplink template commented in. |
-| `fetch-mosquitto.ps1` | Vendors the broker runtime into `vendor/mosquitto/win64/` for bundling. |
-| `run-local.ps1` | Brings up broker + app + LabVIEW stub for a graphical-first demo. |
+| `fetch-mosquitto.ps1` | Internal step (invoked by `cut-release.ps1`): vendors the broker runtime into `vendor/mosquitto/win64/` for bundling. |
+| `run-local.ps1` | Brings up broker + app + LabVIEW stub for a graphical-first demo (niche; `station.py` is the normal way to run). |
 | `vendor/mosquitto/` | Vendored broker runtime (gitignored; produced by `fetch-mosquitto.ps1`). |
 | `installer.iss.template` | Inno Setup template for the OFFLINE first-install `setup.exe` (rendered per fork). |
-| `build-installer.ps1` | Renders `installer.iss` from the template + branding/VERSION and compiles it with ISCC. |
+| `build-installer.ps1` | Internal step (invoked by `cut-release.ps1`): renders `installer.iss` from the template + branding/VERSION and compiles it with ISCC. |
 | `install-station.ps1` | Scriptable/headless first-install fallback (needs Python + a broker service). |
 
 ## Shipping the broker with the frozen station
@@ -29,7 +30,7 @@ service, no admin:
    `run.dist/vendor/mosquitto/win64/`, so it rides inside the swap unit: every
    app-track build and every in-app update carries the broker and it survives a
    run.dist swap.
-3. **Launch** — `run_station(.exe)` `start_broker()` prefers
+3. **Launch** — `station.py` (or the frozen `run_station.exe`) `start_broker()` prefers
    `run.dist/vendor/mosquitto/win64/mosquitto.exe` and launches it with `-c` on
    the sibling loopback `mosquitto.conf` (Mosquitto 2.x refuses anonymous clients
    with no config), before the controller/bridge connect. The bridge retries

@@ -463,12 +463,17 @@ class Supervisor:
     constants are only the defaults for a bare `python launcher.py`.
     """
 
-    def __init__(self, live: Path | None = None, state_root: Path | None = None) -> None:
+    def __init__(self, live: Path | None = None, state_root: Path | None = None, *,
+                 show_backend_console: bool = False) -> None:
         self.live = Path(live) if live is not None else LIVE
         self.state_root = Path(state_root) if state_root is not None else STATE_ROOT
         self.state = self.state_root / "data"
         self.frozen = (self.live / "run.exe").exists()
         self.marker = self.state / "relaunch.json"
+        # When the launcher runs from a terminal (source/dev via station.py), let the backend
+        # child share that console so its logs are visible; the frozen windowed launcher has no
+        # console, so it keeps suppressing one (CREATE_NO_WINDOW) — see run() below.
+        self.show_backend_console = show_backend_console
         self._proc: subprocess.Popen | None = None
         self._healthy = False
         self._stop = threading.Event()
@@ -513,7 +518,9 @@ class Supervisor:
         # from a terminal (dev/debug) still gets a console normally.
         flags = 0
         if os.name == "nt":
-            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP
+            if not self.show_backend_console:
+                flags |= subprocess.CREATE_NO_WINDOW
         strikes = 0
         reverted = False
         child_env = {**os.environ, "TMF_STATE_DIR": str(self.state_root)}   # external config+data
@@ -595,10 +602,11 @@ class Supervisor:
                 log(f"relaunching for {marker.get('version', '?')} (swapped={swapped})")
 
 
-def supervise(live: Path | None = None, state_root: Path | None = None) -> int:
-    """Importable entry for the frozen windowed launcher: build + run a Supervisor.
-    `run_station.exe` calls this so a client needs no system Python."""
-    return Supervisor(live, state_root).run()
+def supervise(live: Path | None = None, state_root: Path | None = None, *,
+              show_backend_console: bool = False) -> int:
+    """Importable entry for the windowed launcher: build + run a Supervisor. `station.py`
+    calls this (in-process, on a thread) so a client needs no system Python."""
+    return Supervisor(live, state_root, show_backend_console=show_backend_console).run()
 
 
 def main() -> int:

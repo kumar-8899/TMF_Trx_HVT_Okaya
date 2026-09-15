@@ -42,21 +42,25 @@ That instrument config lives in the external state (`{app}\config` + `{app}\data
 Modify grant.** WebView2 is the single OS-level dependency the installer carries.
 
 ### Building the setup.exe (dev side)
-The app repo's `release.yml` builds it in CI (§2). To build locally after a
-`build_release.py --track app --product <slug>`:
+The app repo's `release.yml` builds it in CI (§2). To build locally, use the ONE build/release
+entry — it runs `build_release.py --track app` and `build-installer.ps1` internally:
 ```powershell
-deploy\build-installer.ps1 -Slug <slug>   # needs Inno Setup 6 (choco install innosetup -y)
+deploy\cut-release.ps1 -BuildOnly         # run.dist + run_station.exe + setup.exe, no publish
+                                          # (needs Inno Setup 6: winget install JRSoftware.InnoSetup)
 ```
 
-**MSVC caveat — `run_station.exe` needs the tested C toolchain.** `build_release.py --track app`
-also Nuitka-**onefile**-compiles the frozen windowed launcher (`run_station.exe`, bundling pywebview
-+ the `launcher` supervision module — SECURE_DISTRIBUTION.md-style, no Python/pip on the client). On
+**MSVC caveat — `run_station.exe` needs the tested C toolchain.** The build also
+Nuitka-**onefile**-compiles the frozen windowed launcher (`run_station.exe`, the one `station.py`
+entrypoint bundling pywebview + the `launcher` supervision module — no Python/pip on the client). On
 a builder **without MSVC**, Nuitka falls back to its bundled zig/clang C backend, which has
 historically produced a *standalone* dist that COMPILES but fails to boot for lean import graphs (the
-same class of bug as the old `controller.exe "Failed to import encodings"` failure). So
-`build_run_station_exe()` **actually runs** the compiled exe (`run_station.exe --no-window` from a
-real station root) and asserts it reaches `/healthz` before calling it good — a compile that produces
-a broken exe is caught, not shipped.
+same class of bug as the old `controller.exe "Failed to import encodings"` failure). Worse, a
+compile can succeed yet produce an exe that boots the backend but can never open a **window** (a
+Nuitka/pywebview plugin interaction). So `build_run_station_exe()` **actually runs** the compiled exe
+**windowed** (no args, from a real station root) and asserts BOTH that it reaches `/healthz` AND that
+a real window appears before calling it good — a compile that produces a windowless or non-booting
+exe is caught, not shipped. (Windowed verification needs an interactive desktop session; build on a
+desktop machine or the CI runner, not a headless box.)
 
 This step is **fail-soft**: it never aborts the release. `run.dist` (the backend + the in-app update
 artifact — `.zip` + `.ksupdate`) does **not** need `run_station.exe` at all; only the offline

@@ -106,11 +106,13 @@ toggle on the Instruments page.)
     `<name>-<ver>.zip`, `.ksupdate`, `run_station.exe`, `<AppShort>-Setup-<ver>.exe`. Simple, but
     ~45 min / ~90 GitHub-Free minutes **per release** and its Nuitka cache never warms (see the
     note atop the template).
-  - **Local (cost-conscious)** — render `deploy/cut-release.ps1.template` → `deploy/cut-release.ps1`
-    (substitute `@@APP_SLUG@@` = `<name>`). Same steps on the developer's machine with a persistent
-    local Nuitka cache; no CI minutes. **If you pick this, also retarget the fork's
-    `.github/workflows/release.yml` from `on: push: tags: ["app-v*"]` to `on: workflow_dispatch:`**
-    so the local script's tag push doesn't also fire the hosted build.
+  - **Local (cost-conscious)** — run `deploy/cut-release.ps1` (inherited unchanged, no render — it
+    auto-detects the sole app under `app/`, or takes `-Slug`). It is the ONE build/release entry:
+    it invokes `fetch-mosquitto.ps1`, `build_release.py`, `sign_update.py` and `build-installer.ps1`
+    internally, with a persistent local Nuitka cache; no CI minutes. Use `-BuildOnly` to build the
+    artifacts without committing/tagging/publishing. **If you cut releases locally, also retarget
+    the fork's `.github/workflows/release.yml` from `on: push: tags: ["app-v*"]` to
+    `on: workflow_dispatch:`** so the local script's tag push doesn't also fire the hosted build.
   - Scaffold **both** regardless (harmless — the trigger in `release.yml` decides which is live).
 - Scaffold `CONTRIBUTING.md.template` → `CONTRIBUTING.md` (fill `<App Name>` / `<slug>`): local
   release prerequisites + the app/framework ownership boundary in one onboarding page.
