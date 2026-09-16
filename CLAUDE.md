@@ -9,7 +9,7 @@ Testbench** — a high-voltage transformer test bench built by forking the `Supe
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
 version is `app/okaya_hvt/VERSION` (currently `1.0.0`), independent of the framework's version
-(`backend/pyproject.toml`, currently `1.22.0`). `CHANGELOG.md` at the repo root is still the
+(`backend/pyproject.toml`, currently `1.22.1`). `CHANGELOG.md` at the repo root is still the
 **framework's** changelog (inherited, not app-specific) — don't add app entries there.
 
 This working tree currently has app content (`app/`, `instrument_libs/`,
@@ -212,13 +212,18 @@ framework modules, per `app.json`'s module list above.
 ### Skills
 
 The framework's skills ship in `.claude/skills/` (inherited by this fork) and cover: forking a
-new app (`new-test-app` — not needed here, already forked), generating a variable map from a
-System Blueprint spreadsheet (`system-blueprint`), authoring controller step types
-(`test-step-authoring`), adding a test to an existing app in dependency order
-(`add-bench-test` — driver → variable map → step type → recipe → verify, the one most relevant
-to extending this bench), and authoring an instrument driver (`create-instrument-library`, the
-one that produced this bench's `waveshare_modbus_relay` / `meco_smp72` / `ut5320r`). See
-`docs/DEVELOPER_ONBOARDING.md`.
+new app from a bare framework tag (`new-test-app` — not needed here, already forked), forking a
+new app FROM an existing similar forked app instead (`clone-test-app` — re-homes remotes to a
+fresh framework tag, never the source app, then overlays + renames its app-owned payload; not
+needed here either, but the one to reach for if a future sibling bench is close enough to this
+one to start from it), generating a variable map from a System Blueprint spreadsheet
+(`system-blueprint`), authoring controller step types (`test-step-authoring`), adding a test to
+an existing app in dependency order (`add-bench-test` — driver → variable map → step type →
+recipe → verify, the one most relevant to extending this bench), and authoring an instrument
+driver (`create-instrument-library`, the one that produced this bench's
+`waveshare_modbus_relay` / `meco_smp72` / `ut5320r`). Skills also live as a marketplace plugin
+(`plugins/tmf-tools/`) for the terminal `claude` CLI — keep the two copies in sync when editing
+one. See `docs/DEVELOPER_ONBOARDING.md`.
 
 ## Testing conventions
 
