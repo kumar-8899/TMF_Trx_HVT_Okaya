@@ -52,6 +52,7 @@ to my global Claude skills folder and confirm they're installed.
 Claude copies them to your global skills folder (`C:\Users\<you>\.claude\skills`). After that the
 skills work in **every** project you open:
 - **new-test-app** — make a new app
+- **clone-test-app** — make a new app by cloning an existing similar app instead of starting blank
 - **system-blueprint** — turn a spreadsheet of a system's I/O into an app's variable map
 - **add-bench-test** — add a test to an app
 - **test-step-authoring** — add a new kind of test step
@@ -93,6 +94,12 @@ scaffolds everything, installs dependencies, and checks that the tests pass in s
 
 > Each app is its **own** GitHub repo. Create an empty repo for it first (or ask the maintainer),
 > and give its URL to the skill when asked.
+
+**Already have a similar app?** If another app you (or your team) built is close to what you
+need — same or overlapping instruments, similar test sequence — use **clone-test-app** instead:
+it still forks a clean framework tag (so the new app's history and upgrade path are correct),
+but reuses the existing app's tests/instruments/UI as a starting point instead of you re-typing
+them, then walks you through re-checking every limit against the new customer's spec.
 
 ---
 
@@ -139,6 +146,7 @@ folder, make your change on a new branch, and open a Pull Request to
 | You want to… | Skill |
 |--------------|-------|
 | Start a new app | `new-test-app` |
+| Start a new app that's similar to one you already have | `clone-test-app` |
 | Turn a spreadsheet of a system's I/O into an app's variable map | `system-blueprint` |
 | Add a test to an app | `add-bench-test` |
 | Add a new kind of test step | `test-step-authoring` |

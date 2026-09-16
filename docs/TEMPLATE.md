@@ -162,8 +162,14 @@ against `LABVIEW_BRIDGE.md`. For a **Python-controller** app also:
 
 Prefer the **`new-test-app` skill** — it does the clone, remotes, driver copy, app payload
 scaffold, config wiring, install, and a sim verification, gathering the bench details
-conversationally. Install it from the framework's own Claude Code **marketplace**
-(`/plugin marketplace add kumar-8899/Super_Test_App` → `/plugin install tmf-tools`); it and the
+conversationally. If an **existing forked app is already close** to what's needed (same or
+overlapping instruments, similar test sequence, similar UI), use **`clone-test-app`** instead —
+it still forks a clean framework tag (so `upstream`/history stay correct, exactly as above; the
+source app is never a remote of the new one) but overlays and renames that app's app-owned
+payload as the starting point rather than scaffolding from an interview, then walks through
+re-confirming every limit against the new customer's spec before shipping. Install either from
+the framework's own Claude Code **marketplace**
+(`/plugin marketplace add kumar-8899/Super_Test_App` → `/plugin install tmf-tools`); both and the
 other skills are machine-independent via `$FRAMEWORK_REMOTE` (the `<framework-remote>` above) and
 `$TMF_INSTRUMENT_LIBRARY` (the central `Instrument_Library` clone). Full walkthrough:
 `docs/DEVELOPER_ONBOARDING.md`. `tools/new_app.ps1` is the older mechanical scaffolder.
