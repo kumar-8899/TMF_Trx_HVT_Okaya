@@ -5,6 +5,31 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.22.1 — 2026-09-16
+
+**Fix: `run_station.exe` could compile but never open a window (PATCH).**
+
+Reproduced for real on a live app fork (`TMF_Trx_HVT_Okaya`): v1.20.0's adaptive-retry compile
+(Issue 4) resolves Nuitka's `FATAL: Conflict between user and plugin decision for module
+'webview.platforms.win32'` by agreeing to exclude `win32` from the build — the compile then
+succeeds, but `webview/platforms/winforms.py` (the only Windows GUI backend pywebview has)
+imports `win32` as a required helper, not an optional platform variant, so it throws
+`ImportError` the instant it tries to open a window. The backend still boots fine, so this only
+surfaces as "no window ever appears" — caught by v1.20.0's own windowed-verification gate
+(working as designed), but not actually fixed by the retry.
+
+- **Fix:** `build_run_station_exe` now passes `--disable-plugin=pywebview` to Nuitka, removing
+  its (wrong) opinion about `webview.platforms.*` entirely, and excludes only a **fixed** set of
+  genuinely Windows-irrelevant platforms (`android, cocoa, gtk, qt, mshtml, edgehtml, cef`) —
+  `win32` is deliberately left out, so Nuitka's ordinary static import-following includes it on
+  its own (since `winforms.py` imports it), with nothing left to veto it. No adaptive retry
+  needed: unlike the plugin's own allow-list, `winforms.py`'s import graph doesn't vary by
+  Nuitka/pywebview version. Verified live on this fix: a real `run_station.exe` compiled and
+  opened an actual window.
+- The adaptive-retry machinery (`_WEBVIEW_NOFOLLOW_ALWAYS`, `_nuitka_webview_conflict`) is
+  removed along with its now-obsolete tests; `backend/tests/test_build_release.py` gained
+  coverage locking in the fixed exclude list and that a compile failure no longer retries.
+
 ## v1.22.0 — 2026-09-15
 
 **Frontend: forks can add a brand-new page, not just replace one of the 5 fixed screens (MINOR).**
