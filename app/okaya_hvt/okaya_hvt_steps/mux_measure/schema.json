@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Multiplex + measure",
+  "type": "object",
+  "required": ["read_signal"],
+  "additionalProperties": false,
+  "properties": {
+    "route": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "title": "Relay route",
+      "description": "Variable-map relay signals to energise (close) before the read, e.g. [\"mux_input_w1\", \"mux_pl_w1\"]. All are opened again after. Empty = read with no relay change."
+    },
+    "read_signal": {
+      "type": "string",
+      "title": "Signal to read",
+      "description": "Variable-map signal measured once the route is settled (e.g. winding1_voltage, no_load_current, feedback_voltage)."
+    },
+    "min": {
+      "type": "number",
+      "title": "Min limit",
+      "description": "Lower acceptance limit for this model. From the product spec / recipe — not invented."
+    },
+    "max": {
+      "type": "number",
+      "title": "Max limit",
+      "description": "Upper acceptance limit for this model. From the product spec / recipe — not invented."
+    },
+    "settle_s": {
+      "type": "number", "minimum": 0, "default": 0.2,
+      "title": "Settle time (s)",
+      "description": "Dwell after closing the route before reading (relay operate time + meter integration)."
+    },
+    "name": {
+      "type": "string",
+      "title": "Measurement name",
+      "description": "Name recorded for the measurement (defaults to the read signal)."
+    },
+    "unit": {
+      "type": "string",
+      "title": "Unit",
+      "description": "Unit recorded with the measurement (V, A, Hz)."
+    }
+  }
+}

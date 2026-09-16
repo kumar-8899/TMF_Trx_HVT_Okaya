@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "broker": { "host": "127.0.0.1", "port": 1883 },
+
+  "//library_paths": "Resolved from the controller's CWD (repo_root/controller). '../' = the fork root, which holds the self-contained instrument_libs/ (TEMPLATE.md §1.2 — never the central library).",
+  "library_paths": ["../"],
+  "library_packages": ["instrument_libs"],
+
+  "//step_type_paths": "'../app/okaya_hvt' = this app payload dir, so the okaya_hvt_steps package imports and its @register_step_type decorators fire.",
+  "step_type_paths": ["../app/okaya_hvt"],
+  "step_type_packages": ["okaya_hvt_steps"],
+
+  "//stations": "variable_map is resolved by the backend against THIS file's directory (app/okaya_hvt).",
+  "stations": [
+    { "station": "st1", "variable_map": "maps/st1.json" }
+  ],
+
+  "//instruments": "No `instruments` list and no global `simulation` here (v1.5.0+/v1.5.1+): instrument instances are configured on Config -> Instruments (ids must match the variable map's `instance` names: relay1, relay2, meco, hipot — two physically separate 8ch relay cards as of 2026-09, confirmed (relay1 = muxing/IO/hipot-routes card, relay2 = tower-light module, no Yellow lamp on this bench), the NI instrument is excluded on this bench, and the old `mfm` AC meter was removed 2026-09), each with its own Simulated toggle. See docs/INSTRUMENT_DRIVERS.md.",
+
+  "abort_grace_ms": 2000,
+  "teardown_timeout_ms": 30000
+}

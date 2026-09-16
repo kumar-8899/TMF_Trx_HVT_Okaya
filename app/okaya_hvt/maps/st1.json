@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "//relay_modules": "Two physically separate 8-channel Waveshare relay cards on this bench (2026-09, confirmed): 'relay1' carries only the six hipot routes below (channels 0-5; 6-7 unused); 'relay2' is dedicated to the tower-light stack (Red/Green/Buzzer only — this bench has no Yellow tower light, confirmed). The digital I/O (push_button1/2, safety_curtain, emergency) and the dimmer_output/w1_meas/w2_meas/w3_meas coil writes that used to share relay1 with the hipot routes were removed 2026-09 — no coil-address collision remains on relay1. See INSTRUMENT_DRIVERS.md.",
+  "signals": {
+    "tl_red": {
+      "instance": "relay2",
+      "write": "write_digital",
+      "args": [
+        0
+      ],
+      "units": "bool"
+    },
+    "tl_green": {
+      "instance": "relay2",
+      "write": "write_digital",
+      "args": [
+        1
+      ],
+      "units": "bool"
+    },
+    "buzzer": {
+      "instance": "relay2",
+      "write": "write_digital",
+      "args": [
+        2
+      ],
+      "units": "bool"
+    },
+    "hipot_route_pri_sec": {
+      "instance": "relay1",
+      "write": "write_digital",
+      "args": [
+        0
+      ],
+      "units": "bool"
+    },
+    "hipot_route_pri_core": {
+      "instance": "relay1",
+      "write": "write_digital",
+      "args": [
+        1
+      ],
+      "units": "bool"
+    },
+    "hipot_route_sec_core": {
+      "instance": "relay1",
+      "write": "write_digital",
+      "args": [
+        2
+      ],
+      "units": "bool"
+    },
+    "hipot_route_fb_core": {
+      "instance": "relay1",
+      "write": "write_digital",
+      "args": [
+        3
+      ],
+      "units": "bool"
+    },
+    "hipot_route_pri_fb": {
+      "instance": "relay1",
+      "write": "write_digital",
+      "args": [
+        4
+      ],
+      "units": "bool"
+    },
+    "hipot_route_sec_fb": {
+      "instance": "relay1",
+      "write": "write_digital",
+      "args": [
+        5
+      ],
+      "units": "bool"
+    }
+  },
+  "actions": {
+    "hipot": { "instance": "hipot", "capability": "safety_tester" }
+  }
+}

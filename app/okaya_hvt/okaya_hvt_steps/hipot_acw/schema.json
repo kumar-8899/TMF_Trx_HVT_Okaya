@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Hipot AC withstand (multiplexed)",
+  "type": "object",
+  "required": ["voltage", "test_time", "max_current_ma"],
+  "additionalProperties": false,
+  "properties": {
+    "route": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "title": "Relay route",
+      "description": "Variable-map relay signals to energise (close) before the test, e.g. [\"hipot_route_pri_sec\"]. All are opened again after. Empty = test with no relay change."
+    },
+    "action": {
+      "type": "string",
+      "default": "hipot",
+      "title": "Hipot tester action",
+      "description": "Variable-map action bound to the safety_tester capability (maps/st1.json \"actions\"). Default matches this bench's \"hipot\" binding."
+    },
+    "step": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 1,
+      "title": "Tester program step",
+      "description": "Which of the tester's stored program steps (FUNC:STEP, 1-20) to program and run. The step must already exist on the instrument; this only sets its type/voltage/dwell time, not the total step count."
+    },
+    "voltage": {
+      "type": "number",
+      "minimum": 50,
+      "maximum": 5000,
+      "title": "AC withstand voltage (V)",
+      "description": "RMS test voltage applied between the two routed points. From the product spec / recipe — not invented. Instrument range 50-5000 V."
+    },
+    "test_time": {
+      "type": "number",
+      "minimum": 0.1,
+      "title": "Test (dwell) time (s)",
+      "description": "How long the withstand voltage is held once risen, before falling. From the product spec / recipe — not invented."
+    },
+    "max_current_ma": {
+      "type": "number",
+      "minimum": 0,
+      "title": "Max leakage current (mA)",
+      "description": "Upper acceptance limit for AC leakage current. From the product spec / recipe — not invented."
+    },
+    "settle_s": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0.2,
+      "title": "Settle time (s)",
+      "description": "Dwell after closing the route before starting the test (relay operate time)."
+    },
+    "name": {
+      "type": "string",
+      "title": "Measurement name",
+      "description": "Base name recorded for the measurements (defaults to \"leakage_current\"; a \"_breakdown\" suffix names the dielectric-fault flag)."
+    }
+  }
+}
