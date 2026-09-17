@@ -127,21 +127,36 @@ async def run(relay_id: str, channels: list[int], voltage_v: float, dwell_s: flo
     await relay.connect()
     await hipot.connect()
 
-    results = []
-    for channel in channels:
-        results.append(await run_one(relay, hipot, relay_id, channel, voltage_v, dwell_s, step, settle_s))
+    try:
+        results = []
+        for channel in channels:
+            results.append(await run_one(relay, hipot, relay_id, channel, voltage_v, dwell_s, step, settle_s))
 
-    print("\n=== summary ===")
-    any_bad = False
-    for r in results:
-        if r["ok"]:
-            print(f"  ch{r['channel']} {r['name']:22} leakage={r['leakage_ma']:.4g} mA  "
-                  f"breakdown={r['breakdown']}")
-            any_bad = any_bad or bool(r["breakdown"])
-        else:
-            print(f"  ch{r['channel']} {r['name']:22} ERROR: {r['error']}")
-            any_bad = True
-    return 1 if any_bad else 0
+        print("\n=== summary ===")
+        any_bad = False
+        for r in results:
+            if r["ok"]:
+                print(f"  ch{r['channel']} {r['name']:22} leakage={r['leakage_ma']:.4g} mA  "
+                      f"breakdown={r['breakdown']}")
+                any_bad = any_bad or bool(r["breakdown"])
+            else:
+                print(f"  ch{r['channel']} {r['name']:22} ERROR: {r['error']}")
+                any_bad = True
+        return 1 if any_bad else 0
+    finally:
+        # Always release both connections -- the supervised Python controller (controller.kind
+        # == "python") holds its own live connection to these same physical instruments, and
+        # most of these serial-to-Ethernet/Modbus-TCP/VISA-TCP bridges only accept ONE client at
+        # a time (INSTRUMENT_LIBRARY.md §9.3 shared-instrument rule). A probe that exits without
+        # disconnecting can leave a stale session on the bridge that confuses the controller's
+        # own subsequent reads/writes -- never run this probe while a recipe might be running,
+        # and never skip this disconnect.
+        for name, inst in (("relay", relay), ("hipot", hipot)):
+            try:
+                await inst.disconnect()
+            except Exception as exc:  # noqa: BLE001
+                print(f"{name} disconnect() FAILED (device may still consider this client "
+                      f"connected): {type(exc).__name__}: {exc}")
 
 
 def main() -> int:

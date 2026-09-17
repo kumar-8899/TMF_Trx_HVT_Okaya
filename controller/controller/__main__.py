@@ -125,7 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     for st in cfg.stations:
         c = StationClient(st.station, host=cfg.broker_host, port=cfg.broker_port, on_log=_log)
         register_core_ops(c)
-        variables = StationVariables(st.station, maps[st.station], registry, loop)
+        variables = StationVariables(st.station, maps[st.station], registry, loop,
+                                     call_timeout=cfg.instrument_call_timeout_s)
         register_station_ops(c, variables, registry, loop)
         engine = RunEngine(st.station, variables=variables, emit=_emit(c), recipe_fetch=_fetch(c),
                            safe_state=(lambda s=st.station: loop.run(registry.safe_state_station(s))),

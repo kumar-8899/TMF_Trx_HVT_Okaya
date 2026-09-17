@@ -18,5 +18,8 @@
   "//instruments": "No `instruments` list and no global `simulation` here (v1.5.0+/v1.5.1+): instrument instances are configured on Config -> Instruments (ids must match the variable map's `instance` names: relay1, relay2, meco, hipot — two physically separate 8ch relay cards as of 2026-09, confirmed (relay1 = muxing/IO/hipot-routes card, relay2 = tower-light module, no Yellow lamp on this bench), the NI instrument is excluded on this bench, and the old `mfm` AC meter was removed 2026-09), each with its own Simulated toggle. See docs/INSTRUMENT_DRIVERS.md.",
 
   "abort_grace_ms": 2000,
-  "teardown_timeout_ms": 30000
+  "teardown_timeout_ms": 30000,
+
+  "//instrument_call_timeout_s": "ctx.invoke() timeout for non-scalar actions (hipot_acw's measure_acw). Must exceed the longest real test_time this bench runs, with margin for a cold controller start's first VISA round-trip (confirmed live 2026-09: the framework's old 10.0s default raced a 10s hipot dwell and lost on cold start). Bump this if a recipe ever needs a longer withstand dwell.",
+  "instrument_call_timeout_s": 70
 }

@@ -37,6 +37,16 @@ class ControllerConfig:
     simulation: bool = False
     abort_grace_ms: int = 2000
     teardown_timeout_ms: int = 30000
+    # StationVariables' ctx.invoke() timeout (§9.4) — must cover the WORST-CASE blocking
+    # non-scalar call any step type on this station makes (e.g. a hipot AAC-withstand
+    # measure_acw with a long dwell), not just typical fast scalar reads. Confirmed live
+    # (2026-09, TMF_Trx_HVT_Okaya): the old hardcoded 10.0s default raced a 10s hipot
+    # test_time and lost on a cold controller start (first VISA round-trip slower),
+    # aborting the invoke mid-test while the tester kept running the HV cycle regardless —
+    # not a bug in any one step handler, since ANY sufficiently long non-scalar call hits
+    # the same ceiling. Default raised well past ut5320r.py's own 65s per-command budget so
+    # that instrument-level timeout is what actually governs, not this outer one.
+    instrument_call_timeout_s: float = 70.0
     raw: dict = field(default_factory=dict)
 
 
@@ -84,5 +94,6 @@ def parse_config(data: dict) -> ControllerConfig:
         simulation=bool(data.get("simulation", False)),
         abort_grace_ms=int(data.get("abort_grace_ms", 2000)),
         teardown_timeout_ms=int(data.get("teardown_timeout_ms", 30000)),
+        instrument_call_timeout_s=float(data.get("instrument_call_timeout_s", 70.0)),
         raw=data,
     )

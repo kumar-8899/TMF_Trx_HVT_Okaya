@@ -86,39 +86,53 @@ async def probe(instance_id: str, channels: list[int], hold_s: float) -> int:
         return 1
 
     try:
-        idn = await inst.identify()
-        print(f"identify(): {idn}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"identify() FAILED: {type(exc).__name__}: {exc}")
-        return 1
-
-    if not channels:
-        print("\nno channels given -- link + identify confirmed, skipping toggle test.")
-        return 0
-
-    print(f"\ntoggling channels {channels} ({hold_s}s ON / {hold_s}s OFF each) -- watch the bench:")
-    ok = True
-    for ch in channels:
         try:
-            print(f"  ch{ch} ON")
-            await inst.write_digital(ch, True)
-            time.sleep(hold_s)
-            print(f"  ch{ch} OFF")
-            await inst.write_digital(ch, False)
-            time.sleep(hold_s)
+            idn = await inst.identify()
+            print(f"identify(): {idn}")
         except Exception as exc:  # noqa: BLE001
-            print(f"  ch{ch} FAILED: {type(exc).__name__}: {exc}")
+            print(f"identify() FAILED: {type(exc).__name__}: {exc}")
+            return 1
+
+        if not channels:
+            print("\nno channels given -- link + identify confirmed, skipping toggle test.")
+            return 0
+
+        print(f"\ntoggling channels {channels} ({hold_s}s ON / {hold_s}s OFF each) -- watch the bench:")
+        ok = True
+        for ch in channels:
+            try:
+                print(f"  ch{ch} ON")
+                await inst.write_digital(ch, True)
+                time.sleep(hold_s)
+                print(f"  ch{ch} OFF")
+                await inst.write_digital(ch, False)
+                time.sleep(hold_s)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ch{ch} FAILED: {type(exc).__name__}: {exc}")
+                ok = False
+
+        try:
+            await inst.safe_state()
+        except Exception as exc:  # noqa: BLE001
+            print(f"safe_state() FAILED (channels may still be energised!): {type(exc).__name__}: {exc}")
             ok = False
 
-    try:
-        await inst.safe_state()
-    except Exception as exc:  # noqa: BLE001
-        print(f"safe_state() FAILED (channels may still be energised!): {type(exc).__name__}: {exc}")
-        ok = False
-
-    print("\nRESULT:", "PASS -- link confirmed, every channel toggled and returned to safe state"
-          if ok else "FAIL -- see errors above; do not treat this instance as verified")
-    return 0 if ok else 1
+        print("\nRESULT:", "PASS -- link confirmed, every channel toggled and returned to safe state"
+              if ok else "FAIL -- see errors above; do not treat this instance as verified")
+        return 0 if ok else 1
+    finally:
+        # Always release the connection -- this instance's real owner (the supervised Python
+        # controller, when controller.kind == "python") holds its own live connection to the
+        # same physical device, and most of these serial-to-Ethernet/Modbus-TCP bridges only
+        # accept ONE client at a time (INSTRUMENT_LIBRARY.md §9.3 shared-instrument rule). A
+        # probe run that exits without disconnecting can leave a stale session on the bridge
+        # that confuses the controller's own subsequent reads/writes -- never run this probe
+        # while a recipe might be running, and never skip this disconnect.
+        try:
+            await inst.disconnect()
+        except Exception as exc:  # noqa: BLE001
+            print(f"disconnect() FAILED (device may still consider this client connected): "
+                  f"{type(exc).__name__}: {exc}")
 
 
 def main() -> int:

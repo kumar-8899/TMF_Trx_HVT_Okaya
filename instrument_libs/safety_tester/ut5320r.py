@@ -161,21 +161,41 @@ class Ut5320r(InstrumentBase, ISafetyTester):
                 sim.responses["FETC*"] = f"{step},{mode},0.500,{value},PASS"
 
     async def _run_and_fetch(self, step: int, mode: str, method: str) -> tuple[float, str]:
-        """TEST, then poll FETCh? until `step`'s segment carries a sorting result (5 comma
-        fields) — 4 fields means the step hasn't finished yet (§1.12 Additional Notes)."""
+        """TEST, then poll FETCh? until `step`'s segment carries a GENUINELY NEW sorting result
+        (5 comma fields) — 4 fields means the step hasn't finished yet (§1.12 Additional Notes).
+
+        FETCh? answers from the Measurement Display page, which still shows the PREVIOUS test's
+        completed result for that step for some window after TEST is issued, before the
+        instrument resets it to "in progress" (4 fields) for the new run. Confirmed live
+        (2026-09, TMF_Trx_HVT_Okaya) that our first poll can land inside that window and return
+        the stale, previous-test leakage/breakdown value with an implausibly fast completion —
+        this is what surfaced as the app UI showing the prior HiPOT run's result instead of the
+        one just executed. So on real hardware a 5-field answer is only trusted once we've
+        actually observed the transition through a 4-field "in progress" state first — a real
+        state change, not a timing guess. Skipped in sim (`self.simulated`): the canned sim
+        reply is a static 5-field string with no in-progress state to observe, so requiring one
+        would hang forever."""
         await self.transport.write(self.CMD["start"])
+        seen_in_progress = self.simulated
         while True:
             raw = await self.transport.query(self.CMD["fetch"])
             fields = self._segment(raw, step, method).split(",")
+            if len(fields) == 4:
+                seen_in_progress = True
+                await asyncio.sleep(_POLL_S)
+                continue
             if len(fields) >= 5:
+                if not seen_in_progress:
+                    # Still the stale result from the PREVIOUS test on this step — keep polling
+                    # until the page actually flips to in-progress, so a leftover reading is
+                    # never reported as this test's own.
+                    await asyncio.sleep(_POLL_S)
+                    continue
                 if fields[1] != mode:
                     raise GarbageResponse(
                         f"step {step} reports mode {fields[1]!r}, expected {mode!r}",
                         instance_id=self.instance_id, method=method, detail=raw)
                 return self._num(fields[3], method, raw), fields[4].strip()
-            if len(fields) == 4:
-                await asyncio.sleep(_POLL_S)
-                continue
             raise GarbageResponse(f"malformed FETCh? segment {fields!r}",
                                   instance_id=self.instance_id, method=method, detail=raw)
 

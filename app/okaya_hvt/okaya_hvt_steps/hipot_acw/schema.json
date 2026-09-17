@@ -48,9 +48,23 @@
     "settle_s": {
       "type": "number",
       "minimum": 0,
-      "default": 0.2,
+      "default": 1.0,
       "title": "Settle time (s)",
       "description": "Dwell after closing the route before starting the test (relay operate time)."
+    },
+    "settle_off_s": {
+      "type": "number",
+      "minimum": 0,
+      "default": 2.0,
+      "title": "Settle time after route open (s)",
+      "description": "Dwell after opening (de-energising) the route, before the step returns its result."
+    },
+    "off_margin_s": {
+      "type": "number",
+      "minimum": 0,
+      "default": 4.0,
+      "title": "Extra hold before opening route (s)",
+      "description": "Floors the route-closed time at test_time + this margin, timer-based, regardless of when measure_acw's FETCh? poll happens to return -- confirmed live that the tester's sorting result can post before its own on-screen test timer (which includes rise/fall time beyond the programmed dwell) actually reaches zero. Tune from the real tester's front-panel timer."
     },
     "name": {
       "type": "string",
