@@ -46,7 +46,24 @@ async function request(method: string, path: string, body?: unknown, opts: Opts 
   return data;
 }
 
+/** GET a binary body (image / PDF) WITH the bearer header — an <img>/<iframe> src can't send one, so
+ * callers turn the result into a blob: URL. */
+async function getBlob(path: string, opts: Opts = {}): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if ((opts.auth ?? true) && _token) headers["Authorization"] = `Bearer ${_token}`;
+  const res = await fetch(path, { headers });
+  if (res.status === 401) _onUnauthorized();
+  if (!res.ok) {
+    const text = await res.text();
+    let body: any = null;
+    try { body = text ? JSON.parse(text) : null; } catch { /* non-JSON error body */ }
+    throw new ApiError(res.status, body);
+  }
+  return res.blob();
+}
+
 export const api = {
+  getBlob,
   get: (path: string, opts?: Opts) => request("GET", path, undefined, opts),
   post: (path: string, body?: unknown, opts?: Opts) => request("POST", path, body, opts),
   put: (path: string, body?: unknown, opts?: Opts) => request("PUT", path, body, opts),

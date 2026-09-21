@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "images": [
+    {
+      "id": "analytics",
+      "file": "screens/analytics.png",
+      "alt": "Analytics — test quality, failures and cycle-time insights",
+      "audience": "both",
+      "route": "/analytics",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Analytics.tsx",
+      "source_hash": "de18c486035ed8a6"
+    },
+    {
+      "id": "config-barcode",
+      "file": "screens/config-barcode.png",
+      "alt": "Barcode — barcode structure and recipe-id extraction",
+      "audience": "both",
+      "route": "/config/barcode",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/config/Barcode.tsx",
+      "source_hash": "209a3601bafc3a99"
+    },
+    {
+      "id": "config-branding",
+      "file": "screens/config-branding.png",
+      "alt": "App identity — rebrand the app for a project",
+      "audience": "both",
+      "route": "/config/branding",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/config/Branding.tsx",
+      "source_hash": "97b97a233a58d904"
+    },
+    {
+      "id": "config-instruments",
+      "file": "screens/config-instruments.png",
+      "alt": "Instruments — configured instruments and their connection profiles",
+      "audience": "both",
+      "route": "/config/instruments",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/config/Instruments.tsx",
+      "source_hash": "da018360db59aa4c"
+    },
+    {
+      "id": "config-mes",
+      "file": "screens/config-mes.png",
+      "alt": "MES interlock — cross-station gate and publish",
+      "audience": "both",
+      "route": "/config/mes",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/config/Mes.tsx",
+      "source_hash": "3d5511001740dd93"
+    },
+    {
+      "id": "config-shift",
+      "file": "screens/config-shift.png",
+      "alt": "Shifts — shift labels and timings that drive the business day",
+      "audience": "both",
+      "route": "/config/shift",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/config/Shift.tsx",
+      "source_hash": "ef563e7fc161e9a2"
+    },
+    {
+      "id": "config-variables",
+      "file": "screens/config-variables.png",
+      "alt": "Variable map — the station's signals and their bindings",
+      "audience": "both",
+      "route": "/config/variables",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/config/VariableMap.tsx",
+      "source_hash": "e7fbd3e3035c6c04"
+    },
+    {
+      "id": "dashboard",
+      "file": "screens/dashboard.png",
+      "alt": "Dashboard — station status and shortcuts",
+      "audience": "both",
+      "route": "/",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Dashboard.tsx",
+      "source_hash": "6ae30348987fb4af"
+    },
+    {
+      "id": "diagnostics",
+      "file": "screens/diagnostics.png",
+      "alt": "Diagnostics — live event tail and station readiness",
+      "audience": "both",
+      "route": "/diagnostics",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Diagnostics.tsx",
+      "source_hash": "95799ffefb565628"
+    },
+    {
+      "id": "health",
+      "file": "screens/health.png",
+      "alt": "Production readiness — system health at a glance",
+      "audience": "both",
+      "route": "/health",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Health.tsx",
+      "source_hash": "8147b8c72a7729ca"
+    },
+    {
+      "id": "help",
+      "file": "screens/help.png",
+      "alt": "Help — in-app guides and reference",
+      "audience": "both",
+      "route": "/help",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Help.tsx",
+      "source_hash": "554f0d87f95d43fa"
+    },
+    {
+      "id": "logs",
+      "file": "screens/logs.png",
+      "alt": "Logs — error diagnostics and the action audit trail",
+      "audience": "both",
+      "route": "/logs",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Logs.tsx",
+      "source_hash": "db8da9f552d51226"
+    },
+    {
+      "id": "permissions",
+      "file": "screens/permissions.png",
+      "alt": "Permissions — role to permission matrix",
+      "audience": "both",
+      "route": "/permissions",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Permissions.tsx",
+      "source_hash": "3c3ef12abc3907ac"
+    },
+    {
+      "id": "recipe-detail",
+      "file": "screens/recipe-detail.png",
+      "alt": "Recipe detail — read-only view of a recipe and its steps",
+      "audience": "both",
+      "route": "/recipes/demo_supply_check",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/RecipeDetail.tsx",
+      "source_hash": "9dba858396bfb2e8"
+    },
+    {
+      "id": "recipe-editor",
+      "file": "screens/recipe-editor.png",
+      "alt": "Recipe editor — authoring a test recipe from step types",
+      "audience": "both",
+      "route": "/recipes/new",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/RecipeEditor.tsx",
+      "source_hash": "0b222b3dac2c6ee9"
+    },
+    {
+      "id": "recipes",
+      "file": "screens/recipes.png",
+      "alt": "Recipes — list of versioned test recipes",
+      "audience": "both",
+      "route": "/recipes",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Recipes.tsx",
+      "source_hash": "2819af5164bd44bb"
+    },
+    {
+      "id": "reports",
+      "file": "screens/reports.png",
+      "alt": "Reports — run outcomes and yield",
+      "audience": "both",
+      "route": "/reports",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Reports.tsx",
+      "source_hash": "b9905fc62dfca273"
+    },
+    {
+      "id": "runs",
+      "file": "screens/runs.png",
+      "alt": "Test Bench — the operator run window in its idle state",
+      "audience": "both",
+      "route": "/runs",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Runs.tsx",
+      "source_hash": "d20a16902226b6d2"
+    },
+    {
+      "id": "settings",
+      "file": "screens/settings.png",
+      "alt": "Settings — station administration",
+      "audience": "both",
+      "route": "/settings",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Settings.tsx",
+      "source_hash": "47a6c1982369bf06"
+    },
+    {
+      "id": "users",
+      "file": "screens/users.png",
+      "alt": "Users — accounts, roles and access state",
+      "audience": "both",
+      "route": "/users",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Users.tsx",
+      "source_hash": "5cb6b6539bd85025"
+    }
+  ]
+}

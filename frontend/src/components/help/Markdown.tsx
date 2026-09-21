@@ -1,11 +1,105 @@
-/** Markdown renderer for help docs (react-markdown + GFM), themed to MUI. */
-import { Box } from "@mui/material";
-import ReactMarkdown from "react-markdown";
+/** Markdown renderer for help docs (react-markdown + GFM), themed to MUI.
+ *
+ * Beyond plain markdown it understands four help-specific conventions:
+ *   - `![alt](asset:<id>)`   a shared-library image (screenshot/diagram) — see HelpImage
+ *   - `[text](help:<page-id>#anchor)`  in-app link to another help page (deep link `/help?page=`)
+ *   - ```` ```tmf:<widget> ````  a live interactive widget (see widgets/index.tsx)
+ *   - heading anchors + a copy button on code blocks */
+import Check from "@mui/icons-material/Check";
+import ContentCopy from "@mui/icons-material/ContentCopy";
+import { Box, IconButton, Tooltip } from "@mui/material";
+import { Children, isValidElement, useState, type ReactElement, type ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
+import { useNavigate } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 
 import { MONO_STACK } from "../../theme/theme";
+import { HelpImage } from "./HelpImage";
+import { HelpWidget } from "./widgets";
+
+/** Flatten React children to their text (heading slugs, code-block copy, widget args). */
+export function textOf(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children);
+  return "";
+}
+
+export function slugify(text: string): string {
+  return text.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
+}
+
+/** react-markdown strips unknown URL schemes; let our two through. */
+function urlTransform(url: string): string {
+  return url.startsWith("help:") || url.startsWith("asset:") ? url : defaultUrlTransform(url);
+}
+
+function CodeBlock({ children }: { children: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(textOf(children).replace(/\n$/, "")).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <Box sx={{ position: "relative", "&:hover .copy-btn": { opacity: 1 } }}>
+      <pre>{children}</pre>
+      <Tooltip title={copied ? "Copied" : "Copy"}>
+        <IconButton className="copy-btn" size="small" aria-label="copy code" onClick={copy}
+          sx={{ position: "absolute", top: 4, right: 4, opacity: 0, "&:focus-visible": { opacity: 1 } }}>
+          {copied ? <Check fontSize="inherit" /> : <ContentCopy fontSize="inherit" />}
+        </IconButton>
+      </Tooltip>
+    </Box>
+  );
+}
+
+const heading = (Tag: "h1" | "h2" | "h3") =>
+  function Heading({ children }: { children?: ReactNode }) {
+    return <Tag id={slugify(textOf(children))} style={{ scrollMarginTop: 72 }}>{children}</Tag>;
+  };
 
 export function Markdown({ children }: { children: string }) {
+  const navigate = useNavigate();
+
+  const components: Components = {
+    h1: heading("h1"), h2: heading("h2"), h3: heading("h3"),
+    a({ href = "", children: kids }) {
+      if (href.startsWith("help:")) {
+        const [id, anchor] = href.slice(5).split("#");
+        return (
+          <a href={`/help?page=${id}${anchor ? `#${anchor}` : ""}`}
+            onClick={(e) => { e.preventDefault(); navigate(`/help?page=${id}${anchor ? `#${anchor}` : ""}`); }}>
+            {kids}
+          </a>
+        );
+      }
+      if (href.startsWith("#")) {
+        return (
+          <a href={href} onClick={(e) => {
+            e.preventDefault();
+            document.getElementById(href.slice(1))?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+          }}>{kids}</a>
+        );
+      }
+      const external = /^https?:\/\//i.test(href);
+      return <a href={href} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>{kids}</a>;
+    },
+    img({ src = "", alt }) {
+      if (src.startsWith("asset:")) return <HelpImage id={src.slice(6)} alt={alt} />;
+      return <img src={src} alt={alt} />;
+    },
+    pre({ children: kids }) {
+      const code = Children.toArray(kids).find(isValidElement) as
+        ReactElement<{ className?: string; children?: ReactNode }> | undefined;
+      const widget = /language-tmf:([\w-]+)/.exec(code?.props.className ?? "");
+      if (widget) return <HelpWidget name={widget[1]} arg={textOf(code?.props.children).trim()} />;
+      return <CodeBlock>{kids}</CodeBlock>;
+    },
+  };
+
   return (
     <Box
       sx={{
@@ -24,7 +118,9 @@ export function Markdown({ children }: { children: string }) {
         "& img": { maxWidth: "100%" },
       }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+        {children}
+      </ReactMarkdown>
     </Box>
   );
 }

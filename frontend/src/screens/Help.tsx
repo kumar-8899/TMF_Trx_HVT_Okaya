@@ -1,14 +1,17 @@
 /** Full help page: sidebar tree + search + markdown. super_admin also sees the
- * Developer docs via the audience toggle (backend gates the dev pages). */
-import { Search } from "@mui/icons-material";
+ * Developer docs via the audience toggle (backend gates the dev pages — and a built station
+ * never has any). Deep-linkable: `/help?page=<id>#<heading-anchor>`. */
+import Search from "@mui/icons-material/Search";
 import {
   Box, InputAdornment, List, ListItemButton, ListItemText, Paper, Stack, TextField,
   ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { api } from "../api/client";
 import { Markdown } from "../components/help/Markdown";
+import "../components/help/widgets/register";
 import { PageHeader, Section } from "../components/ui";
 
 interface PageRef { id: string; title: string; route: string | null; audience: string }
@@ -24,15 +27,33 @@ export function Help() {
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = (id: string) => { setHits(null); setQ(""); api.get(`/help/page/${id}`).then(setDoc).catch((e) => setError(e.message)); };
+  const [params, setParams] = useSearchParams();
+  const loc = useLocation();
+  const pageParam = params.get("page");
+  const load = (id: string) => setParams({ page: id });
 
   useEffect(() => {
-    api.get("/help/index").then((t: SectionT[]) => {
-      setTree(t);
-      const first = t.find((s) => s.audience === "user")?.pages[0]?.id;
-      if (first) load(first);
-    }).catch((e) => setError(e.message));
+    api.get("/help/index").then(setTree).catch((e) => setError(e.message));
   }, []);
+
+  // The URL (?page=) is the source of truth: sidebar clicks, in-page help: links and shared
+  // links all just change it, and this loads the page (switching audience tab if it is a dev page).
+  useEffect(() => {
+    if (!tree.length) return;
+    const id = pageParam ?? tree.find((s) => s.audience === "user")?.pages[0]?.id;
+    if (!id) return;
+    const owner = tree.find((s) => s.pages.some((p) => p.id === id));
+    if (owner) setAud(owner.audience === "dev" ? "dev" : "user");
+    setHits(null); setQ(""); setError(null);
+    api.get(`/help/page/${id}`).then(setDoc).catch((e) => setError(e.message));
+  }, [tree, pageParam]);
+
+  useEffect(() => {
+    if (doc && loc.hash) {
+      const t = setTimeout(() => document.getElementById(loc.hash.slice(1))?.scrollIntoView?.({ block: "start" }), 50);
+      return () => clearTimeout(t);
+    }
+  }, [doc, loc.hash]);
 
   useEffect(() => {
     if (!q.trim()) { setHits(null); return; }

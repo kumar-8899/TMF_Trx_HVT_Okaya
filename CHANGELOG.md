@@ -5,6 +5,44 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.23.0 — 2026-09-21
+
+**Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).**
+
+Handover tooling for developers building apps on the framework, plus the shared foundation the upcoming
+User portal reuses. Design: `docs/DEVELOPER_HUB.md`.
+
+- **New: Help → Developer → Developer Hub** — start page, a guided 30-minute first-app checklist, mental
+  model + architecture diagram, principles ("what they mean for you"), an **ownership-boundary explorer**
+  (type a path → framework- or app-owned?), building-blocks chain, a **skill picker**, generated
+  facts & figures, a release feed with upgrade recipe, a contracts map, a developer glossary and a
+  Gotchas & FAQ seeded from real incidents. The Developer section is regrouped (Start here / Concepts /
+  How-to / Reference / Contracts / Bus & LabVIEW / Stay current).
+- **Facts can't go stale.** `tools/gen_devguide.py` generates `docs/generated/facts.{json,md}` from the
+  code (version, CHANGELOG feed, module manifests, permission catalog + default roles, step-type catalog,
+  capability interfaces, controller MQTT ops, route decorators, frontend routes, skills). A drift test and a
+  CI step fail when they are out of date; the facts embed the version so a release can't skip regenerating.
+- **Help platform upgrades** (framework-wide, also used by the user manual): shared **image library**
+  (`docs/assets/manifest.json` + authenticated `/help/asset/<id>`, "captured at vX" badge and a warning when a
+  screen changed since capture), live **widgets** via ```` ```tmf:<name> ```` blocks (unknown → visible error),
+  in-app `help:` links, heading anchors, code-block copy buttons, **deep links** (`/help?page=<id>#anchor`),
+  catalog integrity gates (no duplicate ids — one existed —, every `docs/help/**.md` registered, every
+  `help:`/`asset:`/`tmf:` reference resolves), and the first frontend tests for Help.
+- **Screenshot pipeline** (dev-only, `tools/screenshots`): Playwright drives the installed Edge against a
+  seeded simulated station and writes `docs/assets/screens/*.png` + manifest entries stamped with the
+  framework version and a hash of each screen's source file.
+- **Developer docs are no longer shipped.** `build_release.copy_user_docs` replaces "copy all of `docs/`"
+  (which put PRINCIPLES/ARCHITECTURE/contracts/`help/dev` on every client station) with an **allowlist**
+  (`docs/help/user/**` + the images the user-audience manifest references), and the help catalog hides every
+  developer page, asset and `/help/facts` in a frozen build (defence in depth, both tested).
+- Fixes: `HelpContract` protocol matched to the implementation; developer pages that were orphaned
+  (onboarding, deploy, test specs) are now reachable.
+- **Fix (found while capturing screenshots): a browser could show `Unexpected token '<' … is not valid JSON`
+  on pages whose URL is also an API path** (`/recipes` and similar — e.g. after F5). The SPA shell response
+  for a navigation carries `ETag`/`Last-Modified` but no cache headers, so the browser could answer the
+  page's own `fetch('/recipes')` from the cached HTML. Shell responses now send `Cache-Control: no-cache`
+  and `Vary: Accept` (regression test in `tests/test_spa.py`).
+
 ## v1.22.1 — 2026-09-16
 
 **Fix: `run_station.exe` could compile but never open a window (PATCH).**

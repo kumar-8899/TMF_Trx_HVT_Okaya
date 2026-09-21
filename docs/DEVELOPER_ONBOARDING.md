@@ -3,6 +3,10 @@
 How to start building test apps on the framework, on your own machine. No dependency on anyone
 else's PC. Follow the steps in order.
 
+> **Prefer the interactive version:** in the app, **Help → Developer → Developer Hub** has a guided first-app
+> checklist, an ownership explorer, a skill picker and always-current facts (`docs/DEVELOPER_HUB.md`). This
+> page is the plain-text install reference.
+
 > For now, apps run in **dev mode** (no license needed). You keep your app up to date by pulling
 > from the framework with git. Signing and licensing come later.
 
