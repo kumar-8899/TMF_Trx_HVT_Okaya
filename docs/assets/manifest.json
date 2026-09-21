@@ -132,6 +132,26 @@
       "source_hash": "3c3ef12abc3907ac"
     },
     {
+      "id": "portal",
+      "file": "screens/portal.png",
+      "alt": "User Portal — the built-in manual",
+      "audience": "both",
+      "route": "/portal",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/screens/Portal.tsx",
+      "source_hash": "63d1067c73efd4a1"
+    },
+    {
+      "id": "portal-library",
+      "file": "screens/portal-library.png",
+      "alt": "User Portal library — searchable hardware manuals and drawings",
+      "audience": "both",
+      "route": "/portal?tab=library",
+      "framework_version": "1.23.0",
+      "source": "frontend/src/components/portal/PortalLibrary.tsx",
+      "source_hash": "c3bde18856679a73"
+    },
+    {
       "id": "recipe-detail",
       "file": "screens/recipe-detail.png",
       "alt": "Recipe detail — read-only view of a recipe and its steps",

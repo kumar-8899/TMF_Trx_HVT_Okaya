@@ -3,7 +3,7 @@
     "id": "dashboard",
     "route": "/",
     "screen_source": "frontend/src/screens/Dashboard.tsx",
-    "alt": "Dashboard — station status and shortcuts",
+    "alt": "Dashboard \u2014 station status and shortcuts",
     "audience": "both",
     "wait_for": "Station"
   },
@@ -11,7 +11,7 @@
     "id": "runs",
     "route": "/runs",
     "screen_source": "frontend/src/screens/Runs.tsx",
-    "alt": "Test Bench — the operator run window in its idle state",
+    "alt": "Test Bench \u2014 the operator run window in its idle state",
     "audience": "both",
     "wait_for": "Test Bench"
   },
@@ -19,7 +19,7 @@
     "id": "recipes",
     "route": "/recipes",
     "screen_source": "frontend/src/screens/Recipes.tsx",
-    "alt": "Recipes — list of versioned test recipes",
+    "alt": "Recipes \u2014 list of versioned test recipes",
     "audience": "both",
     "wait_for": "Recipes"
   },
@@ -27,7 +27,7 @@
     "id": "recipe-detail",
     "route": "/recipes/demo_supply_check",
     "screen_source": "frontend/src/screens/RecipeDetail.tsx",
-    "alt": "Recipe detail — read-only view of a recipe and its steps",
+    "alt": "Recipe detail \u2014 read-only view of a recipe and its steps",
     "audience": "both",
     "wait_for": "demo_supply_check"
   },
@@ -35,7 +35,7 @@
     "id": "recipe-editor",
     "route": "/recipes/new",
     "screen_source": "frontend/src/screens/RecipeEditor.tsx",
-    "alt": "Recipe editor — authoring a test recipe from step types",
+    "alt": "Recipe editor \u2014 authoring a test recipe from step types",
     "audience": "both",
     "wait_for": "Author a test recipe"
   },
@@ -43,7 +43,7 @@
     "id": "reports",
     "route": "/reports",
     "screen_source": "frontend/src/screens/Reports.tsx",
-    "alt": "Reports — run outcomes and yield",
+    "alt": "Reports \u2014 run outcomes and yield",
     "audience": "both",
     "wait_for": "Reports"
   },
@@ -51,7 +51,7 @@
     "id": "analytics",
     "route": "/analytics",
     "screen_source": "frontend/src/screens/Analytics.tsx",
-    "alt": "Analytics — test quality, failures and cycle-time insights",
+    "alt": "Analytics \u2014 test quality, failures and cycle-time insights",
     "audience": "both",
     "wait_for": "Analytics"
   },
@@ -59,7 +59,7 @@
     "id": "health",
     "route": "/health",
     "screen_source": "frontend/src/screens/Health.tsx",
-    "alt": "Production readiness — system health at a glance",
+    "alt": "Production readiness \u2014 system health at a glance",
     "audience": "both",
     "wait_for": "Production Readiness"
   },
@@ -67,7 +67,7 @@
     "id": "config-branding",
     "route": "/config/branding",
     "screen_source": "frontend/src/screens/config/Branding.tsx",
-    "alt": "App identity — rebrand the app for a project",
+    "alt": "App identity \u2014 rebrand the app for a project",
     "audience": "both",
     "wait_for": "App identity"
   },
@@ -75,7 +75,7 @@
     "id": "config-instruments",
     "route": "/config/instruments",
     "screen_source": "frontend/src/screens/config/Instruments.tsx",
-    "alt": "Instruments — configured instruments and their connection profiles",
+    "alt": "Instruments \u2014 configured instruments and their connection profiles",
     "audience": "both",
     "wait_for": "Instruments"
   },
@@ -83,7 +83,7 @@
     "id": "config-barcode",
     "route": "/config/barcode",
     "screen_source": "frontend/src/screens/config/Barcode.tsx",
-    "alt": "Barcode — barcode structure and recipe-id extraction",
+    "alt": "Barcode \u2014 barcode structure and recipe-id extraction",
     "audience": "both",
     "wait_for": "Barcode"
   },
@@ -91,7 +91,7 @@
     "id": "config-shift",
     "route": "/config/shift",
     "screen_source": "frontend/src/screens/config/Shift.tsx",
-    "alt": "Shifts — shift labels and timings that drive the business day",
+    "alt": "Shifts \u2014 shift labels and timings that drive the business day",
     "audience": "both",
     "wait_for": "Shifts"
   },
@@ -99,7 +99,7 @@
     "id": "config-mes",
     "route": "/config/mes",
     "screen_source": "frontend/src/screens/config/Mes.tsx",
-    "alt": "MES interlock — cross-station gate and publish",
+    "alt": "MES interlock \u2014 cross-station gate and publish",
     "audience": "both",
     "wait_for": "MES interlock"
   },
@@ -107,7 +107,7 @@
     "id": "config-variables",
     "route": "/config/variables",
     "screen_source": "frontend/src/screens/config/VariableMap.tsx",
-    "alt": "Variable map — the station's signals and their bindings",
+    "alt": "Variable map \u2014 the station's signals and their bindings",
     "audience": "both",
     "wait_for": "Variable Map"
   },
@@ -115,7 +115,7 @@
     "id": "users",
     "route": "/users",
     "screen_source": "frontend/src/screens/Users.tsx",
-    "alt": "Users — accounts, roles and access state",
+    "alt": "Users \u2014 accounts, roles and access state",
     "audience": "both",
     "wait_for": "Users"
   },
@@ -123,7 +123,7 @@
     "id": "permissions",
     "route": "/permissions",
     "screen_source": "frontend/src/screens/Permissions.tsx",
-    "alt": "Permissions — role to permission matrix",
+    "alt": "Permissions \u2014 role to permission matrix",
     "audience": "both",
     "wait_for": "Permissions"
   },
@@ -131,7 +131,7 @@
     "id": "settings",
     "route": "/settings",
     "screen_source": "frontend/src/screens/Settings.tsx",
-    "alt": "Settings — station administration",
+    "alt": "Settings \u2014 station administration",
     "audience": "both",
     "wait_for": "Settings"
   },
@@ -139,7 +139,7 @@
     "id": "diagnostics",
     "route": "/diagnostics",
     "screen_source": "frontend/src/screens/Diagnostics.tsx",
-    "alt": "Diagnostics — live event tail and station readiness",
+    "alt": "Diagnostics \u2014 live event tail and station readiness",
     "audience": "both",
     "wait_for": "Diagnostics"
   },
@@ -147,7 +147,7 @@
     "id": "logs",
     "route": "/logs",
     "screen_source": "frontend/src/screens/Logs.tsx",
-    "alt": "Logs — error diagnostics and the action audit trail",
+    "alt": "Logs \u2014 error diagnostics and the action audit trail",
     "audience": "both",
     "wait_for": "Logs"
   },
@@ -155,8 +155,24 @@
     "id": "help",
     "route": "/help",
     "screen_source": "frontend/src/screens/Help.tsx",
-    "alt": "Help — in-app guides and reference",
+    "alt": "Help \u2014 in-app guides and reference",
     "audience": "both",
     "wait_for": "Help & Documentation"
+  },
+  {
+    "id": "portal",
+    "route": "/portal",
+    "screen_source": "frontend/src/screens/Portal.tsx",
+    "alt": "User Portal \u2014 the built-in manual",
+    "audience": "both",
+    "wait_for": "User Portal"
+  },
+  {
+    "id": "portal-library",
+    "route": "/portal?tab=library",
+    "screen_source": "frontend/src/components/portal/PortalLibrary.tsx",
+    "alt": "User Portal library \u2014 searchable hardware manuals and drawings",
+    "audience": "both",
+    "wait_for": "Demo power supply manual"
   }
 ]

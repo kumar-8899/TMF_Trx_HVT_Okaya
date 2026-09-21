@@ -5,6 +5,8 @@ starting a test, and which slice of it is the **recipe id**. This decides what t
 Start-test popup shows: a serial-number field (barcode enabled) or a recipe dropdown
 (barcode disabled) — never both.
 
+![Barcode — barcode structure and recipe-id extraction](asset:config-barcode)
+
 ## The model
 
 A barcode is a fixed **total length**, divided into named **parts** — each part is a

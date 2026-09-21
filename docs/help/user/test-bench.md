@@ -2,6 +2,8 @@
 
 The operator's main testing window. Full-width, side menu hidden so you can focus on the unit under test.
 
+![Test Bench — the operator run window in its idle state](asset:runs)
+
 ## Start a test
 
 What the Start popup shows depends on **Config → Barcode** (see its help page):

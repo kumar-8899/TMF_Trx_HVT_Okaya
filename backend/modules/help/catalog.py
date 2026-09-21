@@ -19,26 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-def _resolve_docs_root() -> Path:
-    """Locate the `docs/` tree across source + frozen layouts. Frozen (v1.12.0+): docs ride INSIDE
-    run.dist (the swap unit), so an update refreshes the in-app help and the published .zip is
-    complete — prefer run.dist/docs over a legacy deploy-root copy a swap would leave stale."""
-    import os
-    import sys
-    env = os.environ.get("TMF_DOCS_DIR")
-    if env:
-        return Path(env)
-    here = Path(__file__).resolve()
-    exe_dir = Path(sys.executable).resolve().parent
-    for cand in (exe_dir / "docs",             # frozen: run.dist/docs (primary)
-                 here.parents[3] / "docs",      # source checkout: repo/docs
-                 exe_dir.parent / "docs"):      # legacy deploy-root
-        if (cand / "help").is_dir():
-            return cand.resolve()
-    return here.parents[3] / "docs"
+from core.services.docs_paths import app_portal_dirs, resolve_docs_root
 
+DOCS_ROOT = resolve_docs_root()
 
-DOCS_ROOT = _resolve_docs_root()
+APP_SECTION = "This app"          # default sidebar group for app-owned pages (app/<name>/portal/*.md)
 
 
 def is_frozen() -> bool:
@@ -53,8 +38,9 @@ class Page:
     title: str
     audience: str          # "user" | "dev"
     section: str           # sidebar grouping
-    file: str              # path relative to DOCS_ROOT
+    file: str              # path relative to DOCS_ROOT (framework pages) — or absolute for app pages
     route: str | None = None   # app route this page documents (context-aware help)
+    app_root: str | None = None   # set for app-owned pages: the app/<name>/portal dir the file must sit in
 
 
 PAGES: list[Page] = [
@@ -76,6 +62,7 @@ PAGES: list[Page] = [
     Page("user-users", "Users", "user", "Administration", "help/user/users.md", "/users"),
     Page("user-permissions", "Permissions", "user", "Administration", "help/user/permissions.md", "/permissions"),
     Page("user-settings", "Settings", "user", "Administration", "help/user/settings.md", "/settings"),
+    Page("user-portal", "User Portal", "user", "Help", "help/user/portal.md", "/portal"),
     Page("user-troubleshooting", "Troubleshooting", "user", "Help", "help/user/troubleshooting.md"),
     Page("user-glossary", "Glossary", "user", "Help", "help/user/glossary.md"),
 
@@ -122,6 +109,7 @@ PAGES: list[Page] = [
     Page("dev-auth", "Auth & permissions", "dev", "Contracts", "contracts/auth.md"),
     Page("dev-health-check", "Health checks", "dev", "Contracts", "contracts/HEALTH_CHECK.md"),
     Page("dev-mes", "MES", "dev", "Contracts", "contracts/MES.md"),
+    Page("dev-portal", "User Portal", "dev", "Contracts", "contracts/PORTAL.md"),
     Page("dev-config", "Config", "dev", "Contracts", "contracts/CONFIG.md"),
     Page("dev-instrument-library-contract", "Instrument library contract", "dev", "Contracts", "INSTRUMENT_LIBRARY.md"),
     Page("dev-report-store", "Report DB store", "dev", "Contracts", "REPORT_STORE.md"),
@@ -135,14 +123,64 @@ PAGES: list[Page] = [
 _BY_ID = {p.id: p for p in PAGES}
 
 
+# ---------------------------------------------------------------------------------------------
+# App-owned pages: app/<name>/portal/*.md  (TEMPLATE.md §1 — an app documents ITS bench without
+# touching framework docs). Optional front matter: title, section, order, route.
+# ---------------------------------------------------------------------------------------------
+
+def _front_matter(text: str) -> tuple[dict, str]:
+    """Split a leading `---` block of `key: value` lines from the markdown body."""
+    text = text.replace("\r\n", "\n")
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---", 4)
+    if end < 0:
+        return {}, text
+    meta = {}
+    for line in text[4:end].split("\n"):
+        if ":" in line:
+            k, v = line.split(":", 1)
+            meta[k.strip().lower()] = v.strip()
+    return meta, text[end + 4:].lstrip("\n")
+
+
+def app_pages() -> list[Page]:
+    """Discovered fresh on each call (a handful of small files) so a page dropped into the app payload
+    shows up without a restart. Always audience `user` — it ships in a built station."""
+    found: list[tuple[int, str, Page]] = []
+    for portal in app_portal_dirs():
+        app_name = portal.parent.name
+        for f in sorted(portal.glob("*.md")):
+            meta, _ = _front_matter(f.read_text(encoding="utf-8"))
+            try:
+                order = int(meta.get("order", 100))
+            except ValueError:
+                order = 100
+            title = meta.get("title") or f.stem
+            found.append((order, title.lower(), Page(
+                f"app-{app_name}-{f.stem}", title, "user", meta.get("section") or APP_SECTION,
+                str(f.resolve()), meta.get("route") or None, str(portal))))
+    return [p for _, _, p in sorted(found, key=lambda t: (t[0], t[1]))]
+
+
+def all_pages() -> list[Page]:
+    return PAGES + app_pages()
+
+
 def get(page_id: str) -> Page | None:
-    return _BY_ID.get(page_id)
+    return _BY_ID.get(page_id) or next((p for p in app_pages() if p.id == page_id), None)
 
 
 def resolve(page: Page) -> Path | None:
-    """Resolve a page's file under DOCS_ROOT, guarding against traversal."""
-    path = (DOCS_ROOT / page.file).resolve()
-    if DOCS_ROOT.resolve() not in path.parents:
+    """Resolve a page's file, guarding against traversal: framework pages must sit under DOCS_ROOT,
+    app pages under their own app/<name>/portal directory."""
+    if page.app_root:
+        base = Path(page.app_root).resolve()
+        path = Path(page.file).resolve()
+    else:
+        base = DOCS_ROOT.resolve()
+        path = (DOCS_ROOT / page.file).resolve()
+    if base not in path.parents:
         return None
     return path if path.is_file() else None
 
@@ -151,7 +189,23 @@ def read(page: Page) -> str | None:
     path = resolve(page)
     if path is None:
         return None
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    return _front_matter(text)[1] if page.app_root else text
+
+
+_IMG_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".webp": "image/webp", ".svg": "image/svg+xml"}
+
+
+def get_app_asset(name: str) -> tuple[bytes, str] | None:
+    """An image under app/<name>/portal/img/ (`![x](asset:app/<name>)` in an app page). Extension
+    whitelist + traversal guard; the first app that has the file wins."""
+    for portal in app_portal_dirs():
+        root = (portal / "img").resolve()
+        path = (root / name).resolve()
+        if root in path.parents and path.suffix.lower() in _IMG_EXT and path.is_file():
+            return path.read_bytes(), _IMG_EXT[path.suffix.lower()]
+    return None
 
 
 # ---------------------------------------------------------------------------------------------

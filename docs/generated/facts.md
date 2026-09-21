@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.23.0**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.24.0**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.24.0** (2026-09-21, MINOR) — User Portal: a built-in replacement for the printed software manual, with a searchable PDF library (MINOR).
 - **v1.23.0** (2026-09-21, MINOR) — Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).
 - **v1.22.1** (2026-09-16, PATCH) — Fix: `run_station.exe` could compile but never open a window (PATCH).
 - **v1.22.0** (2026-09-15, MINOR) — Frontend: forks can add a brand-new page, not just replace one of the 5 fixed screens (MINOR).
@@ -13,7 +14,6 @@ Super_Test_App **v1.23.0**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.18.2** (2026-09-12, PATCH) — A crashed step reported PASS with zero measurements instead of FAIL (PATCH).
 - **v1.18.1** (2026-09-11, PATCH) — Backend no longer opens a second connection to a python-owned instrument (PATCH).
 - **v1.18.0** (2026-09-10, MINOR) — System Blueprint — author an app's I/O from a spreadsheet (MINOR).
-- **v1.17.1** (2026-09-09, PATCH) — Data-durability + UX fixes on the update path, found in a real frozen-station update. PATCH.
 
 ## Modules
 
@@ -25,6 +25,7 @@ Super_Test_App **v1.23.0**. Regenerate: `python tools/gen_devguide.py`.
 | help | 1.0.0 | 1 |  | HELP.VIEW |
 | logs | 1.0.0 | 1 | /logs | DIAGNOSTICS.PURGE, DIAGNOSTICS.VIEW |
 | mes | 1.0.0 | 1 |  | SYSTEM.SETTINGS |
+| portal | 1.0.0 | 1 |  | PORTAL.MANAGE, PORTAL.UPLOAD, PORTAL.VIEW |
 | recipe | 1.0.0 | 1 | /recipes | RECIPE.EDIT, RECIPE.VIEW |
 | report | 1.0.0 | 1 | /reports | REPORT.EXPORT, REPORT.VIEW, SYSTEM.SETTINGS |
 | runs | 1.0.0 | 2 |  | SYSTEM.RESET_DATA |
@@ -51,16 +52,19 @@ Super_Test_App **v1.23.0**. Regenerate: `python tools/gen_devguide.py`.
 | DIAGNOSTICS.PURGE | Purge logs |
 | HELP.VIEW | View user docs |
 | HELP.DEV | View developer docs |
+| PORTAL.VIEW | Use the user portal |
+| PORTAL.UPLOAD | Add portal documents |
+| PORTAL.MANAGE | Manage the portal |
 | SYSTEM.RESET_DATA | Reset data |
 | SYSTEM.SETTINGS | Station settings |
 
 ## Roles (default grants)
 
-- **admin**: AUTH.MANAGE_USERS, TEST.RUN, RECIPE.VIEW, RECIPE.EDIT, REPORT.VIEW, REPORT.EXPORT, DIAGNOSTICS.VIEW, HEALTH.VIEW, HEALTH.RUN, HEALTH.MAINTENANCE, CONFIG.VIEW, CONFIG.EDIT, HELP.VIEW
-- **engineer**: TEST.RUN, RECIPE.VIEW, RECIPE.EDIT, REPORT.VIEW, REPORT.EXPORT, DIAGNOSTICS.VIEW, HEALTH.VIEW, HEALTH.RUN, CONFIG.VIEW, CONFIG.EDIT, HELP.VIEW
-- **maintenance**: MAINTENANCE.CALIBRATE, DIAGNOSTICS.VIEW, HEALTH.VIEW, HEALTH.RUN, HEALTH.MAINTENANCE, CONFIG.VIEW, CONFIG.EDIT, HELP.VIEW
-- **operator**: TEST.RUN, RECIPE.VIEW, REPORT.VIEW, REPORT.EXPORT, HEALTH.VIEW, CONFIG.VIEW, HELP.VIEW
-- **super_admin**: AUTH.*, TEST.*, RECIPE.*, REPORT.*, MAINTENANCE.*, SYSTEM.*, ADMIN.*, DIAGNOSTICS.*, HEALTH.*, CONFIG.*, HELP.*
+- **admin**: AUTH.MANAGE_USERS, TEST.RUN, RECIPE.VIEW, RECIPE.EDIT, REPORT.VIEW, REPORT.EXPORT, DIAGNOSTICS.VIEW, HEALTH.VIEW, HEALTH.RUN, HEALTH.MAINTENANCE, CONFIG.VIEW, CONFIG.EDIT, HELP.VIEW, PORTAL.VIEW, PORTAL.UPLOAD, PORTAL.MANAGE
+- **engineer**: TEST.RUN, RECIPE.VIEW, RECIPE.EDIT, REPORT.VIEW, REPORT.EXPORT, DIAGNOSTICS.VIEW, HEALTH.VIEW, HEALTH.RUN, CONFIG.VIEW, CONFIG.EDIT, HELP.VIEW, PORTAL.VIEW, PORTAL.UPLOAD
+- **maintenance**: MAINTENANCE.CALIBRATE, DIAGNOSTICS.VIEW, HEALTH.VIEW, HEALTH.RUN, HEALTH.MAINTENANCE, CONFIG.VIEW, CONFIG.EDIT, HELP.VIEW, PORTAL.VIEW
+- **operator**: TEST.RUN, RECIPE.VIEW, REPORT.VIEW, REPORT.EXPORT, HEALTH.VIEW, CONFIG.VIEW, HELP.VIEW, PORTAL.VIEW
+- **super_admin**: AUTH.*, TEST.*, RECIPE.*, REPORT.*, MAINTENANCE.*, SYSTEM.*, ADMIN.*, DIAGNOSTICS.*, HEALTH.*, CONFIG.*, HELP.*, PORTAL.*
 
 ## Step types
 
@@ -136,6 +140,7 @@ Super_Test_App **v1.23.0**. Regenerate: `python tools/gen_devguide.py`.
 | /logs | DIAGNOSTICS.VIEW |
 | /maintenance | HEALTH.MAINTENANCE |
 | /permissions | AUTH.MANAGE_ROLES |
+| /portal | PORTAL.VIEW |
 | /recipes | RECIPE.VIEW |
 | /recipes/:id | RECIPE.VIEW |
 | /recipes/:id/edit | RECIPE.EDIT |

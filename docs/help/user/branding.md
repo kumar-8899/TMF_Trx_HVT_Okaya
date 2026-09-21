@@ -4,6 +4,8 @@
 Saved as a station override that applies **live** — reload to see it on the title bar,
 login page, and header.
 
+![App identity — rebrand the app for a project](asset:config-branding)
+
 ## Fields
 - **Name** — the displayed app name (e.g. *Acme EOL Tester*).
 - **Badge** — the 1–2 character glyph in the header/login tile.

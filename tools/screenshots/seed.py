@@ -59,6 +59,22 @@ class Api:
             except ValueError:
                 return e.code, raw
 
+    def upload(self, path: str, data: bytes, content_type: str) -> tuple[int, object]:
+        headers = {"Accept": "application/json", "Content-Type": content_type}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        req = urllib.request.Request(self.base + path, data=data, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8")
+                return r.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "replace")
+            try:
+                return e.code, json.loads(raw)
+            except ValueError:
+                return e.code, raw
+
     def login(self, user: str, password: str) -> None:
         status, body = self.call("POST", "/auth/login",
                                  {"username": user, "credential": {"password": password}})
@@ -235,6 +251,54 @@ def seed_users(api: Api) -> None:
             _summary["skipped"].append(msg)
 
 
+def _demo_pdf(lines: list[str]) -> bytes:
+    """A tiny valid one-page PDF (stdlib only) with a text layer — demo content, clearly labelled."""
+    nl = bytes([10])
+    text_ops = "BT /F1 16 Tf 40 250 Td 22 TL " + " ".join(f"({t}) Tj T*" for t in lines) + " ET"
+    stream = text_ops.encode()
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 300] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>" + nl + b"stream" + nl + stream + nl + b"endstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = b"%PDF-1.4" + nl
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += str(i).encode() + b" 0 obj" + nl + o + nl + b"endobj" + nl
+    xref = len(out)
+    out += b"xref" + nl + b"0 " + str(len(objs) + 1).encode() + nl + b"0000000000 65535 f " + nl
+    for off in offsets:
+        out += b"%010d 00000 n " % off + nl
+    out += b"trailer" + nl + b"<< /Size " + str(len(objs) + 1).encode() + b" /Root 1 0 R >>" + nl
+    out += b"startxref" + nl + str(xref).encode() + nl + b"%%EOF" + nl
+    return out
+
+
+def seed_library(api: Api) -> None:
+    """Two clearly-labelled demo PDFs so the portal Library screen isn't empty."""
+    from urllib.parse import urlencode
+    docs = [
+        ("Demo_power_supply_manual.pdf", "Demo power supply manual", "demo, power supply",
+         ["Demo instrument manual", "Illustrative only - not a real product.", "Connect the output leads to terminals 1 and 2."]),
+        ("Demo_relay_board_wiring.pdf", "Demo relay board wiring", "demo, wiring",
+         ["Demo wiring drawing", "Illustrative only - not a real product.", "Relay K1 to K8 wiring overview."]),
+    ]
+    for filename, title, tags, lines in docs:
+        q = urlencode({"filename": filename, "title": title, "tags": tags, "description": DEMO_NOTE})
+        st, out = api.upload(f"/portal/library?{q}", _demo_pdf(lines), "application/pdf")
+        if st == 200:
+            log(f"library: '{title}' added")
+        elif st == 409:
+            log(f"library: '{title}' already there")
+        else:
+            msg = f"library '{title}': HTTP {st} {_detail(out)}"
+            log(msg)
+            _summary["skipped"].append(msg)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--base", default="http://127.0.0.1:8000")
@@ -244,7 +308,7 @@ def main() -> int:
 
     api = Api(args.base)
     api.login(args.user, args.password)
-    for step in (seed_instruments, seed_recipes, seed_users):
+    for step in (seed_instruments, seed_recipes, seed_users, seed_library):
         try:
             step(api)
         except Exception as exc:  # noqa: BLE001 - keep going, report loudly

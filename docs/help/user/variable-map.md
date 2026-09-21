@@ -5,6 +5,8 @@ temperature, …) to the **signals** a Python-owned instrument exposes. The vari
 engine names those signals, so recipes and analytics reference a **name**, never the
 hardware — swapping a vendor is one binding edit and zero recipe changes.
 
+![Variable map — the station's signals and their bindings](asset:config-variables)
+
 ## What a binding is
 A **variable** maps a name to one instrument's read and/or write method:
 

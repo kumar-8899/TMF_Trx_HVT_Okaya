@@ -6,6 +6,10 @@ The lamp in the top bar is amber/red. The LabVIEW controller link is down.
 - Check the LabVIEW Bridge is started.
 - Open **Health** for a detailed verdict + what-to-do steps.
 
+![Diagnostics — live event tail and station readiness](asset:diagnostics)
+
+![Logs — error diagnostics and the action audit trail](asset:logs)
+
 ## A run won't start
 - **Blocked by MES** — the unit didn't pass the previous stage (see the message). Check MES config.
 - **No recipe** — the barcode didn't resolve to a recipe; pick a recipe directly.

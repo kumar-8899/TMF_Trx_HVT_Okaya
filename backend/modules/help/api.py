@@ -50,6 +50,15 @@ def build_router(module) -> APIRouter:
         body, mime = got
         return Response(content=body, media_type=mime, headers={"Cache-Control": "private, max-age=300"})
 
+    @router.get("/help/app-asset/{name:path}")
+    async def app_asset(name: str, principal: Principal = _VIEW) -> Response:
+        """An image an app ships with its own manual pages (app/<name>/portal/img/)."""
+        got = module.app_asset(name)
+        if got is None:
+            raise HTTPException(status_code=404, detail=f"no app asset '{name}'")
+        body, mime = got
+        return Response(content=body, media_type=mime, headers={"Cache-Control": "private, max-age=300"})
+
     @router.get("/help/facts")
     async def facts(principal: Principal = _VIEW) -> dict:
         """Generated framework facts (tools/gen_devguide.py). Developer-only, source checkout only."""

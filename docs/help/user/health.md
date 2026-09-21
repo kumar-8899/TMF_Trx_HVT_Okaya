@@ -2,6 +2,8 @@
 
 Answers one question: **can I start production?**
 
+![Production readiness — system health at a glance](asset:health)
+
 ## Readiness banner
 - ✓ **Production Ready** — all good.
 - ⚠ **Ready with Warnings** — usable, with risk.

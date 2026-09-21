@@ -1,6 +1,9 @@
 /** Full help page: sidebar tree + search + markdown. super_admin also sees the
  * Developer docs via the audience toggle (backend gates the dev pages — and a built station
- * never has any). Deep-linkable: `/help?page=<id>#<heading-anchor>`. */
+ * never has any). Deep-linkable: `/help?page=<id>#<heading-anchor>`.
+ *
+ * `embedded` (used by the User Portal's Manual tab): no page header, user audience only, and
+ * `help:` links stay inside the portal (`/portal?tab=manual&page=<id>`). */
 import Search from "@mui/icons-material/Search";
 import {
   Box, InputAdornment, List, ListItemButton, ListItemText, Paper, Stack, TextField,
@@ -10,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 
 import { api } from "../api/client";
-import { Markdown } from "../components/help/Markdown";
+import { HelpLinkBase, Markdown } from "../components/help/Markdown";
 import "../components/help/widgets/register";
 import { PageHeader, Section } from "../components/ui";
 
@@ -19,7 +22,7 @@ interface SectionT { section: string; audience: string; pages: PageRef[] }
 interface Doc { id: string; title: string; markdown: string }
 interface Hit { id: string; title: string; section: string; snippet: string }
 
-export function Help() {
+export function Help({ embedded = false }: { embedded?: boolean }) {
   const [tree, setTree] = useState<SectionT[]>([]);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [aud, setAud] = useState<"user" | "dev">("user");
@@ -30,7 +33,7 @@ export function Help() {
   const [params, setParams] = useSearchParams();
   const loc = useLocation();
   const pageParam = params.get("page");
-  const load = (id: string) => setParams({ page: id });
+  const load = (id: string) => setParams((prev) => { const n = new URLSearchParams(prev); n.set("page", id); return n; });
 
   useEffect(() => {
     api.get("/help/index").then(setTree).catch((e) => setError(e.message));
@@ -43,7 +46,7 @@ export function Help() {
     const id = pageParam ?? tree.find((s) => s.audience === "user")?.pages[0]?.id;
     if (!id) return;
     const owner = tree.find((s) => s.pages.some((p) => p.id === id));
-    if (owner) setAud(owner.audience === "dev" ? "dev" : "user");
+    if (owner) setAud(!embedded && owner.audience === "dev" ? "dev" : "user");
     setHits(null); setQ(""); setError(null);
     api.get(`/help/page/${id}`).then(setDoc).catch((e) => setError(e.message));
   }, [tree, pageParam]);
@@ -61,18 +64,19 @@ export function Help() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const hasDev = useMemo(() => tree.some((s) => s.audience === "dev"), [tree]);
+  const hasDev = useMemo(() => !embedded && tree.some((s) => s.audience === "dev"), [tree, embedded]);
   const sections = tree.filter((s) => s.audience === aud);
 
   return (
+    <HelpLinkBase.Provider value={embedded ? "/portal?tab=manual" : "/help"}>
     <Box>
-      <PageHeader title="Help & Documentation" subtitle="Guides & reference"
+      {!embedded && <PageHeader title="Help & Documentation" subtitle="Guides & reference"
         actions={hasDev && (
           <ToggleButtonGroup size="small" exclusive value={aud} onChange={(_, v) => v && setAud(v)}>
             <ToggleButton value="user">User</ToggleButton>
             <ToggleButton value="dev">Developer</ToggleButton>
           </ToggleButtonGroup>
-        )} />
+        )} />}
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="stretch">
@@ -116,5 +120,6 @@ export function Help() {
         </Box>
       </Stack>
     </Box>
+    </HelpLinkBase.Provider>
   );
 }

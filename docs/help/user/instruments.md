@@ -5,6 +5,8 @@ source of truth for instruments**: nothing in the application — the variable e
 the test controller, health checks — can reach an instrument (even a *simulated* one)
 until it is configured and enabled here. A fresh app starts with none.
 
+![Instruments — configured instruments and their connection profiles](asset:config-instruments)
+
 Two kinds of instrument live here, chosen by **owner**:
 
 - **LabVIEW-owned** — LabVIEW does the device I/O. You capture a **connection

@@ -2,6 +2,8 @@
 
 Per-run reports, stored on the professional report database.
 
+![Reports — run outcomes and yield](asset:reports)
+
 ## Run reports list
 Columns: **Serial No · Model · Recipe · Result · Cycle (s) · Finished**.
 - **Model** comes from the recipe (the DUT type name — set it on the recipe).
