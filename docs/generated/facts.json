@@ -1,0 +1,1980 @@
+{
+  "schema_version": 1,
+  "framework": {
+    "name": "Super_Test_App",
+    "version": "1.23.0"
+  },
+  "releases": [
+    {
+      "version": "1.23.0",
+      "date": "2026-09-21",
+      "bump": "MINOR",
+      "summary": "Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).",
+      "body": "**Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).**\n\nHandover tooling for developers building apps on the framework, plus the shared foundation the upcoming\nUser portal reuses. Design: `docs/DEVELOPER_HUB.md`.\n\n- **New: Help → Developer → Developer Hub** — start page, a guided 30-minute first-app checklist, mental\n  model + architecture diagram, principles (\"what they mean for you\"), an **ownership-boundary explorer**\n  (type a path → framework- or app-owned?), building-blocks chain, a **skill picker**, generated\n  facts & figures, a release feed with upgrade recipe, a contracts map, a developer glossary and a\n  Gotchas & FAQ seeded from real incidents. The Developer section is regrouped (Start here / Concepts /\n  How-to / Reference / Contracts / Bus & LabVIEW / Stay current).\n- **Facts can't go stale.** `tools/gen_devguide.py` generates `docs/generated/facts.{json,md}` from the\n  code (version, CHANGELOG feed, module manifests, permission catalog + default roles, step-type catalog,\n  capability interfaces, controller MQTT ops, route decorators, frontend routes, skills). A drift test and a\n  CI step fail when they are out of date; the facts embed the version so a release can't skip regenerating.\n- **Help platform upgrades** (framework-wide, also used by the user manual): shared **image library**\n  (`docs/assets/manifest.json` + authenticated `/help/asset/<id>`, \"captured at vX\" badge and a warning when a\n  screen changed since capture), live **widgets** via ```` ```tmf:<name> ```` blocks (unknown → visible error),\n  in-app `help:` links, heading anchors, code-block copy buttons, **deep links** (`/help?page=<id>#anchor`),\n  catalog integrity gates (no duplicate ids — one existed —, every `docs/help/**.md` registered, every\n  `help:`/`asset:`/`tmf:` reference resolves), and the first frontend tests for Help.\n- **Screenshot pipeline** (dev-only, `tools/screenshots`): Playwright drives the installed Edge against a\n  seeded simulated station and writes `docs/assets/screens/*.png` + manifest entries stamped with the\n  framework version and a hash of each screen's source file.\n- **Developer docs are no longer shipped.** `build_release.copy_user_docs` replaces \"copy all of `docs/`\"\n  (which put PRINCIPLES/ARCHITECTURE/contracts/`help/dev` on every client station) with an **allowlist**\n  (`docs/help/user/**` + the images the user-audience manifest references), and the help catalog hides every\n  developer page, asset and `/help/facts` in a frozen build (defence in depth, both tested).\n- Fixes: `HelpContract` protocol matched to the implementation; developer pages that were orphaned\n  (onboarding, deploy, test specs) are now reachable.\n- **Fix (found while capturing screenshots): a browser could show `Unexpected token '<' … is not valid JSON`\n  on pages whose URL is also an API path** (`/recipes` and similar — e.g. after F5). The SPA shell response\n  for a navigation carries `ETag`/`Last-Modified` but no cache headers, so the browser could answer the\n  page's own `fetch('/recipes')` from the cached HTML. Shell responses now send `Cache-Control: no-cache`\n  and `Vary: Accept` (regression test in `tests/test_spa.py`)."
+    },
+    {
+      "version": "1.22.1",
+      "date": "2026-09-16",
+      "bump": "PATCH",
+      "summary": "Fix: `run_station.exe` could compile but never open a window (PATCH).",
+      "body": "**Fix: `run_station.exe` could compile but never open a window (PATCH).**\n\nReproduced for real on a live app fork (`TMF_Trx_HVT_Okaya`): v1.20.0's adaptive-retry compile\n(Issue 4) resolves Nuitka's `FATAL: Conflict between user and plugin decision for module\n'webview.platforms.win32'` by agreeing to exclude `win32` from the build — the compile then\nsucceeds, but `webview/platforms/winforms.py` (the only Windows GUI backend pywebview has)\nimports `win32` as a required helper, not an optional platform variant, so it throws\n`ImportError` the instant it tries to open a window. The backend still boots fine, so this only\nsurfaces as \"no window ever appears\" — caught by v1.20.0's own windowed-verification gate\n(working as designed), but not actually fixed by the retry.\n\n- **Fix:** `build_run_station_exe` now passes `--disable-plugin=pywebview` to Nuitka, removing\n  its (wrong) opinion about `webview.platforms.*` entirely, and excludes only a **fixed** set of\n  genuinely Windows-irrelevant platforms (`android, cocoa, gtk, qt, mshtml, edgehtml, cef`) —\n  `win32` is deliberately left out, so Nuitka's ordinary static import-following includes it on\n  its own (since `winforms.py` imports it), with nothing left to veto it. No adaptive retry\n  needed: unlike the plugin's own allow-list, `winforms.py`'s import graph doesn't vary by\n  Nuitka/pywebview version. Verified live on this fix: a real `run_station.exe` compiled and\n  opened an actual window.\n- The adaptive-retry machinery (`_WEBVIEW_NOFOLLOW_ALWAYS`, `_nuitka_webview_conflict`) is\n  removed along with its now-obsolete tests; `backend/tests/test_build_release.py` gained\n  coverage locking in the fixed exclude list and that a compile failure no longer retries."
+    },
+    {
+      "version": "1.22.0",
+      "date": "2026-09-15",
+      "bump": "MINOR",
+      "summary": "Frontend: forks can add a brand-new page, not just replace one of the 5 fixed screens (MINOR).",
+      "body": "**Frontend: forks can add a brand-new page, not just replace one of the 5 fixed screens (MINOR).**\n\nFound on a downstream bench (framework Issue 3): the screen-override registry\n(`frontend/src/app/overrides/`) only let a fork *replace* Runs/Recipes/recipe-editor/\nrecipe-detail/Maintenance — there was no way to *add* a new top-level page without editing\nframework-owned `App.tsx` (routes) and `Layout.tsx` (nav), which breaks the clean-merge\nboundary `docs/TEMPLATE.md` §1 exists to protect.\n\n- **New:** any file in `overrides/` can export a named `pages: AppPage[]`\n  (`{ path, navLabel, navIcon?, permission?, component }`) alongside or instead of its\n  `default` screen override. Each entry becomes a route — permission-gated via\n  `RequirePermission` the same way a built-in route is — and a nav-drawer item,\n  automatically; `App.tsx`/`Layout.tsx` render `APP_PAGES` without knowing what a fork put\n  in it.\n- `path` **must start with `\"/app/\"`** — reserved for app-contributed pages so they can never\n  collide with a framework route added in a later release. An entry that doesn't (or is\n  missing `navLabel`/`component`) is skipped with a console warning, not a crash.\n- Registry logic (`frontend/src/app/registry.ts`) is now a pure, unit-tested `buildRegistry()`\n  the Vite `import.meta.glob` result feeds — new coverage in `registry.test.ts`. Docs:\n  `docs/TEMPLATE.md` §1.3, `frontend/src/app/overrides/README.md`."
+    },
+    {
+      "version": "1.21.0",
+      "date": "2026-09-15",
+      "bump": "MINOR",
+      "summary": "Python controller: hardware ops no longer block command dispatch (MINOR).",
+      "body": "**Python controller: hardware ops no longer block command dispatch (MINOR).**\n\nFound on a real Okaya bench running the supervised Python controller (framework Issue 2).\npaho dispatches every MQTT message on **one network thread**; the controller's hardware\nhandlers (`variable.read/write/read_many`, `instrument.test`, `instrument.call`) blocked\nthat thread for the full device round-trip via `loop.run(inst.invoke(...), timeout=...)`.\nA slow or hung instrument therefore froze **all** command handling — every other\ninstrument's reads, `hello.echo`, `instrument.status`, keepalive — and could make shutdown\nmiss its grace window.\n\n- **`StationClient.serve(op, handler, blocking=True)`** now routes an op to a small daemon\n  dispatch pool (`controller/controller/bridge/client.py::_DispatchPool`, 8 workers) instead\n  of running it inline on the network thread; `_on_message` hands off and returns at once.\n  Hardware ops are served `blocking=True`; fast, non-hardware ops (`hello.echo`,\n  `instrument.status`, run/safety/maintenance) stay inline for minimum latency.\n- Per-instrument serialization is unchanged — `InstrumentBase`'s per-instance `asyncio.Lock`\n  still means same-instrument calls serialize while distinct instruments run concurrently.\n  The pool's workers are daemon threads, so a hung device call can never block\n  `StationClient.stop()` or process exit.\n- New live-broker acceptance (`controller/tester/test_integration_c2_dispatch.py`): a slow\n  `instrument.call` in flight no longer delays a concurrent `hello.echo`, `instrument.status`,\n  or a different instrument's call; same-instrument calls still serialize; `stop()` returns\n  promptly with a hung call in flight."
+    },
+    {
+      "version": "1.20.0",
+      "date": "2026-09-15",
+      "bump": "MINOR",
+      "summary": "One run entrypoint + one build/release entrypoint, and two clean-PC first-install fixes (MINOR).",
+      "body": "**One run entrypoint + one build/release entrypoint, and two clean-PC first-install fixes (MINOR).**\n\nConsolidation — fewer files to run and to release:\n- **`station.py` is now the single run entrypoint** for every layout (source dev/prod + frozen).\n  It always supervises the backend via `launcher.Supervisor` in-process (the proven model), adds\n  Vite/HMR + frontend build only in a source checkout, and detects the frozen `run.dist` layout\n  automatically. The duplicate **`run_station.py` is removed** — `run_station.exe` is now\n  `station.py` Nuitka-compiled (same exe name, so installers/shortcuts are unchanged).\n  **`dev.ps1` is now a one-line shim** for `python station.py --dev`.\n- **`deploy/cut-release.ps1` is now the single build/release entrypoint** — a plain file every fork\n  inherits (no more `.template` render; it auto-detects the app under `app/`, or takes `-Slug`). It\n  invokes `fetch-mosquitto.ps1`, `build_release.py`, the signer and `build-installer.ps1` internally;\n  a new **`-BuildOnly`** mode builds the artifacts without committing/tagging/publishing. Framework\n  releases stay the git-tag flow (RELEASE_HOWTO.md — the framework builds no binary).\n- `launcher.Supervisor` gained a `show_backend_console` flag so a source/dev run shows the backend's\n  logs while the frozen windowed launcher keeps suppressing a console window.\n\nFixes (first-install blockers on a genuinely clean client PC):\n- **Issue 4 — the frozen windowed launcher is now verified to actually open a window.** The build's\n  runtime smoke test used to launch `run_station.exe --no-window` and only check `/healthz`, so an\n  exe that booted the backend but could never open a pywebview window (a Nuitka/pywebview plugin\n  interaction) shipped \"verified.\" It now launches the exe **windowed** and confirms a real window\n  appears (matched by the owning process's image name, since Nuitka onefile spawns a child), failing\n  soft — removing the exe with an unlink backoff — if none does. The adaptive-retry compile is\n  unchanged; windowed verification catches a bad exe regardless of how it was compiled.\n- **Issue 5 — the vendored Mosquitto broker now ships the MSVC runtime it needs.** `mosquitto.exe`\n  hard-imports `VCRUNTIME140.dll` (+`140_1` for `mosquittopp.dll`); a clean PC without the VC++\n  redistributable couldn't start it, so the broker never bound `:1883` and it surfaced as a bare\n  connection-refused. The build now copies the `vcruntime140*.dll` Nuitka already places next to\n  `run.exe` into the broker's own directory (Windows checks an exe's own dir first), with a build-gate\n  assert so a future Mosquitto dep-set change is caught on the builder, not a bench."
+    },
+    {
+      "version": "1.19.0",
+      "date": "2026-09-14",
+      "bump": "MINOR",
+      "summary": "Config → Barcode: a generic, operator-editable barcode structure replaces the old prefix/fixed acquisition strategy (MINOR).",
+      "body": "**Config → Barcode: a generic, operator-editable barcode structure replaces the old\nprefix/fixed acquisition strategy (MINOR).**\n\nThe old `runs.acquisition.barcode.strategy` (`prefix` = first N chars are the recipe id,\n`fixed` = barcode is just a serial, always run one hardcoded recipe) had no operator UI —\nit was edited by hand in `app.json` — and couldn't express a barcode made of several\ndistinct fields at fixed positions.\n\n- **New:** Config → Barcode page. Define the barcode's total length, its named parts\n  (each an offset + length), which part is the recipe-id part, and whether barcode\n  acquisition is enabled at all — all operator-editable (`CONFIG.EDIT`), same pattern as\n  the existing Shifts page. Persisted as a single `barcode_config` DB record via\n  `GET`/`PUT /config/barcode`.\n- The Start dialog's Barcode/Recipe tab picker is gone — the popup now shows exactly one\n  thing, driven by the Barcode page's enabled flag: a serial-number field (recipe\n  auto-resolved from the configured recipe-id part) when enabled, or a recipe dropdown\n  when not.\n- `runs` module delegates recipe-id resolution to the new `config.resolve_recipe_from_barcode`\n  contract method (a soft cross-module call, mirroring the existing `_delegate_reset`/\n  `_python_test` pattern — no hard `contract_dependencies` edge, since module activation\n  has no topological sort and `runs` activates before `config`).\n- **Removed:** `modules/runs/acquisition.py`'s `resolve_recipe_id` (prefix/fixed\n  strategies), the `/runs/acquisition` route, and `runs.config.schema.json`'s\n  `acquisition.*` properties. `runs`'s `contract_version` bumps `1` → `2`.\n- **Migration:** an app.json that still sets `acquisition.*` under the `runs` module config\n  is not rejected (`additionalProperties: true`) — it's just silently inert now. Configure\n  Config → Barcode instead."
+    },
+    {
+      "version": "1.18.2",
+      "date": "2026-09-12",
+      "bump": "PATCH",
+      "summary": "A crashed step reported PASS with zero measurements instead of FAIL (PATCH).",
+      "body": "**A crashed step reported PASS with zero measurements instead of FAIL (PATCH).**\n\nIn `controller/controller/sequencer.py` `Sequencer._attempt()`: when a leaf step's\n`handler.execute()` raised (`StepFailed` or any other `Exception`), the except blocks\ncorrectly built a FAIL result — but the non-composite branch right after unconditionally\nrecomputed status from `results.step_status(result.measurements)` and overwrote it. A\ncrashed step has zero measurements, and `step_status()`'s documented \"an empty list is\nPASS\" rule — correct for a handler that legitimately returned nothing to check — silently\nclobbered the exception-forced FAIL back to PASS before `step-completed` ever emitted it.\nThis directly contradicted `results.py`'s own stated invariant (\"structurally impossible\nto report PASS over a failed measurement\") and PRINCIPLES.md's \"failures must be loud and\nstructured, never bare exceptions\" — the blind spot was exactly a step that failed\n*before* producing any measurement. A second symptom stacked on top: with zero\nmeasurements, the `test-result` emit loop never fires either, so a downstream consumer\nthat only renders `test-result` events (e.g. an app's `run_sim.py` printer) sees nothing\nat all for that step, not even a FAIL row — the `step-completed` event's `message` field\nwas already correct, this just went unseen by anything not watching that event.\n\n- **Fix:** track whether the attempt took the exception path (`crashed`); the\n  measurements-based `step_status()` computation now only applies when `execute()`\n  returned normally — it can never override a status already forced to FAIL by a raised\n  exception. The composite branch (`status = result.status`, trusting the handler's own\n  aggregated verdict) is unaffected.\n- Tests: `controller/tester/test_c3_sequencer.py` +2 — a leaf step type whose `execute()`\n  raises a plain `Exception`, and one that raises `StepFailed` (both except paths), each\n  asserting `step-completed.status == FAIL`, `measurement_count == 0`, the run verdict\n  `FAIL`, and the exception message present. Verified both fail on the pre-fix code\n  (reproducing PASS with 0 measurements exactly as reported) and pass after."
+    },
+    {
+      "version": "1.18.1",
+      "date": "2026-09-11",
+      "bump": "PATCH",
+      "summary": "Backend no longer opens a second connection to a python-owned instrument (PATCH).",
+      "body": "**Backend no longer opens a second connection to a python-owned instrument (PATCH).**\n\nFound on a real bench (Okaya, ITECH IT7300 AC source over VISA `...::SOCKET`, single-client\n— accepts exactly one session). Under a supervised Python controller, the backend's own\nvariable engine has always independently built and connected its own `instrumentlib`\ninstances from the same `owner=python` Config → Instruments records the controller\nsubprocess already connects to. Invisible for a multi-client instrument; for a\nsingle-client one the loser of that race gets refused and its `InstrumentBase.state`\nsticks at `disconnected` **forever** (a failed *initial* connect never retries) — Config →\nInstruments / Maintenance then falsely shows a fully working instrument as permanently\nbroken.\n\n- **Fix:** when `controller.kind==\"python\"`, the backend never opens its own connection to\n  an `owner=python` instrument any more. It reaches each one through the supervised\n  controller's own live connection instead — exactly how LabVIEW already does — via two\n  new bridge verbs, `instrument.call` (any method + args, generalizing `instrument.test`'s\n  identify()-only pattern) and `instrument.status` (live per-instance state).\n  `InstanceRegistry.build()` gains a proxy mode (a new `ProxiedInstrument` that never opens\n  a transport); under `controller.kind==\"labview\"` nothing changes (no controller\n  subprocess exists to proxy through, and this path was never racy).\n- Confirmed by tracing the codebase, not assumed: recipe execution (`TEST.RUN`) never\n  touches this registry at all — it drives everything through `run.start`/`run.abort` to\n  the controller's own, separate `StationVariables`. So backend-side instrument access\n  (Maintenance's Variables panel, the Instrument Test Bench) was always manual/UI-only,\n  and proxying it costs nothing on any latency-sensitive path.\n- `GET /variables/instances` now does one live `instrument.status` poll before answering,\n  instead of trusting a cached flag that could never un-stick itself — strictly more\n  honest than before, and self-heals the moment the controller comes up.\n- `CoreServices` gains a `controller_kind` field (mirrors the existing `stations`/\n  `station` topology fields) so a module can tell without a new contract method.\n- Docs: `PYTHON_CONTROLLER.md` §7 (the two new verbs + the ownership invariant),\n  `LABVIEW_BRIDGE.md` §5.1, `docs/contracts/CONFIG.md`, `INSTRUMENT_LIBRARY.md` §0,\n  `ARCHITECTURE.md`, `docs/help/dev/instrument-library.md`.\n\nTests: +19 backend (`tests/test_variables_proxy.py` + 2 in `modules/variables/tester/`),\n+7 controller (`tester/test_instrument_call.py`). Full suites green: 489 backend passed,\n115 controller passed."
+    },
+    {
+      "version": "1.18.0",
+      "date": "2026-09-10",
+      "bump": "MINOR",
+      "summary": "System Blueprint — author an app's I/O from a spreadsheet (MINOR).",
+      "body": "**System Blueprint — author an app's I/O from a spreadsheet (MINOR).**\n\nA new app-authoring aid: an Excel workbook a test engineer fills in to declare one\napplication's I/O system — its instruments and every input/output signal with the address\nrelative to an instrument — and a deterministic generator that turns it into the framework's\ncanonical artifacts. It defines the system's topology, never the tests.\n\n- **Tooling** `backend/tools/blueprint/` (`python -m tools.blueprint make-template|generate`):\n  builds the blank workbook (the generator script is the git source of truth; the `.xlsx` is\n  generated on demand), and generates/reconciles `app/<name>/maps/<station>.json` (the\n  controller-side variable map), a `maps/.blueprint.lock.json` tag ledger, `docs/INSTRUMENTS.md`\n  (the Config → Instruments checklist + a paste-ready `controller.json` `instances` block),\n  `docs/MULTIPLEXING.md`, and a `blueprint-report.md`.\n- **Stable per-row `tag`** is the reconcile key: a fuller sheet supplied later updates in place\n  (fills TBDs, renames/moves by tag, adds new) instead of clobbering work; a signal with no\n  read/write is kept pending; a signal dropped from the sheet is kept-and-warned (`--prune` to\n  delete). Validation vocabularies (capability methods, transports) are read live from the\n  framework code, so the template never drifts from what the variable engine accepts.\n- **Multiplexing** (one shared reader scanned via relays) is modelled as a composite driver:\n  each scan point is an ordinary signal on the composite instrument, and the relay switching is\n  captured on a Multiplexing sheet that becomes the `create-instrument-library` build spec — a\n  digital output that only steers the mux is a selector element, not a signal.\n- New **`system-blueprint`** skill (both `.claude/skills/` and `plugins/tmf-tools/` copies);\n  `new-test-app` points at it. New `docs/SYSTEM_BLUEPRINT.md` contract + dev help page.\n- `openpyxl` added to the `dev` extra (authoring-time only; not a station runtime dependency)."
+    },
+    {
+      "version": "1.17.1",
+      "date": "2026-09-09",
+      "bump": "PATCH",
+      "summary": "Data-durability + UX fixes on the update path, found in a real frozen-station update. PATCH.",
+      "body": "Data-durability + UX fixes on the update path, found in a real frozen-station update. PATCH.\n\n- **CRITICAL — recipes were written inside `run.dist` and orphaned on every update.**\n  `FilesystemRecipe` resolved its store `root` (default `\"data/recipes\"`) relative to the\n  process CWD, which for a frozen station is `run.dist` — the unit the launcher renames into\n  `data/backups/bak-*` on a swap. Result: the operator's recipes (authored in-app, no other\n  copy) vanished from the UI on the next update. Fixed with a new\n  `core.services.config.resolve_state_path()` that resolves relative config paths against the\n  **external deploy root** (`TMF_STATE_DIR` when frozen, `backend/` in source — dev/test layout\n  unchanged), plus `migrate_cwd_state()` which, on module construct, does a one-time copy of a\n  pre-fix build's `run.dist/data/recipes` to the external root with a loud diag warning so\n  existing stations recover their recipes on upgrade.\n- **Same bug, lower severity — report outbox, report folder sinks, MES folder dirs.** The\n  report **outbox** (`outbox_path`, default `data/report_outbox.sqlite` — holds reports queued\n  for the professional DB but not yet forwarded) had the identical CWD-relative default and is\n  now resolved + migrated the same way. The result-routed **folder sinks**\n  (`report.sinks[].path`) and the **MES folder** handoff dirs\n  (`mes.folder.upstream_dir`/`downstream_dir`) also resolve through `resolve_state_path()` now,\n  but without auto-migration — they are a redundant export / transient per-serial interlock,\n  not operator-facing report data (that lives in the pro DB / `tmf.sqlite`, which was never\n  affected — the earlier \"reports destroyed\" claim was overstated).\n- **Updates page sat on the stale pre-relaunch view forever.** `relaunch()` / `rollback()` in\n  `UpdatesConfig.tsx` posted the request and showed a static \"will reconnect shortly\" line with\n  nothing behind it — the operator had to close and reopen the whole app to see the new version.\n  Now it polls `/healthz` (2 s interval, ~90 s budget) after the POST and calls `refresh()` once\n  the station answers, showing a real \"waiting for it to come back\" spinner that resolves into\n  the post-relaunch state; a timeout shows a \"reload manually\" error."
+    },
+    {
+      "version": "1.17.0",
+      "date": "2026-09-06",
+      "bump": "MINOR",
+      "summary": "Two independent capabilities, both from real pain cutting fork releases on GitHub Free. MINOR (additive; existing deployments unchanged).",
+      "body": "Two independent capabilities, both from real pain cutting fork releases on GitHub Free. MINOR\n(additive; existing deployments unchanged).\n\n- **Generic local release-cutting script — `deploy/cut-release.ps1.template`.** GitHub Actions\n  cache is scoped per-ref: a `.nuitka-cache` saved on one `app-v*` tag is unreachable from the\n  next, and nothing runs the Nuitka build on the default branch to seed the fallback scope — so\n  **every** templated `release.yml` build is cold, ~45 min ≈ 90 GitHub-Free minutes per release\n  (Windows bills 2×). The new script runs the identical steps (version guard → tests → vendor\n  Mosquitto → Nuitka → sign `.ksupdate` → WebView2 + `setup.exe` → `gh release create` with the\n  same four assets) on a developer's machine with a **persistent** `NUITKA_CACHE_DIR`, warm after\n  the first build. `new-test-app` renders it per-fork (`@@APP_SLUG@@`) alongside — not replacing —\n  `release.yml`; a fork that adopts it retargets its own `release.yml` to `on: workflow_dispatch:`.\n  It also **pushes the `app-v<ver>` tag before the build** as a race lock, and both it and\n  `release.yml`'s guard now reject a version that isn't strictly semver-greater than the latest\n  published `app-v*` tag (the old `tag == VERSION` check passed even for a regression). New\n  `CONTRIBUTING.md.template` documents the local toolchain + the app/framework boundary. Comment\n  block atop `docs/templates/release.yml` explains the cache limitation and points at the script.\n- **`updates.station_mode` — restrict a station to one update source.** `DEPLOY_STATION.md`\n  describes two update paths (online check/download vs. USB `install-file`) but nothing enforced\n  the split. New `updates.station_mode` enum in `app.schema.json`: `\"online\"` (default) →\n  `/update/check` + `/update/download` reachable, `/update/install-file` → **409**; `\"air_gapped\"`\n  → the reverse. New `StationModeBlocked` exception (sibling of `AmcRequired`), raised by\n  `UpdateService.check/download/install_from_file`, mapped to HTTP 409 in `core/app.py`.\n  `GET /update/offers` now returns `station_mode`; the Updates page hides the disallowed half with\n  an explanation. Default `\"online\"` = zero migration. Independent of `allow_unverified` (that's\n  trust; this is source)."
+    },
+    {
+      "version": "1.16.3",
+      "date": "2026-09-06",
+      "bump": "PATCH",
+      "summary": "Both bugs reproduced live end-to-end against a real installed frozen station (`okaya_transformer`, app v1.0.3 on framework v1.16.2) actually attempting an in-app update apply. PATCH — but the first is safety-relevant: every app-track fork's in-app update-apply was non-functional and leaked a live controller per attempt.",
+      "body": "Both bugs reproduced live end-to-end against a real installed frozen station (`okaya_transformer`,\napp v1.0.3 on framework v1.16.2) actually attempting an in-app update apply. PATCH — but the first\nis safety-relevant: every app-track fork's in-app update-apply was non-functional and leaked a live\ncontroller per attempt.\n\n- **App-track relaunch swap ALWAYS failed, and leaked an orphaned controller each time.** On an\n  app-track build the backend (`run.exe`) spawns `run.exe --controller` as its **own** child. The\n  update relaunch/rollback endpoints exit the backend with a hard `os._exit(42)` that skips the\n  lifespan teardown — so that controller child was never stopped: it stayed alive across relaunch\n  generations, kept its image inside `run.dist` open (so `launcher.py`'s `live → .bak` rename\n  failed with `WinError 32` **every single time**), and `reconcile()` then silently relaunched the\n  OLD version with the Updates page stuck on `relaunch_requested` forever. Repro left 4 stray live\n  controller processes after 4 relaunch attempts — and more than one process driving instrument\n  I/O is a bench hazard, not just wasted memory. Fixed in depth: (1) the relaunch/rollback\n  endpoints (`core/app.py` `_exit_relaunch`) now stop the controller — graceful `CTRL_BREAK` →\n  every instrument to safe state → confirmed dead, hard `taskkill /T` on the whole tree on\n  timeout — **before** scheduling the exit; `ControllerSupervisor.stop()` returns that as a bool.\n  (2) `launcher.py` runs each backend generation in a Windows **Job Object** with\n  `KILL_ON_JOB_CLOSE` (`_WinJob`) and terminates it after `proc.wait()`, so any descendant that\n  outlived the backend is gone before the swap, unconditionally. (3) the swap rename retries with\n  backoff (`_rename_with_retry`) for the brief window a just-exited process can still hold a handle.\n  (4) a swap that still fails writes `data/last_swap_error.json`; `/update/status` surfaces\n  `swap_failed` and the Updates page shows the error + strike count instead of looping silently.\n  New tests: `stop()` confirms a real child tree is dead; the relaunch endpoint stops the\n  controller before `os._exit`; rename retry + failure-breadcrumb; status surfacing.\n- **Backend `run.exe` popped a visible console window on every spawn (every relaunch).** `run.exe`\n  is a console-subsystem exe and `launcher.py`'s `Supervisor` spawned it with only\n  `CREATE_NEW_PROCESS_GROUP`; launched from the windowed `run_station.exe` (no console of its own)\n  Windows allocated a fresh console window each time — \"one more command prompt window\" on every\n  relaunch of a kiosk station. Fixed: `CREATE_NO_WINDOW` bitwise-OR'd into the flags at that spawn\n  site only (running `run.exe` from a terminal still gets a console), and the same treatment for\n  the frozen `run.exe --controller` child in `core/services/controller_supervisor.py` (its stdout\n  is already piped into diagnostics, so the console showed nothing anyway)."
+    },
+    {
+      "version": "1.16.2",
+      "date": "2026-09-06",
+      "bump": "PATCH",
+      "summary": "Two bugs found running the update pipeline for real against a live GitHub Releases repo. PATCH.",
+      "body": "Two bugs found running the update pipeline for real against a live GitHub Releases repo. PATCH.\n\n- **`UpdateService.check()` never compared versions — \"Update available\" fired for the CURRENT\n  version too.** Reproduced live: a station on app v1.0.2, checking a repo whose latest release\n  was ALSO app-v1.0.2, showed \"Update available: app-v1.0.2\" for the exact version already\n  installed. `check()` only asked \"does the latest release have a `.ksupdate` asset\" — the real\n  applicability gate (`resolve()`'s `_semver()` comparison) only ran later, at `download()`/\n  `ingest()` time, AFTER the misleading banner had already shown. Fixed: `check()` now compares\n  the release tag's version (stripping the `app-v`/`v` prefix) against the installed baseline —\n  same baseline `resolve()` uses — before ever calling it \"available.\" Every station's Updates\n  page had been showing false positives for anyone actually current. 4 new tests, including the\n  exact reported scenario (tag equals installed version → no offer).\n- **`_WEBVIEW_NOFOLLOW` excluding `webview.platforms.win32` is NOT stable across Nuitka/pywebview\n  version combinations.** v1.15.1 added `win32` to fix a real conflict on one machine; excluding\n  it broke the build on another (confirmed empirically, in OPPOSITE directions, on two real\n  Windows boxes running the very same Nuitka 4.1.3 — the difference is elsewhere in the toolchain,\n  not something a static list can track). A hardcoded list can only ever be tuned for the machine\n  it was tested against. Fixed properly instead of flip-flopping the list again: `build_run_station_exe()`\n  now retries adaptively — start with the four submodules that are non-Windows on every version\n  (`android`/`cocoa`/`gtk`/`qt`), and if Nuitka's own FATAL line names one more (e.g. `win32`),\n  add exactly that name and try again, up to a few rounds. This is the CI check the original ask\n  wanted (\"attempts the Nuitka compile, not just static review of the flag list\") — release.yml's\n  existing real build IS that check, now self-correcting instead of needing a human to re-tune the\n  list every time a fork's toolchain disagrees with the last one. Verified live end-to-end on this\n  machine: round 1 hits the win32 conflict, round 2 (win32 added) compiles clean, smoke-tests OK.\n- **Found while re-verifying the above: the runtime smoke test itself had a false-positive bug.**\n  `_verify_run_station_exe`'s `/healthz` probe didn't check WHO was answering — a stray station a\n  dev already had running on :8000 answered the probe instead of the freshly-built (and, in this\n  reproduction, non-booting — no `run.dist` present) exe, and the smoke test reported \"verified\"\n  regardless. Fixed: refuse to run the check at all if anything already answers `/healthz` before\n  the exe is even spawned. 2 new tests cover both branches (occupied port aborts without spawning;\n  free port proceeds to spawn)."
+    },
+    {
+      "version": "1.16.1",
+      "date": "2026-09-06",
+      "bump": null,
+      "summary": "- \"Manage users\" added to the account dropdown (top-right avatar menu), alongside Log out — a second path to the same `/users` page Administration → Users already opens. Gated on the same `AUTH.MANAGE_USERS` permission as the sidebar entry, so visibility is identical between the two.",
+      "body": "- **\"Manage users\" added to the account dropdown** (top-right avatar menu), alongside Log out —\n  a second path to the same `/users` page Administration → Users already opens. Gated on the same\n  `AUTH.MANAGE_USERS` permission as the sidebar entry, so visibility is identical between the two."
+    },
+    {
+      "version": "1.16.0",
+      "date": "2026-09-06",
+      "bump": "MINOR",
+      "summary": "Nav simplification + a real bug fix hiding behind it: the `daq` module was LabVIEW-only and inert under the Python controller, but its `/instruments/values/ws` live-values relay is controller-agnostic and Runs/Maintenance depend on it. MINOR — no locked contract broke (an existing fork's `app.json` still listing `daq` degrades gracefully, \"not registered,\" not a crash) but a LabVIEW-controller fork that actively used DAQ streaming loses that capability on merge; read this before pulling the change in.",
+      "body": "Nav simplification + a real bug fix hiding behind it: the `daq` module was LabVIEW-only and\ninert under the Python controller, but its `/instruments/values/ws` live-values relay is\ncontroller-agnostic and Runs/Maintenance depend on it. MINOR — no locked contract broke (an\nexisting fork's `app.json` still listing `daq` degrades gracefully, \"not registered,\" not a\ncrash) but a LabVIEW-controller fork that actively used DAQ streaming loses that capability on\nmerge; read this before pulling the change in.\n\n- **`daq` module removed entirely** (backend + frontend). It bundled two unrelated things: (1)\n  LabVIEW analog/digital signal streaming (`ai`/`di`), genuinely dead under `controller.kind:\n  python`, and (2) a generic live-station-variable-values relay (`/instruments/values/ws`,\n  subscribing `value/#`) used by `Runs`/`Maintenance`'s live-values panel — NOT LabVIEW-specific,\n  since the Python controller retained-publishes `value/{name}` on every step read/write too.\n  (2) is migrated into the `variables` module (which already owned the identically-pathed, and\n  previously **colliding**, `GET/PUT /variables/{name}/value` routes — same URL, two different\n  handlers registered by two different modules); (1) plus the `Daq.tsx` screen, its nav entry,\n  `Sparkline.tsx` (its only consumer), the `docs/contracts/daq.md` contract, the\n  `docs/HOWTO_TEST_DAQ_WITH_LABVIEW.md` guide, and the LabVIEW-hardware-only\n  `tools/check_phase1.py` acceptance script are deleted outright.\n- **\"Test Bench\" nav entry + `/instruments/test` route removed** — `Maintenance.tsx` already\n  embeds the identical `InstrumentControlPanel` for `super_admin`; the standalone page was a\n  redundant second mount of the same component, reachable by no one who couldn't already see it\n  in Maintenance. `InstrumentTestBench.tsx` deleted; its still-relevant help content merged into\n  `docs/help/user/maintenance.md` as a subsection.\n- **\"Variable Map\" dropped from the nav** — the `test-step-authoring`/`add-bench-test` skills\n  author bindings directly, so the manual editor sees little use. Route, backend, and the skill's\n  automation are untouched; a super_admin can still reach `/config/variables` directly."
+    },
+    {
+      "version": "1.15.2",
+      "date": "2026-09-06",
+      "bump": null,
+      "summary": "- Permissions page couldn't grant `DIAGNOSTICS.PURGE`. It has gated `DELETE /logs/{errors,actions}` since 2026-06-05 but was never added to `permissions_catalog.py` — invisible to the role matrix (worked for `super_admin` only, via the `DIAGNOSTICS.*` wildcard; no other role could be granted it). Added. New `test_permissions_catalog.py` scans every `require_permission`/`permission_granted` call site and fails if one isn't cataloged, so the next module can't reintroduce this gap silently — verified it actually catches the regression (reverted the fix, test failed naming the exact gap; restored, green).",
+      "body": "- **Permissions page couldn't grant `DIAGNOSTICS.PURGE`.** It has gated `DELETE\n  /logs/{errors,actions}` since 2026-06-05 but was never added to `permissions_catalog.py` —\n  invisible to the role matrix (worked for `super_admin` only, via the `DIAGNOSTICS.*` wildcard;\n  no other role could be granted it). Added. New `test_permissions_catalog.py` scans every\n  `require_permission`/`permission_granted` call site and fails if one isn't cataloged, so the\n  next module can't reintroduce this gap silently — verified it actually catches the regression\n  (reverted the fix, test failed naming the exact gap; restored, green)."
+    },
+    {
+      "version": "1.15.1",
+      "date": "2026-09-06",
+      "bump": "PATCH",
+      "summary": "`build_release.py --track app` could not freeze `run_station.exe` on an MSVC-less builder, a broken build could still be packaged into a shippable installer, and a failed update check looked identical to \"you are up to date.\" PATCH.",
+      "body": "`build_release.py --track app` could not freeze `run_station.exe` on an MSVC-less builder, a\nbroken build could still be packaged into a shippable installer, and a failed update check\nlooked identical to \"you are up to date.\" PATCH.\n\n- **`run_station.exe` couldn't locate `run.dist` when frozen (broke EVERY frozen station, not just\n  the build).** In a Nuitka **onefile** exe, `__file__` resolves to the temp extraction dir, not the\n  exe's real location — so `ROOT` (and thus `RUN_DIST`) pointed into `…\\Temp\\onefile_XXXX_…\\` and the\n  launcher aborted at startup (\"run.dist not found\"). Fixed: compute `FROZEN` first and use\n  `sys.argv[0]` (the invoked exe's own path) for `ROOT` when frozen. Verified against a real onefile\n  build: the error message now names the exe's actual directory.\n- **Nuitka plugin conflict killed the compile** (`FATAL: Conflict between user and plugin decision\n  for module 'webview.platforms.android'`, then `'...win32'` once the first four were excluded).\n  Force-including the whole `webview` package pulled back in platform backends Nuitka's own pywebview\n  plugin had already excluded. Fixed with\n  `--nofollow-import-to=webview.platforms.{android,cocoa,gtk,qt,win32}` (matching the plugin's own\n  Windows allow-list: winforms/edgechromium/edgehtml/mshtml/cef) alongside `--include-package=webview`.\n  Verified end-to-end: `build_release.py`'s Nuitka invocation now completes and produces a working exe\n  against a real pywebview 6.2.1 install.\n- **Onefile shipped uncompressed** without `zstandard`. Added it (+ `pywebview`) to the backend's\n  `release` extra so `pip install -e \"backend[release]\"` alone covers everything the build needs.\n  Verified: onefile payload compressed ~24% smaller with it present.\n- **Fail-soft + a real runtime gate.** `build_run_station_exe()` now actually **runs** the compiled\n  exe (`--no-window` from a real station root) and asserts it reaches `/healthz` before calling it\n  good — a compile that produces a broken exe (the historical MSVC-less zig/clang failure mode) is\n  caught instead of shipped. A compile or smoke-test failure no longer aborts the whole release: it\n  WARNs, removes the broken exe, and `build_release.py` exits a **distinct code (3)** — `run.dist` +\n  the `.zip`/`.ksupdate` (the in-app update artifact) still get built either way, since only the\n  offline `setup.exe` needs `run_station.exe`. `release.yml` checks that exit code and publishes the\n  release without `run_station.exe`/`setup.exe` on 3, instead of failing the whole workflow.\n- **A broken/stale build could still be packaged into a shippable `setup.exe`.** Before the fail-soft\n  fix above, a `build_run_station_exe()` failure raised `SystemExit` *before* `build_release.py`\n  reached the step that writes `RELEASE.json` into `run.dist` — leaving a `release-build/` on disk\n  with run.dist present but no version manifest at all. `deploy/build-installer.ps1` only checked\n  that `run.dist`/`run_station.exe` *existed*, not that the build was *complete and current* — so it\n  happily packaged that partial build (or an older `release-build/` left over from a previous\n  successful run, now stale against a bumped `app/<slug>/VERSION`) into a `setup.exe` that shipped\n  with `app_version()` permanently returning `None`, making every future \"Check for updates\"\n  comparison meaningless from first boot. Fixed: `build-installer.ps1` now refuses to package unless\n  `release-build/RELEASE.json` exists, `track == \"app\"`, and its `version` matches\n  `app/<slug>/VERSION` — with a clear \"re-run build_release.py\" error otherwise. (The ordering fix\n  above already prevents the original *incomplete-build* failure mode from recurring; this adds the\n  same guard for a hard `build_backend()` failure or a forgotten rebuild after a version bump.)\n- **A failed update check looked identical to \"you are up to date.\"** `UpdateService.check()` is\n  deliberately network-tolerant — on any GitHub error (no network, or a private repo rejecting an\n  empty/invalid token) it returns 200 with `available: null` and `error` set, not an exception. The\n  Updates page ignored `error` entirely and showed the same neutral \"No update available — you are up\n  to date\" message either way, so an operator had no way to tell \"genuinely current\" apart from \"the\n  check is broken\" (reproduced for real: an empty `github_token` against a private repo silently\n  reported \"up to date\"). Fixed: `error` now surfaces as a distinct, actionable failure message\n  (\"Update check failed: … — verify updates.github_repo/github_token…\") in the page's error state,\n  not the neutral info banner.\n- `deploy/build-installer.ps1`'s \"missing run_station.exe\" error explains why (fail-soft) and how to\n  fix it (build where the tested MSVC toolchain is — e.g. the release CI runner — or install VS Build\n  Tools locally). Documented in `docs/DEPLOY_STATION.md` §1."
+    },
+    {
+      "version": "1.15.0",
+      "date": "2026-09-05",
+      "bump": "MINOR",
+      "summary": "Desktop-station polish: a real app icon, working report export in the native window, an actionable Dashboard, and update-page clarity. MINOR.",
+      "body": "Desktop-station polish: a real app icon, working report export in the native window, an actionable\nDashboard, and update-page clarity. MINOR.\n\n- **Dashboard redesign.** The old \"loaded modules\" grid (raw activation-gate dump, no operator value)\n  is replaced with an at-a-glance ops view: an **attention band** that surfaces only what needs a\n  human — disconnected instruments, an offline station bridge, an unconfigured report database,\n  modules skipped for config/license reasons, and (super_admin) an available application update —\n  with a calm \"All systems normal\" strip when there is nothing to act on. Below it, a **7-day KPI\n  band** (runs, yield, units, first-pass yield, avg cycle) and a **pass/fail trend chart**\n  (`/reports/analytics/dashboard`), plus a **live instrument snapshot** reading real connection state\n  from the variable engine (`/variables/instances`) instead of a static list.\n- **Native window app icon.** `station.py` / `run_station.py` now set the pywebview window title-bar\n  icon via `webview.start(icon=…)`, and `build_release.py` embeds it into `run_station.exe`\n  (`--windows-icon-from-ico`) so the taskbar icon is right before the window opens. Added\n  `frontend/public/favicon.ico` (multi-res, generated from `favicon.svg`) — a fork's own favicon is\n  used automatically.\n- **Report export in the desktop window.** `Reports` CSV/JSON export produced nothing visible in the\n  native window (a browser blob-download has no flyout and an unknown location under WebView2). Export\n  now **saves server-side to the station PC's Downloads folder** (`?save=true` on\n  `/reports/full/export` and `/reports/{id}/export`) and a green banner shows the **exact path**\n  (`Downloads\\reports-full-<date>-<time>.csv`); files are timestamped so nothing is overwritten.\n  Errors are surfaced instead of silently swallowed.\n- **Updates page clarity.** Shows the **application** version prominently beside the framework\n  version, and states that \"Check for application updates\" polls this app's own release line only —\n  never framework updates.\n- **new-test-app skill:** backend deps install now includes the `desktop` extra (pywebview) so\n  `python station.py` gets a native window instead of falling back to the browser."
+    },
+    {
+      "version": "1.14.0",
+      "date": "2026-09-04",
+      "bump": "MINOR",
+      "summary": "Fully-offline frozen station: a client PC needs zero online setup and zero post-install steps except configuring instruments. Double-click the desktop shortcut → the app opens fullscreen. MINOR.",
+      "body": "Fully-offline frozen station: a client PC needs **zero online setup** and **zero post-install steps\nexcept configuring instruments**. Double-click the desktop shortcut → the app opens fullscreen. MINOR.\n\n- **Frozen windowed launcher — no system Python, no pip on the client.** The launcher's supervision\n  loop is now importable (`launcher.Supervisor` / `launcher.supervise`), and `run_station.py` runs it\n  **in-process on a thread** instead of shelling `[python, run.dist/launcher.py]`. `build_release.py\n  --track app` Nuitka-compiles `run_station.py` into a standalone **`run_station.exe`** (bundles\n  pywebview + the `launcher` module) placed in the station root **beside `run.dist`** (survives the\n  updater's run.dist swap). `run.exe` is still spawned as the swappable backend child; the full\n  exit-42 / staged-swap / rollback loop is unchanged (Supervisor spawns run.exe in its own process\n  group and shuts it down with a graceful CTRL_BREAK on window close).\n- **Vendored Mosquitto — no broker install, no service, no admin.** `build_release.py --track app`\n  copies `deploy/vendor/mosquitto/win64/` **into** `run.dist/vendor/mosquitto/win64/`, so the frozen\n  station starts its own loopback broker. `run_station` now launches it with `-c mosquitto.conf`\n  (Mosquitto 2.x refuses anonymous clients without a config). Because it rides inside run.dist, every\n  in-app update carries it and it survives swaps.\n- **Offline `setup.exe` first-install.** New `deploy/installer.iss.template` + `deploy/build-installer.ps1`\n  render + compile a per-fork Inno installer that bundles `run.dist` (incl. the vendored broker),\n  `run_station.exe`, and the offline WebView2 standalone runtime (the one true OS dependency; a no-op\n  when present). It lets the operator pick a **user-writable** install dir (not Program Files, so the\n  updater can rename run.dist), grants `Users:Modify`, and drops Desktop + Start-Menu shortcuts to\n  `run_station.exe --fullscreen`. The only post-install task is Config → Instruments.\n- **Air-gapped in-app updates from USB.** New `POST /update/install-file` (+ Updates page \"Install\n  from file\") stages an update from local `.ksupdate` + `.zip` paths through the **same** signature +\n  `full_artifact_hash` verify and stage → swap → rollback pipeline as the online path — only the\n  source differs. `_materialize` refactored to share `_stage_zip_bytes` with the new path.\n- **CI: four release assets.** `docs/templates/release.yml` now vendors Mosquitto, builds\n  `run_station.exe`, and builds the offline `setup.exe` (Inno + bundled WebView2), publishing\n  `<slug>-<ver>.zip`, `.ksupdate`, `run_station.exe`, and `<AppShort>-Setup-<ver>.exe`.\n- **install-station.ps1 Store-alias fix.** The Python probe no longer trusts `Get-Command python`\n  (the Microsoft Store `python.exe` alias is a stub) — it checks `py.exe` / `sys.executable` and\n  installs a real interpreter on a bare PC. The script is now the scriptable/headless **fallback**;\n  the offline `setup.exe` is the primary first-install path.\n- Docs + both `new-test-app` skill copies updated (DEPLOY_STATION, UPDATES §E-bis endpoint + air-gap\n  row, deploy/README). **Update caveat:** the in-app updater swaps only `run.dist`; a release that\n  changes `run_station.exe` must be delivered by re-running `setup.exe` (flagged in the CHANGELOG)."
+    },
+    {
+      "version": "1.13.0",
+      "date": "2026-09-04",
+      "bump": "MINOR",
+      "summary": "Release/CI tooling so a fork cuts a release cleanly + fast, plus a Windows data-integrity fix in the debug flight-recorder. MINOR.",
+      "body": "Release/CI tooling so a fork cuts a release cleanly + fast, plus a Windows data-integrity fix in the\ndebug flight-recorder. MINOR.\n\n- **App release tags no longer collide with inherited framework tags.** A fork inherits every\n  framework `v*` tag, so the app's own v1.0.0/v1.1.0/… line was unusable. `docs/templates/release.yml`\n  now triggers on **`app-v*`** and derives the version with `${GITHUB_REF_NAME#app-v}` throughout\n  (guard, sign, notes, publish); asset names stay plain `<slug>-<ver>.zip`/`.ksupdate`. The in-app\n  updater reads the version from the `.ksupdate` **manifest**, never the tag, so the prefix is\n  invisible to clients. Docs (APP_REPO, UPDATES §10.3, DEPLOY_STATION) + both `new-test-app` skill\n  copies now say to tag `app-v<version>` and push **only that tag** — never `git push --tags`, which\n  would push all inherited framework tags and fire the workflow once per tag.\n- **debug_server rolling sink: same-millisecond rotation no longer crashes or loses data.**\n  `RollingSink._rotate()` named rotated files `debug-<ms>.jsonl`; two rotations in one millisecond\n  produced the same name → `FileExistsError [WinError 183]` on Windows (rename won't overwrite) and a\n  **silent overwrite** of the earlier file on POSIX (data loss with no error — why Linux CI never\n  caught it). Names are now collision-proof (`debug-<ms>-<n>.jsonl`, counter bumped until free,\n  checking both the `.jsonl` and compressed `.jsonl.gz` forms); `_rolled()` sorts with the name as a\n  tiebreak so same-ms files stay ordered. New test asserts no loss/crash across 40 forced same-ms\n  rotations. It was the only `.rename(` in `debug_server`.\n- **Framework CI already covers Windows** (the `backend` job is `windows-latest`, and pytest\n  `testpaths` includes `debug_server`), so the new test guards this class of Windows-only regression\n  at every framework push — the exact bug an app's `windows-latest` release build would otherwise\n  hit first. No CI change needed.\n- **Release CI caches Nuitka.** The template adds `setup-python` pip caching + an `actions/cache@v4`\n  step for `NUITKA_CACHE_DIR`, keyed on the framework version — a framework bump recompiles clean, an\n  app-only change hits the cache (clcache warms the rest), turning a cold ~15–20 min build into an\n  incremental one."
+    },
+    {
+      "version": "1.12.0",
+      "date": "2026-09-04",
+      "bump": "MINOR",
+      "summary": "Client deployment + in-app updates are now an inherited, first-class capability, and the published artifact is a complete app. MINOR.",
+      "body": "Client deployment + in-app updates are now an inherited, first-class capability, and the published\nartifact is a **complete** app. MINOR.\n\nThe update runtime already existed (checker, journalled swap, rollback, signer); what was missing was\nthe glue every fork needs to actually deploy and update a client — plus a gap where the shipped `.zip`\nwas not self-contained.\n\n- **One-time station bootstrap.** New `deploy/install-station.ps1 -Product <slug> -Repo <owner>/<repo>\n  [-Token] [-Channel] [-InstallDir]` — idempotent: ensures system Python, installs the Mosquitto\n  broker (`winget EclipseFoundation.Mosquitto`), `pip install pywebview`, downloads the latest\n  app-track Release's `<slug>-<ver>.zip` via the **private-repo** asset API, verifies its sha256\n  against the `.ksupdate` manifest's `full_artifact_hash`, extracts to `<InstallDir>\\run.dist`, drops\n  `run_station.py` beside it, and launches the station. GitHub Releases delivers *updates*; this\n  delivers the *first* install.\n- **Artifact completeness.** The build now copies `frontend/` **and** `docs/` **into `run.dist`**\n  (the swap unit that `package_artifact` zips), and the SPA + help resolvers prefer that location\n  (`spa.py`, `help/catalog.py`). Before this, the UI was served from the deploy root and docs from the\n  source tree — outside the zip — so an install-from-zip had no UI and an update never refreshed the\n  help. Now the `.zip` carries the UI, the in-app help, the app definition, and the drivers; one swap\n  refreshes all of it, **including a fork's custom screen overrides** (compiled into its own\n  `frontend/dist`). Verified on a frozen build: `GET /` serves the SPA from `run.dist\\frontend`,\n  `/help/index` lists 54 pages read from `run.dist\\docs`, and the published `.zip` contains both.\n- **Pre-wired update config.** `app.example.json` ships a commented-style `updates` block\n  (`github_repo`, `github_token:\"\"`, `channel`, `allow_unverified`) and the schema now permits\n  `channel` + `allow_unverified` (the latter was already read by `app.py` — a latent schema gap).\n  `new-test-app` sets `updates.github_repo` to the fork's origin and scaffolds `release.yml`.\n- **Dev-untrusted updates, gated.** Pre-Keystation there is no signing ceremony, so `release.yml`\n  dev-signs the `.ksupdate` when no `KS_INTERMEDIATE_SEED`/`_CERT` secrets are set (manifest exists,\n  flagged `verified:false`), and a client installs an untrusted release **only** when\n  `updates.allow_unverified: true` (shown UNTRUSTED in the UI). Standing up Keystation = add the real\n  secrets + flip the switch to false; no other change.\n- **Docs + skill.** New `docs/DEPLOY_STATION.md` (first install → cut a release → update a client →\n  trust → read-token security), cross-linked from RUNNING/APP_REPO/SECURE_DISTRIBUTION; `release.yml`\n  aligned (three assets, optional secrets); both copies of the `new-test-app` skill wire the `updates`\n  block + `release.yml` so a fork is deploy- and update-ready on day one."
+    },
+    {
+      "version": "1.11.0",
+      "date": "2026-09-03",
+      "bump": "MINOR",
+      "summary": "App builds work on MSVC-less builders: one exe, `run.exe` also runs the controller. MINOR.",
+      "body": "App builds work on MSVC-less builders: one exe, `run.exe` also runs the controller. MINOR.\n\nThe v1.10.x app build compiled a SEPARATE controller.exe. On a Windows machine without MSVC, Nuitka\nfalls back to its bundled **zig** backend, which reliably bundles the pure-Python stdlib only for\nLARGE import graphs — the lean controller graph deterministically produced a stdlib-less exe that\ncrashed at startup (`Failed to import encodings`). No Nuitka flag fixes this reliably.\n\n- **One exe.** `run.py` now dual-dispatches: `run.exe --controller <config>` runs the controller\n  (`controller.__main__.main`) instead of uvicorn. The supervisor spawns that in a frozen build; the\n  separate `build_controller` step + `controller.dist/` are gone. The controller reuses `run.exe`'s\n  stdlib (its large graph always pulls it in), so it works on **every** backend incl. zig — no MSVC\n  required just to bundle the stdlib. Bonus: ~half the app-build time (one compile) and a smaller\n  artifact (~77 MB vs ~113 MB).\n- **Build gate**, unchanged in spirit: after the backend compile, `build_release` launches\n  `run.exe --controller` with the app's step packages + an unreachable broker and FAILS the build\n  unless it reaches `instruments:` with no crash. A controller that can't start never ships.\n- **`--mingw64` now errors clearly on Python 3.13+** (Nuitka rejects it and ignores an external\n  winlibs gcc) instead of a cryptic FATAL. MSVC + clcache stays the default; MSVC is the tested\n  backend (docs note the zig fallback is covered by the gate).\n- Verified end-to-end: single-exe app build, `run.exe --controller` comes up `online` (`/readyz`),\n  loads the app step package, no encodings/`getsource` crash."
+    },
+    {
+      "version": "1.10.2",
+      "date": "2026-09-02",
+      "bump": "PATCH",
+      "summary": "Fix: the frozen controller.exe couldn't start (app couldn't run its test sequence). PATCH.",
+      "body": "Fix: the frozen controller.exe couldn't start (app couldn't run its test sequence). PATCH.\n\nTwo frozen-only bugs in the v1.10.0 app-track build, both of which left a frozen app booting the UI\nshell but unable to run the controller (the exact FAIL v1.10.0 claimed to prevent; masked on this\nrepo's MSVC backend, exposed on the zig backend an MSVC-less builder gets):\n\n- **stdlib not bundled → `Fatal Python error: Failed to import encodings`.** `build_controller`\n  pointed Nuitka at the package's `__main__.py`; Nuitka then skips the pure-Python stdlib. Now it\n  compiles a plain SCRIPT entry (`controller/run_controller.py`, mirroring `backend/run.py`), which\n  bundles the full stdlib on every backend (MSVC / MinGW / zig).\n- **`inspect.getsource` in the conformance re-check → `OSError: could not get source code`.** The\n  step-type gate re-run at controller startup inspected handler source, which a compiled build has\n  no access to. `conformance.check_handler` now skips the source rules when source is unavailable\n  (it is an authoring/CI gate that already ran before compilation).\n\n- **`build_controller` now GATES the build**: it launches the frozen `controller.exe` with the app's\n  step packages and an unreachable broker, and FAILS the whole build unless the controller completes\n  startup (loads its packages, passes the conformance re-check, reaches `instruments:`) with no\n  crash. A controller that can't start can never ship again — on any compiler.\n- Verified end-to-end: the frozen controller reaches `controller up … online`, `/readyz` online, no\n  encodings/`getsource` crash."
+    },
+    {
+      "version": "1.10.1",
+      "date": "2026-09-02",
+      "bump": "PATCH",
+      "summary": "Build: explicit compiler backend — MSVC + clcache default, MinGW opt-in. PATCH.",
+      "body": "Build: explicit compiler backend — MSVC + clcache default, MinGW opt-in. PATCH.\n\n- `build_release.py` now selects the Nuitka compiler backend explicitly. **Default = MSVC (`cl`)\n  + clcache**, an object cache: a WARM rebuild is near-instant — verified **1610/1614 C-file cache\n  hits** (only changed files recompile). This is the \"fast rebuild\" path and needs no toolchain\n  install (it's what Nuitka already auto-picked, now pinned so it can't drift).\n- **`--mingw64`** opts into gcc + ccache for machines with a working MinGW. Nuitka's\n  auto-downloaded gcc 15.2.0 ships a broken Windows SDK header (`psdk_inc/intrin-impl.h`) that fails\n  the C compile on some setups, so it is opt-in (install a known-good MinGW, e.g. winlibs gcc 13.x).\n- No change to build output; the first build on a machine is still a cold (cache-miss) full compile."
+    },
+    {
+      "version": "1.10.0",
+      "date": "2026-09-02",
+      "bump": "MINOR",
+      "summary": "`build_release.py --track app` produces a complete, runnable frozen app. MINOR.",
+      "body": "`build_release.py --track app` produces a complete, runnable frozen app. MINOR.\n\n- **The app-track build is now self-contained + runnable.** Alongside the compiled backend it\n  compiles the **Python controller** (`run.dist/controller.dist/controller.exe`) and bundles the\n  app **definition** (`app/<slug>/` controller.json + maps + specs) and copied `instrument_libs/`,\n  all INSIDE `run.dist` (so an update swap carries the whole thing). The app's `step_type_packages`\n  + `instrument_libs` are **compiled into both exes** (`--include-package(-data)`, discovered from\n  `app/<slug>/controller.json`) so they load by name in the frozen build. A frozen app now runs its\n  OWN test sequence — before, it booted only the framework UI shell and started no controller.\n- **Site config is never bundled.** No `recipes/`, no instrument instances (IP/COM/port), no\n  report/DB credentials — those stay in the external state (`STATE_ROOT/config` + DB), set on the\n  bench. `--app-config` (default `backend/config/app.release.json`) ships a non-secret\n  `config/app.example.json` (credentials stripped) so the app boots with its own branding + controller.\n- **Fix (was silently broken):** the controller supervisor detected frozen builds via `sys.frozen`,\n  which **Nuitka does not set** — so the bundled controller was never started under a Nuitka build.\n  Now detects Nuitka (`__compiled__`); frozen `config_file` + `controller.dist` paths resolve\n  against `run.dist`. The variables module registers `instrument_libs` via `find_spec` when it is\n  compiled in (file absent).\n- Docs: `SECURE_DISTRIBUTION.md` §5 (full layout), `RUNNING.md` (running a frozen app),\n  `TEMPLATE.md` §4 (two-tier release + an app-build acceptance step)."
+    },
+    {
+      "version": "1.9.5",
+      "date": "2026-09-01",
+      "bump": "PATCH",
+      "summary": "Fork-remote safety: framework remote is push-disabled and `origin` is required. PATCH.",
+      "body": "Fork-remote safety: framework remote is push-disabled and `origin` is required. PATCH.\n\n- **`new-test-app` now push-disables the framework remote** — after `git remote rename origin\n  upstream` it runs `git remote set-url --push upstream DISABLE`, so app commits can never be pushed\n  to the framework repo, even from a Git GUI and even if `origin` is missing. A Git GUI derives a\n  repo's identity from its remote, so a fork whose only remote is the framework showed up **as** the\n  framework and offered to push the app's commits straight into it (hit on a real customer fork).\n- **`origin` is now a required, first-class step**, not an optional \"local trial\" skip: create it\n  with `gh repo create <org>/App_<Name> --private --source . --remote origin --push` (or prompt for\n  the URL). Local-only forks are allowed only as a deliberate fallback with a loud Phase-6 warning to\n  publish before opening in any Git GUI.\n- Mirrored across both `new-test-app` skill copies (`.claude/skills/` + `plugins/tmf-tools/`),\n  `docs/TEMPLATE.md` §2, `docs/APP_REPO.md`, and `docs/templates/APP_SETUP.md`."
+    },
+    {
+      "version": "1.9.4",
+      "date": "2026-09-01",
+      "bump": "PATCH",
+      "summary": "Report DB auto-create + drivers installed by default; interface skills. PATCH.",
+      "body": "Report DB auto-create + drivers installed by default; interface skills. PATCH.\n\n- **Report store auto-creates its database.** Configuring/testing a MySQL or SQL Server report\n  store now runs `CREATE DATABASE IF NOT EXISTS` (server-level) before the schema, so a fresh\n  server no longer fails with `1049 Unknown database`. Best-effort: a user without CREATE\n  privilege gets a clear message to create it (or be granted the right); the DB name is validated\n  to a safe identifier. `store.py` `build_server_url()` + `_ensure_database()`, called from\n  `test_connection` and `ensure_schema`.\n- **Report DB drivers install with the app.** `new-test-app` + `APP_SETUP.md` now run\n  `pip install -e \".[dev,report-db]\"`, so `PyMySQL` + `pyodbc` are present out of the box.\n- **Skills also ship as project skills** (`.claude/skills/`) for the Claude Code interface/agent\n  mode (where `/plugin` is unavailable); simplified `DEVELOPER_ONBOARDING.md`."
+    },
+    {
+      "version": "1.9.3",
+      "date": "2026-08-31",
+      "bump": "MINOR",
+      "summary": "Update-swap correctness, a windowed frozen launcher, and device-independent developer setup. MINOR.",
+      "body": "Update-swap correctness, a windowed frozen launcher, and device-independent developer setup. MINOR.\n\n- **`launcher.py` now ships inside `run.dist`** (`build_release.py` copies it into the swap unit),\n  so a frozen station actually has its update supervisor — before this, `run.exe` alone had nothing\n  to catch exit-42 and apply a staged update.\n- **`RELEASE.json` rides inside `run.dist`** (the swap unit) and `core.app_version()` reads it there\n  first; the launcher mirrors it to the deploy root after a swap. Fixes a bug where installing a new\n  version left the station still reporting the old one (the version manifest wasn't part of the\n  swapped artifact). Verified end-to-end: install 1.0.0→1.0.1 and rollback both change the reported\n  version.\n- **`run_station.py`** — a windowed entry for the frozen deploy (pywebview window + supervised\n  backend + broker autostart), baked into the release at the deploy root by `build_release.py`.\n- **The framework repo is now a Claude Code marketplace** (`.claude-plugin/marketplace.json` +\n  `plugins/tmf-tools/`): the four dev skills (`new-test-app`, `add-bench-test`, `test-step-authoring`,\n  `create-instrument-library`) install via `/plugin`, versioned with the framework, and are\n  de-localized to `$FRAMEWORK_REMOTE` / `$TMF_INSTRUMENT_LIBRARY` so they run on any machine. New\n  `docs/DEVELOPER_ONBOARDING.md` + `docs/templates/APP_SETUP.md`; two-remote (own-repo) app model."
+    },
+    {
+      "version": "1.9.2",
+      "date": "2026-08-30",
+      "bump": "PATCH",
+      "summary": "Frozen-layout: persistent state lives outside the swappable run.dist. PATCH.",
+      "body": "Frozen-layout: persistent state lives outside the swappable run.dist. PATCH.\n\n- Live config + data (DB, relaunch marker, backups, last_known_good, debug captures) now\n  resolve to an EXTERNAL deploy root via `TMF_STATE_DIR`, so an update swap of `run.dist`\n  can never destroy or orphan them (UPDATES.md §1 frozen layout). `config.py`\n  `resolve_state_dirs()` + a bundled-examples/external-live split; `launcher.py` passes\n  `TMF_STATE_DIR` to the backend; `app.py` config + DB paths honor it. Source/tests are\n  unchanged (no `TMF_STATE_DIR` = today's `backend/` layout)."
+    },
+    {
+      "version": "1.9.1",
+      "date": "2026-08-30",
+      "bump": "PATCH",
+      "summary": "App-independent versioning. PATCH.",
+      "body": "App-independent versioning. PATCH.\n\n- An application now carries its OWN semver in the app-owned `app/<name>/VERSION` (starts\n  1.0.0), independent of `core.__version__` (the framework version). `build_release.py\n  --track app` uses it as the release version and records the framework version built upon\n  as `pinned_fw_version`/`framework_version` in RELEASE.json.\n- `core.app_version()` surfaces it at runtime (RELEASE.json when frozen, `app/*/VERSION` in\n  source); `/branding` + `/update/offers` expose `app_version`; update applicability compares\n  app-to-app (framework compatibility stays the `pinned_fw_version` check).\n- release.yml template tag-guard now checks the app VERSION; new-test-app scaffolds VERSION."
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-08-30",
+      "bump": "MINOR",
+      "summary": "Remote debugging + updates + single-origin launcher. MINOR — new features, additive contracts (no module `contract_version` bump).",
+      "body": "Remote debugging + updates + single-origin launcher. MINOR — new features, additive\ncontracts (no module `contract_version` bump).\n\n- **Remote debugging** (`docs/REMOTE_DEBUG.md`): the Debug Server sidecar gains a rolling\n  JSONL sink, a 30 s failure snapshot buffer, analog/digital logging discipline, an explicit\n  `bind_host` + static token (rejects `0.0.0.0`), and live per-subsystem diag level control;\n  the repo-root `tmf-debug` CLI (`pull`/`watch`/`digest`/`why`); Settings → Remote debugging\n  toggle, supervised by `station.py`.\n- **Updates** (`docs/UPDATES.md`): an un-brickable launcher (swap journal + startup\n  reconciliation, backups + `last_known_good`, DB snapshot, 2-strike auto-recovery);\n  notify-only `check` + idempotent `download`; `apply` refused mid-run (409); `rollback` +\n  `status`; the AMC 402 gate; a hashed artifact zip in `build_release.py`; `release.yml` +\n  `upstream-sync.yml` app templates.\n- **Single-origin**: the backend serves the built SPA (`core/services/spa.py`); `station.py`\n  one-click launcher (broker + backend + pywebview, graceful shutdown).\n- **UI**: nav declutter (`UserMenu`), a waveform app logo + favicon, Settings\n  Updates/Remote-debugging/License(AMC) cards.\n- **Fixes**: the runs module subscribes `diag/#` (Diagnostics event tail now shows Python\n  diag); core diagnostics gains `critical` + a per-subsystem level gate.\n- **Keystation** (separate repo): a typed `amc` lease field (backward-compatible signing)."
+    },
+    {
+      "version": "1.8.5",
+      "date": "2026-08-11",
+      "bump": "PATCH",
+      "summary": "Fix: the finish-reconcile fetched too early and missed the tail. PATCH.",
+      "body": "Fix: the finish-reconcile fetched too early and missed the tail. PATCH.\n\n- v1.8.4 fetched the persisted record once on `run-finished`, but the backend writes results\n  asynchronously (the WS frame is broadcast before persistence), so the last group (e.g. VRA)\n  wasn't written yet → the board/table came back short (e.g. 49 of 53, intermittently).\n- `screens/Runs.tsx` now **polls the record until its `status` is terminal** — `run-finished`\n  persists `status=\"finished\"` under the same per-run lock, *after* every test-result (asyncio.Lock\n  is FIFO), so `status=finished` ⇒ all results present. Guaranteed complete, no early stop."
+    },
+    {
+      "version": "1.8.4",
+      "date": "2026-08-11",
+      "bump": "PATCH",
+      "summary": "Runs: reconcile with the persisted record on finish. PATCH.",
+      "body": "Runs: reconcile with the persisted record on finish. PATCH.\n\n- On `run-finished`/`run-aborted`, `screens/Runs.tsx` re-loads the run's persisted results\n  (authoritative + complete), closing the small gap where frames that arrive before the UI knows\n  the new run's id would be filtered out. Live streaming still drives the board in real time; this\n  guarantees the final table is 100% complete."
+    },
+    {
+      "version": "1.8.3",
+      "date": "2026-08-11",
+      "bump": "MINOR",
+      "summary": "Fix: Runs live view dropped test-results under load. MINOR (hook API additive).",
+      "body": "Fix: Runs live view dropped test-results under load. MINOR (hook API additive).\n\n- `useStream` gained an `onMessage(msg)` option that fires **synchronously for every frame**.\n  The previous `last`-only API is lossy for accumulation: React batches state updates, so a burst\n  of test-results (a whole run fires in milliseconds) collapsed into a few `[last]` effect runs and\n  the live Runs board showed only a handful of the results — dials/table stayed mostly empty. The\n  persisted record was always complete; only the live view lost frames.\n- `screens/Runs.tsx` now accumulates results via `onMessage`, so the live table shows every\n  measurement as it streams. `last`-based \"latest value\" consumers are unchanged."
+    },
+    {
+      "version": "1.8.2",
+      "date": "2026-08-11",
+      "bump": "PATCH",
+      "summary": "Fix: Python controller test-result payload now matches the MQTT contract. PATCH.",
+      "body": "Fix: Python controller test-result payload now matches the MQTT contract. PATCH.\n\n- `controller.results.measurement_dict` emitted `value` + a step-id-prefixed `test_name` and no\n  `measured`/`expected`, so the app UI + report (which read the documented `test_name`/`measured`/\n  `expected` contract, MQTT_MESSAGES.md) showed **empty values everywhere** — dials, tables, and\n  reports — even on a passing run. Now emits clean `test_name`, `measured`, `expected`, `result`\n  (identical to the LabVIEW controller), keeping `qualified_name` (step_id.name) for report\n  addressing and the raw `value`/`limits` for in-process consumers."
+    },
+    {
+      "version": "1.8.1",
+      "date": "2026-08-11",
+      "bump": "PATCH",
+      "summary": "spec-lint: uniform signal rule. PATCH.",
+      "body": "spec-lint: uniform signal rule. PATCH.\n\n- A test's Signals/actions are now checked the same way regardless of kind: every `set_output`\n  and `measure_and_compare` signal the test's steps touch (reads must exist in the variable map),\n  plus an authored step's `required_signals`/`required_actions` + its `action` param. Input-param\n  ↔ schema stays authored-only (core steps use the fixed core schema)."
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-08-11",
+      "bump": "MINOR",
+      "summary": "Literate test authoring — a spec `.md` per test + a drift gate (issue #5). MINOR.",
+      "body": "Literate test authoring — a spec `.md` per test + a drift gate (issue #5). MINOR.\n\n- **`controller/controller/speclint.py`**: parses an authoritative per-test procedure spec\n  (`app/<name>/specs/<test>.md` — front-matter + Input/Output/Signals tables) and checks it\n  against the code that runs: input params ↔ the step type's `schema.json`, output measurements ↔\n  what the step emits in a sim run, signals/actions ↔ `required_*`/the variable map. Reports\n  drift (errors) so an edited `.md` can't silently diverge from the handler. The spec is the\n  source of truth; the checker never rewrites either side.\n- Spec template `docs/templates/test-spec.md`; `docs/TEST_SPECS.md` (format + round-trip loop);\n  `specs/` added to the app-owned payload (TEMPLATE.md §1.1).\n- The `test-step-authoring` / `add-bench-test` / `new-test-app` skills now emit and maintain\n  these specs and run spec-lint as a gate."
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-08-10",
+      "bump": "MINOR",
+      "summary": "Serial-scan runs, branding logos, grouped nav (issue #6/#7 framework items). MINOR.",
+      "body": "Serial-scan runs, branding logos, grouped nav (issue #6/#7 framework items). MINOR.\n\n- **`fixed` barcode acquisition** (#6.2 follow-on / run-by-serial): a single-product bench\n  scans a DUT **serial** — `runs.acquisition.barcode.strategy = \"fixed\"` + `recipe_id` always\n  runs that recipe. Previously only `prefix` existed, so a scanned serial resolved to a bogus\n  3-char recipe id and the run aborted at start.\n- **Branding logos** (#7): `/branding` carries `logo_client` + `logo_exeliq` (data: URLs\n  uploaded on Config → App identity, with preview). The header shows the **client logo\n  top-left** and the **Exeliq logo top-right**.\n- **Grouped navigation**: the drawer folds into Operations / Health / Config / Administration\n  dropdowns (was a long flat list) to save space; Dashboard + Runs stay top-level."
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-08-10",
+      "bump": "MINOR",
+      "summary": "Operator-window hardening (issue #6, framework items). MINOR.",
+      "body": "Operator-window hardening (issue #6, framework items). MINOR.\n\n- **Maintenance mode works on a Python-controller app** (#6.2): the controller now serves\n  `maintenance.enter`/`maintenance.exit` and publishes the retained `state/maintenance` the\n  health module reads — previously only LabVIEW did, so entering maintenance timed out.\n- **Full-screen toggle** in the AppBar (#6.4).\n- **Navigation lock during a run** (#6.5): while a run is active the shell blocks the Back\n  button + tab-close, the brand link goes inert, and every AppBar action but the test screen\n  is hidden (\"TEST IN PROGRESS\") — only Abort is reachable. New `RunActivity` context.\n- **Runs banner** (#6.6/#6.7): the Run ID is gone and an **Inspector** field shows the\n  logged-in user.\n- Exit backdrop resolves to \"Station stopped — you can close this window\" once the backend is\n  really down, instead of an endless \"shutting down…\" spinner (#6.8)."
+    },
+    {
+      "version": "1.5.1",
+      "date": "2026-08-09",
+      "bump": "PATCH",
+      "summary": "Simulation is per-instrument only. PATCH — fixes an Instruments-page `simulated: false` being overridden by the app-level flag.",
+      "body": "Simulation is per-instrument only. PATCH — fixes an Instruments-page `simulated: false`\nbeing overridden by the app-level flag.\n\n- The generated controller config always sets global `simulation: false`; each instrument\n  runs simulated or real by its own Instruments-page **Simulated** toggle (the controller's\n  force-all flag stays a standalone/dev knob for hand-written configs).\n- `app.json` `controller.simulation` is **deprecated and ignored** (diag warning; dropped on\n  the next Settings save). Settings → Station configuration loses its Mode select;\n  `/system/station-config` no longer carries `simulation`.\n- Docs: PYTHON_CONTROLLER.md, help `user/settings.md` + `user/instruments.md`, app schema."
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-08-09",
+      "bump": "MINOR",
+      "summary": "Instruments page = the single source of instrument instances. MINOR.",
+      "body": "Instruments page = the single source of instrument instances. MINOR.\n\n- The whole application — variable engine AND the supervised Python controller — now takes\n  its instrument instances ONLY from Config → Instruments (`instrument` records, owner=python,\n  enabled). An app with none configured starts the controller with **no instruments, even in\n  simulation**.\n- A `controller.json` `instruments` list is **ignored** under app supervision (diag warning\n  with declared/configured counts). Standalone `python -m controller <cfg>` still honors it.\n- Docs: PYTHON_CONTROLLER.md, TEMPLATE.md §1.1, help `user/instruments.md`."
+    },
+    {
+      "version": "1.4.1",
+      "date": "2026-08-09",
+      "bump": "PATCH",
+      "summary": "Fork instrument-library linkage. PATCH — restores the Instruments-config linkage in forks.",
+      "body": "Fork instrument-library linkage. PATCH — restores the Instruments-config linkage in forks.\n\n- The variables module **auto-discovers the repo-root `instrument_libs/`** (the drivers a fork\n  copied from the central Instrument_Library, TEMPLATE.md §1.2) — no `app.json`\n  `variables.library_paths` wiring needed. The Instruments page's Library dropdown now shows a\n  fork's copied drivers automatically.\n- `/branding` gains `controller` (kind). On a Python-controller app the Instruments page hides\n  the LabVIEW-owned transport path and defaults new instruments to Python-owned."
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-08-09",
+      "bump": "MINOR",
+      "summary": "Per-app screen overrides. MINOR — additive; no contract breaks.",
+      "body": "Per-app screen overrides. MINOR — additive; no contract breaks.\n\n### Frontend screen-override registry\n- New `frontend/src/app/overrides/` (app-owned) + `frontend/src/app/registry.ts`: a fork can\n  replace the operator-facing screens — **Runs, Recipes, recipe editor/detail, Maintenance** —\n  with app-specific React, **without editing framework `screens/*`**, so `git merge\n  upstream/<version>` stays clean. An override file `default`-exports `{ key, component }`; an\n  eager `import.meta.glob` registers it; `App.tsx` renders `APP_SCREENS[key] ?? <default>`.\n- The framework ships `overrides/` empty → all screens use their defaults. Route permission\n  wrappers (`RequirePermission`/`RequireRole`) stay in the framework — an override replaces only\n  the inner screen. `tsconfig` now includes `vite/client` types (for `import.meta.glob`).\n- Docs: `docs/TEMPLATE.md` §1.3 + `overrides/README.md`."
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-08-09",
+      "bump": "MINOR",
+      "summary": "Standalone Python controller, multi-station, station management, and the recipe/controller step-type unification. MINOR — additive; no contract breaks. (Folds in the interim tags v1.2.0 = station config + controller selection + safe exit + `safety_tester`; v1.2.1 = `controller.config_file`.)",
+      "body": "Standalone Python controller, multi-station, station management, and the recipe/controller\nstep-type unification. MINOR — additive; no contract breaks. (Folds in the interim tags\nv1.2.0 = station config + controller selection + safe exit + `safety_tester`; v1.2.1 =\n`controller.config_file`.)\n\n### Python controller (C7–C10)\n- Standalone `controller/` — a peer implementation of the MQTT controller contract; the app\n  can't tell it from LabVIEW. Safety (monitors-as-data, independent reflex loop,\n  emergency_disable fan-out, teardown-skipped trip), simulation + `dry_run`, non-scalar\n  actions (`ctx.invoke` + capability verify at load), app step-type packages + a CI gate.\n\n### Multi-station & station management\n- Settings → Station configuration: test-socket count (`st1..stN`, license-capped) +\n  controller selection (`labview | python`); `/system/station-config`.\n- The backend supervises the Python controller when `controller.kind = python`, using the\n  app's `controller.config_file` (instruments / variable maps / step packages); graceful\n  stop drives instruments to safe state. Safe **Exit** button (`/system/shutdown`) +\n  `/system/relaunch`; `dev.ps1` runs under the launcher.\n- `instrumentlib`: new `ISafetyTester` capability (hipot IR / AC-withstand).\n\n### Recipe ↔ controller unification\n- Canonical step-type catalog (`registry.catalog()`, JSON schemas for the 8 core types).\n- Recipe module authors/validates/stores/lists/fetches **controller-native** recipes\n  (`id`/`type`, nested groups) against the catalog (core + the app's `step_type_packages`);\n  `/step-types` serves only that catalog (legacy 16-type authoring retired). Schema-driven\n  recipe editor, same two-pane UI.\n- Fixed a runs-module lost-update race (per-run lock) so every test-result persists.\n\n### Framework template\n- `TEMPLATE.md`: ratified the `app/<name>/` payload convention + self-contained driver copy\n  (`instrument_libs/`). Global skills: `new-test-app` (fork the framework), `add-bench-test`\n  (add a test in dependency order)."
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-07-14",
+      "bump": "MINOR",
+      "summary": "Secure distribution + instrument features. MINOR — additive; no contract breaks.",
+      "body": "Secure distribution + instrument features. MINOR — additive; no contract breaks.\n\n### Secure distribution (Keystation)\n- Licensing provider (`stub | keystation`) behind the existing License contract; the\n  activation gate is unchanged. Fail-closed on missing SDK/DLL, unactivated, expired,\n  tripwire. Three touch-points (startup, run-session, module gate).\n- Activation surface: `/license/status|request|activate` + Settings → License\n  (air-gapped `.ksreq → .kslease`). Product identity is config-driven\n  (`licensing.product`) — framework vs per-customer app tier.\n- Obfuscated release build (`build_release.py`, Nuitka) + `ci.yml` / `release.yml`.\n- Signed code updates: ingest/resolve/apply `.ksupdate` (`/update/*`), **launcher**\n  (`launcher.py`) that swaps the artifact on relaunch, \"Relaunch to update\" chip,\n  GitHub-Release pull (`/update/check`). App-track signing (`tools/ks_release_signer`).\n- Docs: `SECURE_DISTRIBUTION.md`, `RELEASE_HOWTO.md`.\n\n### Instruments\n- Instrument Test Bench — capability-driven manual control (super_admin), sourced\n  from Config → Instruments; renders one group per capability.\n- Composite multi-capability instruments (one library, several interface mix-ins,\n  one connection); `resistance` + `frequency` capabilities; channel-arg variable\n  binding. Libraries: Tenma 72-13360, Keithley DAQ6510 (both hardware-verified)."
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-07-04",
+      "bump": null,
+      "summary": "First versioned release — the framework template baseline applications start from.",
+      "body": "First versioned release — the framework template baseline applications start from.\n\n### Platform\n- Core: module framework (register/variant, manifest, config schema), activation gate\n  (config ∩ license, skip-and-continue), CoreServices DI + ports (auth, interlock),\n  append-first Repository (RAG envelope, SQLite), diagnostics bus (+ MQTT mirror),\n  MQTT bridge (request/reply, retained values, status + LWT), web shell\n  (/healthz, /readyz), permissions (resolve-at-login, wildcard), config drift +\n  config_doctor.\n- Standard modules: daq, runs (test bench profile), auth (users/roles/sessions +\n  editable permission matrix), logs, recipe (versioned authoring, zip bundles,\n  step types), report (+ analytics), mes (interlock), health (operator-first checks,\n  trends, schedules, known-issues), config (instruments/transports), variables\n  (variable engine over instrumentlib), help (in-app user + dev docs).\n- Frontend: React/TS/MUI instrument-console UI — test bench, recipes, reports,\n  analytics, health/maintenance, config, users/permissions, settings, help.\n- LabVIEW: MQTT Bridge + Sequence Engine sources; diag-emit VI library spec\n  (LABVIEW_DIAG_EMIT.md).\n- Sidecars & ecosystem: Debug Server (bus timeline, req/reply pairing, ring capture);\n  `tmf-instrumentlib` 1.0.0 (instrument base + capability interfaces + conformance\n  suite) consumed by the external Instrument_Library repo.\n\n### Contracts\nPRINCIPLES, CORE, LABVIEW_BRIDGE, LOGGING/diag-emit, DATA_TRANSFER (via bridge),\nSTEP_TYPES, RECIPE, HEALTH_CHECK, MES, CONFIG, INSTRUMENT_LIBRARY, DEBUG_SERVER."
+    }
+  ],
+  "modules": [
+    {
+      "id": "auth",
+      "display_name": "User Authentication",
+      "description": "Permission-first authentication + authorization. Fills the core.auth port.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "auth",
+      "variants": [
+        "local_db"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "config",
+        "diagnostics",
+        "auth",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "AUTH.MANAGE_ROLES",
+        "AUTH.MANAGE_USERS"
+      ],
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/auth/change-password"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/login"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/logout"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/me"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/permissions"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/roles"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/roles/matrix"
+        },
+        {
+          "method": "PUT",
+          "path": "/auth/roles/{role}"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/users"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/users"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/users/{name}"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/users/{name}/activate"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/users/{name}/deactivate"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/users/{name}/lock"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/users/{name}/reset-password"
+        },
+        {
+          "method": "PUT",
+          "path": "/auth/users/{name}/role"
+        },
+        {
+          "method": "POST",
+          "path": "/auth/users/{name}/unlock"
+        }
+      ]
+    },
+    {
+      "id": "config",
+      "display_name": "Configuration",
+      "description": "Station configuration centre (cascaded Config menu). Instrument connection profiles with a transport-driven UI + LabVIEW connection test, shift schedule, and barcode structure/recipe-id extraction.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "config",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "diagnostics",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "CONFIG.EDIT",
+        "CONFIG.VIEW"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/config/barcode"
+        },
+        {
+          "method": "PUT",
+          "path": "/config/barcode"
+        },
+        {
+          "method": "GET",
+          "path": "/config/instruments"
+        },
+        {
+          "method": "POST",
+          "path": "/config/instruments"
+        },
+        {
+          "method": "POST",
+          "path": "/config/instruments/test"
+        },
+        {
+          "method": "DELETE",
+          "path": "/config/instruments/{iid}"
+        },
+        {
+          "method": "GET",
+          "path": "/config/instruments/{iid}"
+        },
+        {
+          "method": "PUT",
+          "path": "/config/instruments/{iid}"
+        },
+        {
+          "method": "GET",
+          "path": "/config/shift"
+        },
+        {
+          "method": "PUT",
+          "path": "/config/shift"
+        },
+        {
+          "method": "GET",
+          "path": "/config/shift/current"
+        },
+        {
+          "method": "GET",
+          "path": "/config/transports"
+        }
+      ]
+    },
+    {
+      "id": "health",
+      "display_name": "System Health & Diagnostics",
+      "description": "On-demand health checks across web, bridge, and hardware; append-only health-run records; reachability-honest verdicts.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "health",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "bridge",
+        "config",
+        "auth",
+        "diagnostics",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "HEALTH.MAINTENANCE",
+        "HEALTH.RUN",
+        "HEALTH.VIEW"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/health/checks"
+        },
+        {
+          "method": "POST",
+          "path": "/health/checks/{check_id}/run"
+        },
+        {
+          "method": "GET",
+          "path": "/health/current"
+        },
+        {
+          "method": "GET",
+          "path": "/health/known-issues"
+        },
+        {
+          "method": "GET",
+          "path": "/health/known-issues/{issue_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/health/maintenance"
+        },
+        {
+          "method": "POST",
+          "path": "/health/maintenance/enter"
+        },
+        {
+          "method": "POST",
+          "path": "/health/maintenance/exit"
+        },
+        {
+          "method": "POST",
+          "path": "/health/run"
+        },
+        {
+          "method": "POST",
+          "path": "/health/run/{hid}/abort"
+        },
+        {
+          "method": "GET",
+          "path": "/health/runs"
+        },
+        {
+          "method": "GET",
+          "path": "/health/runs/{hid}"
+        },
+        {
+          "method": "GET",
+          "path": "/health/schedule"
+        },
+        {
+          "method": "PUT",
+          "path": "/health/schedule"
+        },
+        {
+          "method": "GET",
+          "path": "/health/suggestions"
+        },
+        {
+          "method": "POST",
+          "path": "/health/suggestions/{sid}/ack"
+        },
+        {
+          "method": "GET",
+          "path": "/health/suites"
+        },
+        {
+          "method": "GET",
+          "path": "/health/trends"
+        }
+      ]
+    },
+    {
+      "id": "help",
+      "display_name": "Help & Docs",
+      "description": "In-app documentation: user docs for all users + developer docs for super_admin, rendered from the repo docs/ tree. Source corpus for the planned AI help chatbot.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "help",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "diagnostics",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "HELP.VIEW"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/help/asset/{asset_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/help/assets"
+        },
+        {
+          "method": "GET",
+          "path": "/help/facts"
+        },
+        {
+          "method": "GET",
+          "path": "/help/for-route"
+        },
+        {
+          "method": "GET",
+          "path": "/help/index"
+        },
+        {
+          "method": "GET",
+          "path": "/help/page/{page_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/help/search"
+        }
+      ]
+    },
+    {
+      "id": "logs",
+      "display_name": "Action & Error Logs",
+      "description": "Durable, queryable record of operator actions and system errors. Persistence and history side of the diagnostics bus.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "logs",
+      "variants": [
+        "db"
+      ],
+      "api_prefix": "/logs",
+      "core_dependencies": [
+        "db",
+        "bridge",
+        "config",
+        "auth",
+        "diag",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "DIAGNOSTICS.PURGE",
+        "DIAGNOSTICS.VIEW"
+      ],
+      "routes": [
+        {
+          "method": "DELETE",
+          "path": "/actions"
+        },
+        {
+          "method": "GET",
+          "path": "/actions"
+        },
+        {
+          "method": "DELETE",
+          "path": "/errors"
+        },
+        {
+          "method": "GET",
+          "path": "/errors"
+        },
+        {
+          "method": "GET",
+          "path": "/stats"
+        }
+      ]
+    },
+    {
+      "id": "mes",
+      "display_name": "MES Interlock",
+      "description": "Cross-station interlock: gate a run on the previous stage's result and publish this stage's result for the next. Pluggable transport (folder/db/xml).",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "mes",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "diagnostics",
+        "config",
+        "web",
+        "interlock"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "SYSTEM.SETTINGS"
+      ],
+      "routes": [
+        {
+          "method": "PUT",
+          "path": "/mes/config"
+        },
+        {
+          "method": "GET",
+          "path": "/mes/status"
+        }
+      ]
+    },
+    {
+      "id": "recipe",
+      "display_name": "Test Recipe",
+      "description": "Authoring, validation, versioning, and the run-start wire shape for test recipes. One shape, pluggable step types.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "recipe",
+      "variants": [
+        "filesystem"
+      ],
+      "api_prefix": "/recipes",
+      "core_dependencies": [
+        "db",
+        "bridge",
+        "config",
+        "auth",
+        "diag",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "RECIPE.EDIT",
+        "RECIPE.VIEW"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/by-barcode/{barcode}"
+        },
+        {
+          "method": "GET",
+          "path": "/export-all"
+        },
+        {
+          "method": "POST",
+          "path": "/import"
+        },
+        {
+          "method": "GET",
+          "path": "/step-types"
+        },
+        {
+          "method": "GET",
+          "path": "/step-types/{type_id}/schema"
+        },
+        {
+          "method": "POST",
+          "path": "/validate"
+        },
+        {
+          "method": "GET",
+          "path": "/{recipe_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/{recipe_id}/deprecate"
+        },
+        {
+          "method": "GET",
+          "path": "/{recipe_id}/diff"
+        },
+        {
+          "method": "POST",
+          "path": "/{recipe_id}/drafts"
+        },
+        {
+          "method": "PUT",
+          "path": "/{recipe_id}/drafts/{draft_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/{recipe_id}/drafts/{draft_id}/publish"
+        },
+        {
+          "method": "GET",
+          "path": "/{recipe_id}/export"
+        },
+        {
+          "method": "GET",
+          "path": "/{recipe_id}/versions"
+        },
+        {
+          "method": "GET",
+          "path": "/{recipe_id}/versions/{n}"
+        },
+        {
+          "method": "POST",
+          "path": "/{recipe_id}/versions/{n}/archive"
+        },
+        {
+          "method": "POST",
+          "path": "/{recipe_id}/versions/{n}/validate"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "display_name": "Report & Analytics",
+      "description": "Assembles run reports and routes them to configurable sinks (SQLite system-of-record + folder/MySQL mirrors); analytics over run results.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "report",
+      "variants": [
+        "standard"
+      ],
+      "api_prefix": "/reports",
+      "core_dependencies": [
+        "db",
+        "bridge",
+        "config",
+        "auth",
+        "diagnostics",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "REPORT.EXPORT",
+        "REPORT.VIEW",
+        "SYSTEM.SETTINGS"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/analytics"
+        },
+        {
+          "method": "GET",
+          "path": "/analytics/dashboard"
+        },
+        {
+          "method": "GET",
+          "path": "/db-config"
+        },
+        {
+          "method": "PUT",
+          "path": "/db-config"
+        },
+        {
+          "method": "POST",
+          "path": "/db-config/test"
+        },
+        {
+          "method": "GET",
+          "path": "/full"
+        },
+        {
+          "method": "GET",
+          "path": "/full/export"
+        },
+        {
+          "method": "GET",
+          "path": "/models"
+        },
+        {
+          "method": "GET",
+          "path": "/{run_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/{run_id}/export"
+        }
+      ]
+    },
+    {
+      "id": "runs",
+      "display_name": "Runs",
+      "description": "Controller run control proxy and run-record persistence from event/run-* (CORE.md §7).",
+      "version": "1.0.0",
+      "contract_version": 2,
+      "entitlement_key": "runs",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "bridge",
+        "db",
+        "diagnostics",
+        "web",
+        "interlock",
+        "licensing"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "SYSTEM.RESET_DATA"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/runs"
+        },
+        {
+          "method": "POST",
+          "path": "/runs/abort"
+        },
+        {
+          "method": "GET",
+          "path": "/runs/config"
+        },
+        {
+          "method": "POST",
+          "path": "/runs/reset-data"
+        },
+        {
+          "method": "POST",
+          "path": "/runs/start"
+        },
+        {
+          "method": "GET",
+          "path": "/runs/{run_id}"
+        }
+      ]
+    },
+    {
+      "id": "variables",
+      "display_name": "Variable Engine",
+      "description": "Names scalar instrument signals (INSTRUMENT_LIBRARY.md §5.3): recipes/sequencer reference variable names, never hardware. Builds Python-owned instrument instances from config via the instrumentlib registry; serves variable.read/write/read_many/write_many over the bridge + a REST surface.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "variables",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "bridge",
+        "diagnostics",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "CONFIG.VIEW",
+        "HEALTH.MAINTENANCE"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/variables"
+        },
+        {
+          "method": "GET",
+          "path": "/variables/bindable/{instance_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/variables/bindings"
+        },
+        {
+          "method": "POST",
+          "path": "/variables/bindings"
+        },
+        {
+          "method": "DELETE",
+          "path": "/variables/bindings/{name}"
+        },
+        {
+          "method": "PUT",
+          "path": "/variables/bindings/{name}"
+        },
+        {
+          "method": "GET",
+          "path": "/variables/capabilities"
+        },
+        {
+          "method": "GET",
+          "path": "/variables/instances"
+        },
+        {
+          "method": "POST",
+          "path": "/variables/instances/{instance_id}/call"
+        },
+        {
+          "method": "GET",
+          "path": "/variables/libraries"
+        },
+        {
+          "method": "POST",
+          "path": "/variables/read"
+        },
+        {
+          "method": "POST",
+          "path": "/variables/write"
+        },
+        {
+          "method": "GET",
+          "path": "/variables/{name}/value"
+        },
+        {
+          "method": "PUT",
+          "path": "/variables/{name}/value"
+        }
+      ]
+    }
+  ],
+  "core": {
+    "routes": [
+      {
+        "method": "GET",
+        "path": "/branding"
+      },
+      {
+        "method": "PUT",
+        "path": "/branding"
+      },
+      {
+        "method": "GET",
+        "path": "/diag/level"
+      },
+      {
+        "method": "PUT",
+        "path": "/diag/level"
+      },
+      {
+        "method": "GET",
+        "path": "/healthz"
+      },
+      {
+        "method": "POST",
+        "path": "/license/activate"
+      },
+      {
+        "method": "POST",
+        "path": "/license/request"
+      },
+      {
+        "method": "GET",
+        "path": "/license/status"
+      },
+      {
+        "method": "GET",
+        "path": "/modules/status"
+      },
+      {
+        "method": "GET",
+        "path": "/readyz"
+      },
+      {
+        "method": "GET",
+        "path": "/system/debug-config"
+      },
+      {
+        "method": "PUT",
+        "path": "/system/debug-config"
+      },
+      {
+        "method": "POST",
+        "path": "/system/relaunch"
+      },
+      {
+        "method": "POST",
+        "path": "/system/shutdown"
+      },
+      {
+        "method": "GET",
+        "path": "/system/station-config"
+      },
+      {
+        "method": "PUT",
+        "path": "/system/station-config"
+      },
+      {
+        "method": "POST",
+        "path": "/update/apply/{release_id}"
+      },
+      {
+        "method": "POST",
+        "path": "/update/check"
+      },
+      {
+        "method": "POST",
+        "path": "/update/download"
+      },
+      {
+        "method": "POST",
+        "path": "/update/ingest"
+      },
+      {
+        "method": "POST",
+        "path": "/update/install-file"
+      },
+      {
+        "method": "GET",
+        "path": "/update/offers"
+      },
+      {
+        "method": "POST",
+        "path": "/update/relaunch/{release_id}"
+      },
+      {
+        "method": "POST",
+        "path": "/update/rollback"
+      },
+      {
+        "method": "GET",
+        "path": "/update/status"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "key": "AUTH.MANAGE_USERS",
+      "domain": "Auth",
+      "label": "Manage users",
+      "description": "Create/edit users, roles, lock, reset passwords."
+    },
+    {
+      "key": "AUTH.MANAGE_ROLES",
+      "domain": "Auth",
+      "label": "Manage permissions",
+      "description": "Edit the role → permission matrix (super_admin)."
+    },
+    {
+      "key": "TEST.RUN",
+      "domain": "Testing",
+      "label": "Run tests",
+      "description": "Start/abort runs from the test bench."
+    },
+    {
+      "key": "RECIPE.VIEW",
+      "domain": "Recipe",
+      "label": "View recipes",
+      "description": "Browse recipes + versions."
+    },
+    {
+      "key": "RECIPE.EDIT",
+      "domain": "Recipe",
+      "label": "Edit recipes",
+      "description": "Create/edit/duplicate/deprecate recipes."
+    },
+    {
+      "key": "REPORT.VIEW",
+      "domain": "Report",
+      "label": "View reports",
+      "description": "Open run reports + analytics."
+    },
+    {
+      "key": "REPORT.EXPORT",
+      "domain": "Report",
+      "label": "Export reports",
+      "description": "Export report data."
+    },
+    {
+      "key": "HEALTH.VIEW",
+      "domain": "Health",
+      "label": "View health",
+      "description": "Read checks, runs, trends, known issues."
+    },
+    {
+      "key": "HEALTH.RUN",
+      "domain": "Health",
+      "label": "Run health checks",
+      "description": "Run non-disruptive checks + schedule."
+    },
+    {
+      "key": "HEALTH.MAINTENANCE",
+      "domain": "Health",
+      "label": "Maintenance mode",
+      "description": "Disruptive checks + enter/exit maintenance."
+    },
+    {
+      "key": "MAINTENANCE.CALIBRATE",
+      "domain": "Maintenance",
+      "label": "Calibrate",
+      "description": "Calibration actions."
+    },
+    {
+      "key": "CONFIG.VIEW",
+      "domain": "Config",
+      "label": "View config",
+      "description": "Read instruments/transports, test connection."
+    },
+    {
+      "key": "CONFIG.EDIT",
+      "domain": "Config",
+      "label": "Edit config",
+      "description": "Create/update/delete instruments + config."
+    },
+    {
+      "key": "DIAGNOSTICS.VIEW",
+      "domain": "Diagnostics",
+      "label": "View diagnostics",
+      "description": "Live event tail + logs + readiness."
+    },
+    {
+      "key": "DIAGNOSTICS.PURGE",
+      "domain": "Diagnostics",
+      "label": "Purge logs",
+      "description": "Delete action/error log records older than a cutoff (Logs page)."
+    },
+    {
+      "key": "HELP.VIEW",
+      "domain": "Help",
+      "label": "View user docs",
+      "description": "Open the in-app user documentation."
+    },
+    {
+      "key": "HELP.DEV",
+      "domain": "Help",
+      "label": "View developer docs",
+      "description": "Open the developer documentation (super_admin)."
+    },
+    {
+      "key": "SYSTEM.RESET_DATA",
+      "domain": "System",
+      "label": "Reset data",
+      "description": "Purge runs/reports/logs/recipes/users (super_admin)."
+    },
+    {
+      "key": "SYSTEM.SETTINGS",
+      "domain": "System",
+      "label": "Station settings",
+      "description": "MES + station settings (super_admin)."
+    }
+  ],
+  "roles": {
+    "admin": [
+      "AUTH.MANAGE_USERS",
+      "TEST.RUN",
+      "RECIPE.VIEW",
+      "RECIPE.EDIT",
+      "REPORT.VIEW",
+      "REPORT.EXPORT",
+      "DIAGNOSTICS.VIEW",
+      "HEALTH.VIEW",
+      "HEALTH.RUN",
+      "HEALTH.MAINTENANCE",
+      "CONFIG.VIEW",
+      "CONFIG.EDIT",
+      "HELP.VIEW"
+    ],
+    "engineer": [
+      "TEST.RUN",
+      "RECIPE.VIEW",
+      "RECIPE.EDIT",
+      "REPORT.VIEW",
+      "REPORT.EXPORT",
+      "DIAGNOSTICS.VIEW",
+      "HEALTH.VIEW",
+      "HEALTH.RUN",
+      "CONFIG.VIEW",
+      "CONFIG.EDIT",
+      "HELP.VIEW"
+    ],
+    "maintenance": [
+      "MAINTENANCE.CALIBRATE",
+      "DIAGNOSTICS.VIEW",
+      "HEALTH.VIEW",
+      "HEALTH.RUN",
+      "HEALTH.MAINTENANCE",
+      "CONFIG.VIEW",
+      "CONFIG.EDIT",
+      "HELP.VIEW"
+    ],
+    "operator": [
+      "TEST.RUN",
+      "RECIPE.VIEW",
+      "REPORT.VIEW",
+      "REPORT.EXPORT",
+      "HEALTH.VIEW",
+      "CONFIG.VIEW",
+      "HELP.VIEW"
+    ],
+    "super_admin": [
+      "AUTH.*",
+      "TEST.*",
+      "RECIPE.*",
+      "REPORT.*",
+      "MAINTENANCE.*",
+      "SYSTEM.*",
+      "ADMIN.*",
+      "DIAGNOSTICS.*",
+      "HEALTH.*",
+      "CONFIG.*",
+      "HELP.*"
+    ]
+  },
+  "step_types": [
+    {
+      "type_id": "group",
+      "display_name": "Group",
+      "composite": true,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Group",
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "title": "Inner steps"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "if",
+      "display_name": "If",
+      "composite": true,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "If",
+        "type": "object",
+        "required": [
+          "condition",
+          "steps"
+        ],
+        "properties": {
+          "condition": {
+            "type": "object",
+            "title": "Condition",
+            "properties": {
+              "signal": {
+                "type": "string"
+              },
+              "equals": {},
+              "below": {
+                "type": "number"
+              },
+              "above": {
+                "type": "number"
+              }
+            }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "title": "Inner steps"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "measure_and_compare",
+      "display_name": "Measure & compare",
+      "composite": false,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Measure & compare",
+        "type": "object",
+        "required": [
+          "signal"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "signal": {
+            "type": "string",
+            "title": "Signal to read"
+          },
+          "name": {
+            "type": "string",
+            "title": "Measurement name"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "min": {
+            "type": "number",
+            "title": "Min limit"
+          },
+          "max": {
+            "type": "number",
+            "title": "Max limit"
+          },
+          "expected": {
+            "title": "Expected (exact match)"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "prompt_operator",
+      "display_name": "Prompt operator",
+      "composite": false,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Prompt operator",
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Prompt message"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "repeat",
+      "display_name": "Repeat",
+      "composite": true,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Repeat",
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "title": "Repeat count"
+          },
+          "until": {
+            "type": "object",
+            "title": "Stop condition (optional)",
+            "properties": {
+              "signal": {
+                "type": "string"
+              },
+              "equals": {},
+              "below": {
+                "type": "number"
+              },
+              "above": {
+                "type": "number"
+              }
+            }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "title": "Inner steps"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "set_output",
+      "display_name": "Set output",
+      "composite": false,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Set output",
+        "type": "object",
+        "required": [
+          "signal",
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "signal": {
+            "type": "string",
+            "title": "Signal"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "sweep",
+      "display_name": "Sweep",
+      "composite": true,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Sweep",
+        "type": "object",
+        "required": [
+          "signal",
+          "values",
+          "steps"
+        ],
+        "properties": {
+          "signal": {
+            "type": "string",
+            "title": "Signal to write each value to"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 1,
+            "title": "Values"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "title": "Inner steps"
+          }
+        }
+      }
+    },
+    {
+      "type_id": "wait",
+      "display_name": "Wait",
+      "composite": false,
+      "kind": "primitive",
+      "required_signals": [],
+      "required_actions": [],
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Wait",
+        "type": "object",
+        "required": [
+          "seconds"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "title": "Seconds",
+            "description": "Deadline- and abort-aware pause."
+          }
+        }
+      }
+    }
+  ],
+  "capabilities": [
+    {
+      "class": "DSO",
+      "interface": "dso",
+      "interface_version": 1,
+      "scalar": false,
+      "methods": [
+        "configure",
+        "capture"
+      ]
+    },
+    {
+      "class": "IAnalogInput",
+      "interface": "analog_input",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "read_voltage"
+      ]
+    },
+    {
+      "class": "IDigitalInput",
+      "interface": "digital_input",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "read_digital"
+      ]
+    },
+    {
+      "class": "IDigitalOutput",
+      "interface": "digital_output",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "write_digital",
+        "read_digital_setpoint"
+      ]
+    },
+    {
+      "class": "IElectronicLoad",
+      "interface": "electronic_load",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "set_mode",
+        "set_setpoint",
+        "load_enable",
+        "measure_voltage",
+        "measure_current",
+        "measure_power"
+      ]
+    },
+    {
+      "class": "IFrequency",
+      "interface": "frequency",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "measure_frequency"
+      ]
+    },
+    {
+      "class": "IPowerSource",
+      "interface": "power_source",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "set_voltage",
+        "get_voltage_setpoint",
+        "measure_voltage",
+        "measure_current",
+        "set_current_limit",
+        "output_enable"
+      ]
+    },
+    {
+      "class": "IResistance",
+      "interface": "resistance",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "measure_resistance"
+      ]
+    },
+    {
+      "class": "ISafetyTester",
+      "interface": "safety_tester",
+      "interface_version": 1,
+      "scalar": false,
+      "methods": [
+        "measure_ir",
+        "measure_acw"
+      ]
+    },
+    {
+      "class": "ITemperature",
+      "interface": "temperature",
+      "interface_version": 1,
+      "scalar": true,
+      "methods": [
+        "measure_temperature"
+      ]
+    },
+    {
+      "class": "Multiplexer",
+      "interface": "multiplexer",
+      "interface_version": 1,
+      "scalar": false,
+      "methods": [
+        "set_route",
+        "open_all",
+        "get_routes"
+      ]
+    }
+  ],
+  "controller_ops": [
+    {
+      "op": "daq.ai.read",
+      "group": "daq",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "daq.ai.stream.start",
+      "group": "daq",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "daq.ai.stream.stop",
+      "group": "daq",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "daq.di.read",
+      "group": "daq",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "daq.di.stream.start",
+      "group": "daq",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "daq.di.stream.stop",
+      "group": "daq",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "hello.echo",
+      "group": "core",
+      "blocking": false,
+      "doc": "Echo args and stamp the controller's wall-clock ts — the app's latency +"
+    },
+    {
+      "op": "instrument.call",
+      "group": "instruments",
+      "blocking": true,
+      "doc": "Backend proxy seam: `{instance_id, method, args}` -> the same"
+    },
+    {
+      "op": "instrument.status",
+      "group": "instruments",
+      "blocking": false,
+      "doc": "Backend proxy seam: live per-instance state, straight off this registry's"
+    },
+    {
+      "op": "instrument.test",
+      "group": "instruments",
+      "blocking": true,
+      "doc": ""
+    },
+    {
+      "op": "maintenance.enter",
+      "group": "maintenance",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "maintenance.exit",
+      "group": "maintenance",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "run.abort",
+      "group": "runs",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "run.start",
+      "group": "runs",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "safety.clear",
+      "group": "safety",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "safety.status",
+      "group": "safety",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "safety.trip",
+      "group": "safety",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "sequencer.list_test_classes",
+      "group": "runs",
+      "blocking": false,
+      "doc": ""
+    },
+    {
+      "op": "variable.read",
+      "group": "instruments",
+      "blocking": true,
+      "doc": ""
+    },
+    {
+      "op": "variable.read_many",
+      "group": "instruments",
+      "blocking": true,
+      "doc": ""
+    },
+    {
+      "op": "variable.write",
+      "group": "instruments",
+      "blocking": true,
+      "doc": ""
+    }
+  ],
+  "frontend_routes": [
+    {
+      "path": "*",
+      "permission": null,
+      "role": null
+    },
+    {
+      "path": "/",
+      "permission": null,
+      "role": null
+    },
+    {
+      "path": "/analytics",
+      "permission": "REPORT.VIEW",
+      "role": null
+    },
+    {
+      "path": "/change-password",
+      "permission": null,
+      "role": null
+    },
+    {
+      "path": "/config/barcode",
+      "permission": "CONFIG.VIEW",
+      "role": null
+    },
+    {
+      "path": "/config/branding",
+      "permission": null,
+      "role": "super_admin"
+    },
+    {
+      "path": "/config/instruments",
+      "permission": "CONFIG.VIEW",
+      "role": null
+    },
+    {
+      "path": "/config/mes",
+      "permission": "CONFIG.VIEW",
+      "role": null
+    },
+    {
+      "path": "/config/shift",
+      "permission": "CONFIG.VIEW",
+      "role": null
+    },
+    {
+      "path": "/config/variables",
+      "permission": null,
+      "role": "super_admin"
+    },
+    {
+      "path": "/diagnostics",
+      "permission": "DIAGNOSTICS.VIEW",
+      "role": null
+    },
+    {
+      "path": "/health",
+      "permission": "HEALTH.VIEW",
+      "role": null
+    },
+    {
+      "path": "/help",
+      "permission": "HELP.VIEW",
+      "role": null
+    },
+    {
+      "path": "/login",
+      "permission": null,
+      "role": null
+    },
+    {
+      "path": "/logs",
+      "permission": "DIAGNOSTICS.VIEW",
+      "role": null
+    },
+    {
+      "path": "/maintenance",
+      "permission": "HEALTH.MAINTENANCE",
+      "role": null
+    },
+    {
+      "path": "/permissions",
+      "permission": "AUTH.MANAGE_ROLES",
+      "role": null
+    },
+    {
+      "path": "/recipes",
+      "permission": "RECIPE.VIEW",
+      "role": null
+    },
+    {
+      "path": "/recipes/:id",
+      "permission": "RECIPE.VIEW",
+      "role": null
+    },
+    {
+      "path": "/recipes/:id/edit",
+      "permission": "RECIPE.EDIT",
+      "role": null
+    },
+    {
+      "path": "/recipes/new",
+      "permission": "RECIPE.EDIT",
+      "role": null
+    },
+    {
+      "path": "/reports",
+      "permission": "REPORT.VIEW",
+      "role": null
+    },
+    {
+      "path": "/runs",
+      "permission": "TEST.RUN",
+      "role": null
+    },
+    {
+      "path": "/settings",
+      "permission": "SYSTEM.RESET_DATA",
+      "role": null
+    },
+    {
+      "path": "/users",
+      "permission": "AUTH.MANAGE_USERS",
+      "role": null
+    }
+  ],
+  "skills": [
+    {
+      "name": "add-bench-test",
+      "description": "Guided workflow to add or build a test (or a whole test sequence) IN AN EXISTING forked test application on the Super_Test_App framework, in the correct dependency order — instrument driver → variable map → step type (params) → recipe → verify. Use when the user wants to add/implement/wire a new test, measurement, or test sequence into an app they already have, extend a bench, \"make the bench test X\", turn a described measurement into a runnable recipe step, or asks \"how do I add a test / what's the order\". It orchestrates the create-instrument-library and test-step-authoring skills and the map/recipe data authoring, enforcing that each layer is the contract for the next. Do NOT use to fork a brand-new app (use new-test-app) — this works inside an app that already exists."
+    },
+    {
+      "name": "clone-test-app",
+      "description": "Start a new test application by cloning an EXISTING forked app (on the Super_Test_App framework) that is similar to what's needed, instead of starting from a bare framework tag. Use when the user wants to \"clone\", \"copy\", \"base on\", \"reuse\", or \"start from\" an existing app/bench for a new customer/product/station — a new bench is similar enough to one already built (same or overlapping instruments, test sequence, or UI) that re-authoring the app payload from scratch would just be re-typing the old one. It re-homes remotes to a FRESH framework fork (never the source app) so the new app keeps a clean upstream-tracking history and never inherits the source app's git history, customer-specific config, or secrets, then overlays and renames the source app's payload (app/<slug>/, instrument_libs/, backend/modules/<slug>_*, frontend overrides) onto it. Do NOT use for a brand-new bench with nothing comparable already built (use new-test-app) or to add one test to an app that already exists (use add-bench-test)."
+    },
+    {
+      "name": "create-instrument-library",
+      "description": "Author a new Python instrument library into the Instrument_Library repo (a local clone at $TMF_INSTRUMENT_LIBRARY) against a capability interface + the vendor manual, then gate it with the framework conformance suite. Use when the user wants to add, create, author, scaffold, generate, or write an instrument library / driver for a specific instrument model — power supply, electronic load, DMM/multimeter, temperature controller, DAQ-adjacent source, multiplexer, or DSO/oscilloscope. Follows INSTRUMENT_LIBRARY.md §2–§5 and §8."
+    },
+    {
+      "name": "new-test-app",
+      "description": "Fork the Super_Test_App test-and-measurement framework into a new, self-contained test application. Use when the user wants to create/scaffold/bootstrap a NEW test bench or test application \"on the framework\", \"from the framework\", fork the framework for a customer/product line, start a new App_<Customer>, or turn a described end-of-line/safety/aging/endurance bench into a running app. This is the intelligent successor to tools/new_app.ps1 — it clones a release tag, wires remotes + app.json, copies the needed instrument drivers from the central Instrument_Library, scaffolds the app payload (variable map, recipe, controller step types), installs deps, and verifies in simulation. Do NOT use to add a single step type (use test-step-authoring) or a single driver (use create-instrument-library) to an EXISTING app."
+    },
+    {
+      "name": "system-blueprint",
+      "description": "Turn a filled \"System Blueprint\" Excel workbook into a test application's canonical I/O artifacts — the controller-side variable map (app/<name>/maps/<station>.json) plus an Instruments setup checklist and a composite-driver spec. Use when a developer has (or wants to start) a spreadsheet describing an application's instruments and input/output signals with their addresses, wants to generate/scaffold an app's variable map from it, or hands over a fuller version of that sheet mid-project to update an app already built from an earlier partial one. It defines the SYSTEM (topology), never the tests. Related to new-test-app but runs on its own timeline — the full sheet often arrives after the app is scaffolded. Do NOT use to author a driver (create-instrument-library), a step type (test-step-authoring), or a whole new app fork (new-test-app)."
+    },
+    {
+      "name": "test-step-authoring",
+      "description": "Author a new test step type for the Python Test Controller — the handler, its parameter schema, a simulated DUT, and the tests that exercise both. Use this skill whenever the user wants to add a test to a test bench, describes a measurement or DUT behaviour they need automated (\"ramp the AC until it trips and check recovery\", \"measure standby current\", \"cycle the relay 500 times and watch for weld\"), asks for a step type, step handler, or test step, or mentions adding a test to an application package such as inverter-eol-steps or motor-tester-steps. Trigger this even when the user only describes the physical test in plain language without naming a step type — turning a described test into a step type is exactly this skill's job. Do NOT use this for authoring recipes, which are data authored by engineers in the UI against the schemas this skill produces."
+    }
+  ]
+}

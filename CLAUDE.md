@@ -77,6 +77,16 @@ Controller  ◄── MQTT only (tmf/{station}/…) ──►  Python backend  �
 
 Six skills ship with the framework: `new-test-app` (fork a new app from a bare framework tag), `clone-test-app` (fork a new app FROM an existing similar forked app instead — re-homes remotes to a fresh framework tag, never the source app, then overlays + renames its app-owned payload), `system-blueprint` (generate an app's variable map + instrument checklist from a filled System Blueprint spreadsheet — `docs/SYSTEM_BLUEPRINT.md`, tooling in `backend/tools/blueprint/`), `test-step-authoring` (author controller step types), `add-bench-test` (add a test to an existing app), `create-instrument-library` (author a driver). They live BOTH as **project skills** in `.claude/skills/` (auto-loaded when you open the repo in the Claude Code interface/agent mode — the usual path; forks inherit them) AND in a **marketplace plugin** `plugins/tmf-tools/` for the terminal `claude` CLI (`/plugin marketplace add kumar-8899/Super_Test_App` → `/plugin install tmf-tools`). Keep the two copies in sync when editing a skill. Skills are env-driven (`$FRAMEWORK_REMOTE`, `$TMF_INSTRUMENT_LIBRARY`) so they run on any machine. Use them instead of hand-rolling; see `docs/DEVELOPER_ONBOARDING.md`.
 
+### Developer Hub (source-only, never in a build)
+
+Help → Developer → **Developer Hub** is the interactive developer guide (`docs/DEVELOPER_HUB.md`). Facts on it are
+**generated**: after changing a module manifest, permission, role default, step type, capability interface,
+controller op, route, skill, or bumping the version/CHANGELOG, run `python tools/gen_devguide.py` and commit
+`docs/generated/` (CI and `backend/tests/test_devguide_facts.py` fail on stale facts). When you hit a real
+mistake worth warning others about, add it to `docs/help/dev/guide/gotchas.md`. Screenshots refresh with
+`cd tools/screenshots && npm run capture`. Developer docs must never be shipped: `build_release.copy_user_docs`
+is an allowlist — keep it that way.
+
 ## Testing conventions
 
 - Backend: pytest with `asyncio_mode = "auto"`; testpaths cover `tests/`, `modules/`, `debug_server/`, `instrumentlib/`. Integration tests that need a live broker skip cleanly when :1883 is down.

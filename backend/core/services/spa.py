@@ -85,5 +85,8 @@ def install_spa(app: FastAPI, dist: Path) -> None:
             # and let the React router take it. API clients (Accept: application/json)
             # and WebSockets fall through to real routes.
             if "text/html" in request.headers.get("accept", ""):
-                return FileResponse(index)
+                # The shell shares URLs with the API (`/recipes` is both). It carries ETag/Last-Modified,
+                # so without these headers a browser may satisfy the SPA's later `fetch('/recipes')` from
+                # the cached HTML ("Unexpected token '<' ... is not valid JSON", e.g. after F5 on /recipes).
+                return FileResponse(index, headers={"Cache-Control": "no-cache", "Vary": "Accept"})
         return await call_next(request)

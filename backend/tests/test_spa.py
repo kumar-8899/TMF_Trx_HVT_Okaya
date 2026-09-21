@@ -89,3 +89,17 @@ def test_resolve_finds_env_bundle(tmp_path, monkeypatch):
     dist = _bundle(tmp_path)
     monkeypatch.setenv("TMF_FRONTEND_DIR", str(dist))
     assert resolve_frontend_dist() == dist.resolve()
+
+
+def test_shell_is_never_reused_for_a_same_url_api_call(tmp_path):
+    """A browser navigation to /runs and the SPA's own `fetch('/runs')` hit the SAME URL. The shell
+    response carries ETag/Last-Modified, so without `Cache-Control: no-cache` + `Vary: Accept` a browser
+    may answer the later API fetch from the cached HTML — the page then dies with "Unexpected token '<'
+    ... is not valid JSON" (seen after an F5 on /recipes, and while capturing documentation screenshots)."""
+    client = _app(_bundle(tmp_path))
+    nav = client.get("/runs", headers=HTML)
+    assert nav.headers["cache-control"] == "no-cache"
+    assert "accept" in nav.headers["vary"].lower()
+    deep = client.get("/recipes/abc/edit", headers=HTML)          # a client-only route gets the same treatment
+    assert deep.headers["cache-control"] == "no-cache"
+    assert "accept" in deep.headers["vary"].lower()

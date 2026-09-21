@@ -1,0 +1,13 @@
+{
+  "name": "tmf-screenshots",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DEV-ONLY screenshot capture pipeline for the in-app manual and developer guide (not part of frontend/).",
+  "type": "module",
+  "scripts": {
+    "capture": "node capture.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}
