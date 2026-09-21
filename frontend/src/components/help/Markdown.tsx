@@ -8,7 +8,7 @@
 import Check from "@mui/icons-material/Check";
 import ContentCopy from "@mui/icons-material/ContentCopy";
 import { Box, IconButton, Tooltip } from "@mui/material";
-import { Children, isValidElement, useState, type ReactElement, type ReactNode } from "react";
+import { Children, createContext, isValidElement, useContext, useState, type ReactElement, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import { useNavigate } from "react-router-dom";
 import remarkGfm from "remark-gfm";
@@ -16,6 +16,14 @@ import remarkGfm from "remark-gfm";
 import { MONO_STACK } from "../../theme/theme";
 import { HelpImage } from "./HelpImage";
 import { HelpWidget } from "./widgets";
+
+/** Where `help:<id>` links navigate. `/help` by default; the Portal's embedded manual sets
+ * `/portal?tab=manual` so a reader stays inside the portal. */
+export const HelpLinkBase = createContext("/help");
+
+export function helpLink(base: string, id: string, anchor?: string): string {
+  return `${base}${base.includes("?") ? "&" : "?"}page=${id}${anchor ? `#${anchor}` : ""}`;
+}
 
 /** Flatten React children to their text (heading slugs, code-block copy, widget args). */
 export function textOf(node: ReactNode): string {
@@ -63,18 +71,15 @@ const heading = (Tag: "h1" | "h2" | "h3") =>
 
 export function Markdown({ children }: { children: string }) {
   const navigate = useNavigate();
+  const base = useContext(HelpLinkBase);
 
   const components: Components = {
     h1: heading("h1"), h2: heading("h2"), h3: heading("h3"),
     a({ href = "", children: kids }) {
       if (href.startsWith("help:")) {
         const [id, anchor] = href.slice(5).split("#");
-        return (
-          <a href={`/help?page=${id}${anchor ? `#${anchor}` : ""}`}
-            onClick={(e) => { e.preventDefault(); navigate(`/help?page=${id}${anchor ? `#${anchor}` : ""}`); }}>
-            {kids}
-          </a>
-        );
+        const to = helpLink(base, id, anchor);
+        return <a href={to} onClick={(e) => { e.preventDefault(); navigate(to); }}>{kids}</a>;
       }
       if (href.startsWith("#")) {
         return (

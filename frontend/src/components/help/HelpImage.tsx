@@ -37,7 +37,11 @@ function loadMeta(): Promise<Record<string, AssetInfo>> {
 function loadBlobUrl(id: string): Promise<string> {
   let p = blobUrls.get(id);
   if (!p) {
-    p = api.getBlob(`/help/asset/${encodeURIComponent(id)}`).then((b) => URL.createObjectURL(b));
+    // `app/<file>` = an image the APP ships with its own manual pages (app/<name>/portal/img/).
+    const url = id.startsWith("app/")
+      ? `/help/app-asset/${id.slice(4).split("/").map(encodeURIComponent).join("/")}`
+      : `/help/asset/${encodeURIComponent(id)}`;
+    p = api.getBlob(url).then((b) => URL.createObjectURL(b));
     blobUrls.set(id, p);
     p.catch(() => blobUrls.delete(id));
   }

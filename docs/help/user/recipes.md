@@ -2,6 +2,12 @@
 
 A recipe is an ordered list of **tests**. Recipes are versioned — publishing changes creates a new version; old versions stay for traceability.
 
+![Recipes — list of versioned test recipes](asset:recipes)
+
+![Recipe detail — read-only view of a recipe and its steps](asset:recipe-detail)
+
+![Recipe editor — authoring a test recipe from step types](asset:recipe-editor)
+
 ## Browse
 Search, filter (active/draft/deprecated), and sort. Count cards summarise the library.
 

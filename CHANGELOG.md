@@ -5,6 +5,42 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.24.0 — 2026-09-21
+
+**User Portal: a built-in replacement for the printed software manual, with a searchable PDF library (MINOR).**
+
+R-B of the Developer Hub / User Portal plan. New framework module **`portal`** (`docs/contracts/PORTAL.md`);
+it never touches MQTT — it works over stored data, so it also runs on air-gapped stations.
+
+- **Portal screen** (`/portal`, side-menu **Portal**, needs `PORTAL.VIEW`): a **Manual** tab (the help viewer,
+  user audience only, links stay in the portal) and a **Library** tab.
+- **Library — hardware manuals and drawings as PDFs.** Upload (`PORTAL.UPLOAD`), edit title/tags, delete
+  (`PORTAL.MANAGE`), open in a full-screen viewer, **Save a copy** to the PC's Downloads folder. The viewer is
+  the browser/WebView2's native PDF viewer (page navigation, zoom, search, print) — verified in a real
+  pywebview window, so no `pdf.js` dependency. Uploads are a raw `application/pdf` body (no multipart
+  dependency), size-limited from `Content-Length` before reading (default 50 MB), PDF-header checked and
+  de-duplicated by SHA-256. Files live under the state root, so an in-app update never loses them.
+- **Search inside the PDFs.** `pypdf` extracts text; an in-memory SQLite **FTS5** index (bm25 + snippets)
+  is rebuilt from the durable records — no extra tables in the station database. Scanned PDFs are stored and
+  viewable and flagged *not searchable*; hostile query text is sanitised; without FTS5 it falls back to a
+  substring scan.
+- **The manual can now be the app's own.** Help discovers `app/<name>/portal/*.md` (front matter `title,
+  section, order, route`; default section **This app**) plus images (`![alt](asset:app/<file>)`) and bundled
+  read-only PDFs (`app/<name>/portal/library/`), all **app-owned** (TEMPLATE.md §1) and shipped in a built
+  station (`build_release.copy_app_payload` now includes `portal/`).
+- **The user manual has screenshots.** 17 user pages embed the shared image library (added in v1.23.0);
+  two portal screens were captured for the manual; the capture pipeline can now run on another port.
+- New permissions `PORTAL.VIEW` (every role), `PORTAL.UPLOAD` (admin, engineer), `PORTAL.MANAGE` (admin),
+  `PORTAL.*` (super_admin). **Existing stations: run `python -m tools.config_doctor --apply` and log in again**
+  to pick up the module, its entitlement and the role grants.
+- Core: `core.services.docs_paths` (docs root + app portal folders, shared by help and portal) and
+  `core.services.downloads.save_to_downloads`. New dependency: `pypdf>=4` (pure Python; included in the frozen
+  build).
+- Tests: portal module tester (upload/limits/dedupe/search/permissions/persistence/bundled seeds/Downloads),
+  help app-page + app-asset tests, build test for the app payload, and frontend tests for the Library, PDF
+  viewer and Portal (permission gating, upload, errors, viewer lifecycle). The assistant / troubleshooting
+  center follows in v1.25.0.
+
 ## v1.23.0 — 2026-09-21
 
 **Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).**

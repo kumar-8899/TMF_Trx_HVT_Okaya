@@ -62,10 +62,24 @@ async function getBlob(path: string, opts: Opts = {}): Promise<Blob> {
   return res.blob();
 }
 
+/** POST a raw binary body (e.g. a PDF) with its own Content-Type; the response is JSON. */
+async function postRaw(path: string, body: Blob, contentType: string, opts: Opts = {}): Promise<any> {
+  const headers: Record<string, string> = { "Content-Type": contentType };
+  if ((opts.auth ?? true) && _token) headers["Authorization"] = `Bearer ${_token}`;
+  const res = await fetch(path, { method: "POST", headers, body });
+  if (res.status === 401) _onUnauthorized();
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data;
+}
+
 export const api = {
   getBlob,
+  postRaw,
   get: (path: string, opts?: Opts) => request("GET", path, undefined, opts),
   post: (path: string, body?: unknown, opts?: Opts) => request("POST", path, body, opts),
   put: (path: string, body?: unknown, opts?: Opts) => request("PUT", path, body, opts),
+  patch: (path: string, body?: unknown, opts?: Opts) => request("PATCH", path, body, opts),
   del: (path: string, opts?: Opts) => request("DELETE", path, undefined, opts),
 };

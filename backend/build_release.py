@@ -148,6 +148,7 @@ def build_backend(jobs: int, track: str = "framework", product: str = "super_tes
         "--include-package=uvicorn",
         "--include-package=aiosqlite",
         "--include-package=sqlalchemy",
+        "--include-package=pypdf",             # portal library text extraction (optional import)
     ]
     # keystation SDK is optional + deployment-specific (external repo, ships with the
     # SDK+DLL). Bundle it only when installed; the provider lazy-imports it otherwise.
@@ -587,7 +588,9 @@ def copy_app_payload(product: str) -> None:
     for f in ("controller.json", "VERSION"):
         if (app_src / f).is_file():
             shutil.copy2(app_src / f, dest / f)
-    for sub in ("maps", "specs"):                       # definition data the controller/UI read
+    # definition data the controller/UI read; `portal` = the app's own manual pages, images and bundled
+    # PDFs (app-owned, customer-facing — help + portal modules resolve run.dist/app/<name>/portal)
+    for sub in ("maps", "specs", "portal"):
         if (app_src / sub).is_dir():
             shutil.copytree(app_src / sub, dest / sub, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))

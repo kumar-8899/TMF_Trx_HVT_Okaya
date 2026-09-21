@@ -36,11 +36,11 @@
         "session_ttl_min": 480,
         "password_policy": { "min_length": 5 },
         "roles": {
-          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*", "HEALTH.*", "CONFIG.*", "HELP.*"],
-          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"],
-          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"],
-          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT", "HEALTH.VIEW", "CONFIG.VIEW", "HELP.VIEW"],
-          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"]
+          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*", "HEALTH.*", "CONFIG.*", "HELP.*", "PORTAL.*"],
+          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW", "PORTAL.VIEW", "PORTAL.UPLOAD", "PORTAL.MANAGE"],
+          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW", "PORTAL.VIEW", "PORTAL.UPLOAD"],
+          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT", "HEALTH.VIEW", "CONFIG.VIEW", "HELP.VIEW", "PORTAL.VIEW"],
+          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW", "PORTAL.VIEW"]
         },
         "users": [
           { "username": "admin", "password": "admin", "role": "super_admin" }
@@ -101,6 +101,11 @@
     {
       "id": "help",
       "variant": "default"
+    },
+    {
+      "id": "portal",
+      "variant": "default",
+      "config": { "library": { "max_upload_mb": 50 } }
     },
     {
       "id": "variables",

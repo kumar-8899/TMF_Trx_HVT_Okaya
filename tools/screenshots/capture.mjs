@@ -22,7 +22,7 @@ const ROOT = path.resolve(HERE, "..", "..");
 const OUT_DIR = path.join(ROOT, "docs", "assets", "screens");
 const MANIFEST = path.join(ROOT, "docs", "assets", "manifest.json");
 const HOST = "127.0.0.1";
-const PORT = 8000;
+const PORT = Number(process.env.TMF_SCREENSHOT_PORT || 8000);   // 8000 = real launcher; other = direct uvicorn (see run_isolated.py)
 const BASE = `http://${HOST}:${PORT}`;
 const ADMIN_USER = process.env.TMF_SCREENSHOT_USER || "admin";
 const ADMIN_PASS = process.env.TMF_SCREENSHOT_PASSWORD || "admin"; // dev credential only
@@ -146,7 +146,7 @@ async function startServer(reuse) {
   const stateDir = path.join(os.tmpdir(), "tmf-screenshots-state");
   const fd = fs.openSync(server.logFile, "w");
   log(`starting a pristine station (state: ${stateDir}, log: ${server.logFile})`);
-  server.proc = spawn(py, [path.join(HERE, "run_isolated.py"), stateDir], {
+  server.proc = spawn(py, [path.join(HERE, "run_isolated.py"), stateDir, String(PORT)], {
     cwd: ROOT, stdio: ["ignore", fd, fd], windowsHide: true,
   });
   server.started = true;
@@ -284,7 +284,8 @@ async function main() {
     }
 
     await startServer(args.reuse);
-    if (server.started) await startStub();
+    if (server.started && PORT === 8000) await startStub();
+    else if (server.started) log("side-by-side mode (custom port): NOT starting the LabVIEW stub - it would answer as st1 on the shared broker and could disturb a real station");
     token = await login();
     await seed(token);
     token = await login(); // fresh token: a relaunch may have reset sessions

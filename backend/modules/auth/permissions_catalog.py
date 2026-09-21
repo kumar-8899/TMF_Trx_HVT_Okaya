@@ -27,6 +27,9 @@ _CATALOG: list[tuple[str, str, str, str]] = [
     ("DIAGNOSTICS.PURGE",   "Diagnostics", "Purge logs",          "Delete action/error log records older than a cutoff (Logs page)."),
     ("HELP.VIEW",           "Help",        "View user docs",      "Open the in-app user documentation."),
     ("HELP.DEV",            "Help",        "View developer docs", "Open the developer documentation (super_admin)."),
+    ("PORTAL.VIEW",         "Portal",      "Use the user portal", "Open the portal: read the library of manuals + drawings and search it."),
+    ("PORTAL.UPLOAD",       "Portal",      "Add portal documents", "Upload PDFs (hardware manuals, drawings) to the portal library and edit their details."),
+    ("PORTAL.MANAGE",       "Portal",      "Manage the portal",   "Delete library documents (and, later, review all troubleshooting chats)."),
     ("SYSTEM.RESET_DATA",   "System",      "Reset data",          "Purge runs/reports/logs/recipes/users (super_admin)."),
     ("SYSTEM.SETTINGS",     "System",      "Station settings",    "MES + station settings (super_admin)."),
 ]

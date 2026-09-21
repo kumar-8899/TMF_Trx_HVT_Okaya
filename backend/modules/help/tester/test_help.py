@@ -195,3 +195,62 @@ def test_every_help_link_targets_a_real_page():
     bad = sorted({(p.id, m) for p, md in _all_help_markdown()
                   for m in re.findall(r"\(help:([\w-]+)(?:#[\w-]*)?\)", md) if m not in ids})
     assert bad == [], f"help: links to unknown pages: {bad}"
+
+
+# --- app-owned manual pages: app/<name>/portal/*.md ("This app") -------------
+
+@pytest.fixture
+def app_portal(tmp_path, monkeypatch):
+    portal = tmp_path / "app" / "acme_eol" / "portal"
+    (portal / "img").mkdir(parents=True)
+    (portal / "wiring.md").write_text(
+        "---\ntitle: Wiring the bench\nsection: Bench setup\norder: 2\nroute: /runs\n---\n"
+        "# Wiring\n\nConnect the PSU.\n\n![diagram](asset:app/wiring.png)\n", encoding="utf-8")
+    (portal / "intro.md").write_text("# Intro\n\nNo front matter here.\n", encoding="utf-8")
+    (portal / "img" / "wiring.png").write_bytes(b"\x89PNG-app")
+    (portal / "img" / "notes.txt").write_text("not an image")
+    (tmp_path / "secret.png").write_bytes(b"\x89PNG-secret")
+    monkeypatch.setenv("TMF_APP_DIR", str(tmp_path / "app"))
+    return portal
+
+
+def test_app_pages_are_discovered_for_every_user(app_portal):
+    mod = _mod()
+    tree = mod.index(include_dev=False)
+    sec = {s["section"]: s for s in tree}
+    assert "Bench setup" in sec and "This app" in sec                  # front-matter section + default
+    titles = {p["id"]: p["title"] for s in tree for p in s["pages"]}
+    assert titles["app-acme_eol-wiring"] == "Wiring the bench"
+    assert titles["app-acme_eol-intro"] == "intro"                      # no front matter -> file stem
+
+
+def test_app_page_serves_body_without_front_matter(app_portal):
+    doc = _mod().page("app-acme_eol-wiring", include_dev=False)
+    assert doc["markdown"].startswith("# Wiring")
+    assert "order: 2" not in doc["markdown"] and doc["audience"] == "user"
+
+
+def test_app_page_route_feeds_context_help(app_portal):
+    assert _mod().for_route("/runs", include_dev=False)["id"] in ("user-test-bench", "app-acme_eol-wiring")
+
+
+def test_app_pages_survive_a_frozen_build_which_hides_only_developer_content(app_portal, monkeypatch):
+    monkeypatch.setattr(catalog, "is_frozen", lambda: True)
+    assert _mod().page("app-acme_eol-wiring", include_dev=True) is not None
+
+
+def test_app_page_is_searchable(app_portal):
+    assert any(h["id"] == "app-acme_eol-wiring" for h in _mod().search("Connect the PSU", include_dev=False))
+
+
+def test_app_asset_served_from_the_portal_img_folder_only(app_portal):
+    mod = _mod()
+    assert mod.app_asset("wiring.png") == (b"\x89PNG-app", "image/png")
+    assert mod.app_asset("notes.txt") is None                           # not an image extension
+    assert mod.app_asset("../../../secret.png") is None                 # traversal
+    assert mod.app_asset("missing.png") is None
+
+
+def test_no_app_payload_means_no_app_section(tmp_path, monkeypatch):
+    monkeypatch.setenv("TMF_APP_DIR", str(tmp_path / "absent"))
+    assert all(s["section"] != "This app" for s in _mod().index(include_dev=False))

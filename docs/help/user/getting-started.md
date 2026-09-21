@@ -2,6 +2,8 @@
 
 Welcome to the Test & Measurement station. This guide gets you from login to your first test.
 
+![Dashboard — station status and shortcuts](asset:dashboard)
+
 ## Sign in
 1. Open the station in your browser.
 2. Enter your **username** and **password**.

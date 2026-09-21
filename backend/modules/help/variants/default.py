@@ -28,7 +28,7 @@ class DefaultHelp:
 
     def _visible(self, include_dev: bool):
         dev = catalog.dev_visible(include_dev)
-        return [p for p in catalog.PAGES if p.audience == "user" or dev]
+        return [p for p in catalog.all_pages() if p.audience == "user" or dev]
 
     def index(self, *, include_dev: bool) -> list[dict]:
         """Sidebar tree: [{section, audience, pages:[{id,title,route,audience}]}]."""
@@ -80,6 +80,10 @@ class DefaultHelp:
 
     def asset(self, asset_id: str, *, include_dev: bool) -> tuple[bytes, str] | None:
         return catalog.get_asset(asset_id, include_dev)
+
+    def app_asset(self, name: str) -> tuple[bytes, str] | None:
+        """An image from the app-owned portal folder (app/<name>/portal/img/) — user audience."""
+        return catalog.get_app_asset(name)
 
     def facts(self, *, include_dev: bool) -> dict | None:
         return catalog.facts() if catalog.dev_visible(include_dev) else None

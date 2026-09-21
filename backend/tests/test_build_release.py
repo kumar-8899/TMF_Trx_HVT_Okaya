@@ -255,3 +255,28 @@ def test_copy_user_docs_filters_the_manifest_too(tmp_path):
     br.copy_user_docs(repo, dest)
     ids = [e["id"] for e in json.loads((dest / "assets" / "manifest.json").read_text())["images"]]
     assert ids == ["shared", "user"]                                  # no trace of the dev image
+
+
+# --- copy_app_payload: the app's own portal content ships (pages, images, bundled PDFs) ---------
+
+def test_copy_app_payload_ships_the_apps_portal_folder_but_never_recipes(monkeypatch, tmp_path):
+    repo, dist = tmp_path / "repo", tmp_path / "dist"
+    app = repo / "app" / "acme"
+    (app / "portal" / "img").mkdir(parents=True)
+    (app / "portal" / "library").mkdir()
+    (app / "recipes").mkdir()
+    (app / "controller.json").write_text("{}")
+    (app / "VERSION").write_text("1.0.0")
+    (app / "portal" / "wiring.md").write_text("# Wiring")
+    (app / "portal" / "img" / "w.png").write_bytes(b"png")
+    (app / "portal" / "library" / "manual.pdf").write_bytes(b"%PDF-1.4")
+    (app / "recipes" / "site.json").write_text("{}")             # site data — must NOT ship
+    dist.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    br.copy_app_payload("acme")
+    out = dist / "app" / "acme"
+    assert (out / "portal" / "wiring.md").is_file()
+    assert (out / "portal" / "img" / "w.png").is_file()
+    assert (out / "portal" / "library" / "manual.pdf").is_file()
+    assert not (out / "recipes").exists()

@@ -45,6 +45,7 @@ boundary
 | Add a whole new page + nav entry | `export const pages: AppPage[]` from an override file |
 | Add product-specific test logic | a step-type package under `app/<name>/` (`test-step-authoring` skill) |
 | Add app-specific server behaviour | a `backend/modules/<app>_*/` module |
+| Document your own bench for operators | `app/<name>/portal/*.md` (+ `img/`, bundled PDFs in `library/`) — appears in the User Portal under **This app** |
 
 Deeper: [Application template](help:dev-template) · [Building an app repo](help:dev-app-repo) ·
 [Extension how-tos](help:dev-extending).
