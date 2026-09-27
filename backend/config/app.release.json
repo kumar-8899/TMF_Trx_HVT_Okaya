@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "stations": ["st1"],
+  "controller": { "kind": "python", "config_file": "app/okaya_hvt/controller.json" },
+  "branding": {
+    "name": "Okaya HVT Testbench",
+    "short": "OK",
+    "product": "Okaya — HVT Testbench",
+    "tagline": "Authorised access only. All sessions are encrypted."
+  },
+  "license": "config/license.json",
+  "updates": {
+    "github_repo": "<owner>/TMF_Trx_HVT_Okaya",
+    "github_token": "",
+    "channel": "stable",
+    "allow_unverified": true
+  },
+  "modules": [
+    {
+      "id": "runs",
+      "variant": "default",
+      "config": {
+        "identity": { "model": "prefix", "serial": "barcode" },
+        "live_variables": [
+          { "name": "vbus_main", "label": "DC Bus", "unit": "V", "format": "0.0" }
+        ],
+        "analytics": { "daily": true },
+        "ui": { "verdict_banner": true, "message_line": true, "today_strip": true }
+      }
+    },
+    {
+      "id": "auth",
+      "variant": "local_db",
+      "config": {
+        "authenticator": "password",
+        "session_ttl_min": 480,
+        "password_policy": { "min_length": 5 },
+        "roles": {
+          "super_admin": ["AUTH.*", "TEST.*", "RECIPE.*", "REPORT.*", "MAINTENANCE.*", "SYSTEM.*", "ADMIN.*", "DIAGNOSTICS.*", "HEALTH.*", "CONFIG.*", "HELP.*"],
+          "admin": ["AUTH.MANAGE_USERS", "TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"],
+          "engineer": ["TEST.RUN", "RECIPE.VIEW", "RECIPE.EDIT", "REPORT.VIEW", "REPORT.EXPORT", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"],
+          "operator": ["TEST.RUN", "RECIPE.VIEW", "REPORT.VIEW", "REPORT.EXPORT", "HEALTH.VIEW", "CONFIG.VIEW", "HELP.VIEW"],
+          "maintenance": ["MAINTENANCE.CALIBRATE", "DIAGNOSTICS.VIEW", "HEALTH.VIEW", "HEALTH.RUN", "HEALTH.MAINTENANCE", "CONFIG.VIEW", "CONFIG.EDIT", "HELP.VIEW"]
+        },
+        "users": [
+          { "username": "admin", "password": "admin", "role": "super_admin" }
+        ]
+      }
+    },
+    {
+      "id": "logs",
+      "variant": "db",
+      "config": {
+        "schema_version": 1,
+        "persist": { "min_level": "warning", "subsystems": [] },
+        "dedup": { "enabled": true, "window_s": 10 },
+        "retention": {
+          "error_log":  { "max_days": 90,  "max_records": 500000 },
+          "action_log": { "max_days": 365, "max_records": 1000000 }
+        },
+        "pruning": { "enabled": true, "run_at_hour_utc": 2 }
+      }
+    },
+    {
+      "id": "recipe",
+      "variant": "filesystem",
+      "config": {
+        "schema_version": 1,
+        "root": "data/recipes",
+        "step_type_paths": ["../app/okaya_hvt"],
+        "step_type_packages": ["okaya_hvt_steps"]
+      }
+    },
+    {
+      "id": "report",
+      "variant": "standard",
+      "config": {
+        "schema_version": 1,
+        "sinks": [
+          { "type": "sqlite", "when": "all" },
+          { "type": "folder", "when": "fail", "path": "data/reports/fail", "format": "csv" },
+          { "type": "folder", "when": "pass", "path": "data/reports/pass", "format": "json" }
+        ]
+      }
+    },
+    {
+      "id": "mes",
+      "variant": "default",
+      "config": {
+        "stage": "st1",
+        "provider": "folder",
+        "gate": { "enabled": false, "on_missing": "block" },
+        "publish": { "enabled": false },
+        "folder": { "upstream_dir": "data/mes/upstream", "downstream_dir": "data/mes/downstream" }
+      }
+    },
+    {
+      "id": "health",
+      "variant": "default",
+      "config": { "data_root": "data", "disk_min_gb": 1.0 }
+    },
+    {
+      "id": "config",
+      "variant": "default"
+    },
+    {
+      "id": "help",
+      "variant": "default"
+    },
+    {
+      "id": "variables",
+      "variant": "default",
+      "config": { "instances": [], "variables": {} }
+    }
+  ]
+}
