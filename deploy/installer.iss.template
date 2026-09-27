@@ -7,7 +7,8 @@
 ;
 ; With the frozen run_station.exe (bundles pywebview + launcher) and the vendored broker INSIDE
 ; run.dist, the client needs ZERO online setup and ZERO post-install steps except configuring
-; instruments in-app. Double-click the desktop shortcut → the app opens fullscreen (kiosk).
+; instruments in-app. Double-click the desktop shortcut → the app opens maximized (title bar +
+; close button; use --fullscreen for the old kiosk-style window instead).
 ;
 ; This installer carries exactly THREE things:
 ;   1. release-build\run.dist\*        -> {app}\run.dist   (backend exe + UI + help + app def +
@@ -62,9 +63,11 @@ Source: "{#WebView2Setup}"; DestDir: "{tmp}"; DestName: "webview2-runtime.exe"; 
 #endif
 
 [Icons]
-; Desktop shortcut (always) + Start-Menu — both open the app FULLSCREEN (kiosk).
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\run_station.exe"; Parameters: "--fullscreen"; WorkingDir: "{app}"
-Name: "{group}\{#AppName}";       Filename: "{app}\run_station.exe"; Parameters: "--fullscreen"; WorkingDir: "{app}"
+; Desktop shortcut (always) + Start-Menu — both open the app MAXIMIZED (no arguments: station.py's
+; own default). Title bar + close button; the close button shuts the station down cleanly, same as
+; the in-app "Exit station" button.
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\run_station.exe"; WorkingDir: "{app}"
+Name: "{group}\{#AppName}";       Filename: "{app}\run_station.exe"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
@@ -76,7 +79,7 @@ Filename: "{tmp}\webview2-runtime.exe"; Parameters: "/silent /install"; StatusMs
 ; run.dist in place). (OI)(CI)M = object+container inherit, Modify; *S-1-5-32-545 = BUILTIN\Users.
 Filename: "{sys}\icacls.exe"; Parameters: """{app}"" /grant *S-1-5-32-545:(OI)(CI)M /T /C"; StatusMsg: "Granting write access for in-app updates..."; Flags: runhidden waituntilterminated
 ; Offer to launch the station at the end.
-Filename: "{app}\run_station.exe"; Parameters: "--fullscreen"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\run_station.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; The updater's transient swap leftovers (belt-and-braces; normally cleaned by the launcher).

@@ -23,7 +23,7 @@ framework repo and release — never patch it in the app fork.
 | `backend/config/known_issues/`, station data dirs | site data |
 | `backend/data/` | runtime DB, recipes, reports (gitignored) |
 | `backend/modules/<app>_*/` | application-specific **backend** modules — **prefix with the app name** (e.g. `acme_eol/`) so upstream module additions can never collide |
-| `app/<name>/` | the **app payload** — controller step-type packages, variable maps, recipes, the app's controller config, app tools/tests/docs. See §1.1. |
+| `app/<name>/` | the **app payload** — controller step-type packages, variable maps, recipes, the app's controller config, app tools/tests/docs, and the customer-facing **`portal/`** (extra manual pages, images, bundled PDFs — shown in the User Portal). See §1.1. |
 | `instrument_libs/` (repo root) | instrument **drivers this app uses**, COPIED from the central `Instrument_Library` repo — the app is self-contained, it does not reference the central repo at runtime. See §1.2. |
 | `labview/App/` | application LabVIEW: test-case VIs, HAL, station wiring (see §4) |
 | `frontend/src/app/overrides/` | app **screen overrides** — per-app Runs/Recipe/Maintenance UI — **and app-contributed pages**, new top-level routes/nav entries. The framework ships this dir empty; a fork drops `*.tsx` files here to replace a screen or add a page without editing framework `screens/*`, `App.tsx`, or `Layout.tsx`. See §1.3. |
@@ -32,7 +32,7 @@ framework repo and release — never patch it in the app fork.
 ### Framework-owned (read-only in an application)
 `backend/core/`, `backend/instrumentlib/` (the capability **base/SDK** — not drivers),
 the standard `backend/modules/*` (daq, runs, auth, logs, recipe, report, mes, health,
-config, variables, help), `backend/debug_server/`, `controller/` (the Python controller
+config, variables, help, portal), `backend/debug_server/`, `controller/` (the Python controller
 engine — app step types are added under `app/<name>/`, never by editing `controller/`),
 `frontend/` (**except** `frontend/src/app/overrides/` — see §1.3), `docs/`,
 `labview/Source/` framework modules (MQTT Bridge, Sequence Engine),
@@ -57,6 +57,7 @@ lives in one app-owned tree, `app/<name>/`, kept apart from framework files:
 | `specs/<test>.md` | **test procedure specs** — one human-readable, authoritative `.md` per test (procedure, delays, input params, output measurements, signals). The engineer edits these; `spec-lint` keeps the code in sync. See `docs/TEST_SPECS.md`. |
 | `controller.json` | the app's **controller config** — `library_paths` (→ the fork's own `instrument_libs/`), station→map, `step_type_packages`. Referenced by `app.json` → `controller.config_file`. Instrument **instances** are NOT authored here (v1.5.0+): they come from the app's Instruments page — an `instruments` list in this file is ignored under app supervision. |
 | `tools/`, `tests/`, `docs/` | app runner (e.g. `run_sim.py`), sequence tests, app docs. |
+| `portal/` | **customer-facing** content shown in the User Portal (`docs/contracts/PORTAL.md`): `*.md` manual pages (optional front matter `title, section, order, route`; appear under **This app**), `img/` (referenced `![alt](asset:app/<file>)`), `library/*.pdf` (bundled read-only hardware manuals/drawings). Shipped in a built station. |
 
 Wire it in `app.json`: `"controller": { "kind": "python", "config_file": "app/<name>/controller.json" }`.
 The backend then auto-starts the Python controller with this config (`controller.config_file`,

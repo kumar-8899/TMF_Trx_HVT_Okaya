@@ -14,7 +14,8 @@ Output layout (SECURE_DISTRIBUTION.md §5):
         core/schemas/*     app/license schema JSON (data)
         config/*.example.json
         frontend/          built SPA (served single-origin; resolve_frontend_dist prefers this)
-        docs/              in-app help markdown (help.catalog resolves this first)
+        docs/              in-app USER manual only: help/user + referenced shared images
+                           (help.catalog resolves this first; developer docs are NEVER shipped)
         --- app track (--track app): run.exe ALSO runs the controller (run.exe --controller),
             and these bundle INSIDE run.dist so a swap carries it all: ---
         app/<product>/     app DEFINITION: controller.json, maps/, specs/ (NO recipes/creds)
@@ -147,6 +148,7 @@ def build_backend(jobs: int, track: str = "framework", product: str = "super_tes
         "--include-package=uvicorn",
         "--include-package=aiosqlite",
         "--include-package=sqlalchemy",
+        "--include-package=pypdf",             # portal library text extraction (optional import)
     ]
     # keystation SDK is optional + deployment-specific (external repo, ships with the
     # SDK+DLL). Bundle it only when installed; the provider lazy-imports it otherwise.
@@ -227,13 +229,47 @@ def copy_data() -> None:
     print("launcher: launcher.py -> run.dist/launcher.py")
 
 
+def copy_user_docs(repo: Path, dest: Path) -> None:
+    """Ship ONLY the customer-facing docs into a built station — an ALLOWLIST, not "copy docs/ minus
+    a few dirs", so a developer doc added tomorrow can never leak by default:
+
+      docs/help/user/**          the user manual
+      docs/assets/manifest.json  filtered to audience user|both
+      docs/assets/<image>        only images that filtered manifest references
+
+    Everything else (docs/help/dev, PRINCIPLES/ARCHITECTURE/contracts, docs/generated, dev-only
+    screenshots) stays in the source repo. help.catalog.is_frozen() hides dev pages at runtime too."""
+    import json
+    docs = repo / "docs"
+    user_src = docs / "help" / "user"
+    if user_src.is_dir():
+        shutil.copytree(user_src, dest / "help" / "user", dirs_exist_ok=True)
+    n_img = 0
+    manifest = docs / "assets" / "manifest.json"
+    if manifest.is_file():
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        kept = [e for e in data.get("images", []) if e.get("audience", "both") != "dev"]
+        for e in kept:
+            src = docs / "assets" / e["file"]
+            if src.is_file():
+                out = dest / "assets" / e["file"]
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, out)
+                n_img += 1
+        (dest / "assets").mkdir(parents=True, exist_ok=True)
+        (dest / "assets" / "manifest.json").write_text(
+            json.dumps({**data, "images": kept}, indent=2), encoding="utf-8")
+    print(f"docs: user manual + {n_img} shared image(s) -> run.dist/docs (developer docs NOT shipped)")
+
+
 def copy_docs_frontend_dll(skip_frontend: bool) -> None:
     # The SPA + in-app help ride INSIDE run.dist (the swap unit), so the published .zip is a
     # COMPLETE app (a client install has the UI) AND an in-app update refreshes the UI/help too —
     # a swap replaces run.dist wholesale. The fork's OWN `frontend/dist` (built here) already
     # contains its custom screen overrides (frontend/src/app/overrides/*), so they ship automatically.
-    # spa.py / help.catalog resolve run.dist/{frontend,docs} first (v1.12.0).
-    shutil.copytree(REPO / "docs", DIST / "docs", dirs_exist_ok=True)
+    # spa.py / help.catalog resolve run.dist/{frontend,docs} first (v1.12.0). Docs are the USER
+    # allowlist only — developer content never ships (copy_user_docs).
+    copy_user_docs(REPO, DIST / "docs")
     if not skip_frontend:
         fe = REPO / "frontend" / "dist"
         if not fe.exists():
@@ -552,7 +588,9 @@ def copy_app_payload(product: str) -> None:
     for f in ("controller.json", "VERSION"):
         if (app_src / f).is_file():
             shutil.copy2(app_src / f, dest / f)
-    for sub in ("maps", "specs"):                       # definition data the controller/UI read
+    # definition data the controller/UI read; `portal` = the app's own manual pages, images and bundled
+    # PDFs (app-owned, customer-facing — help + portal modules resolve run.dist/app/<name>/portal)
+    for sub in ("maps", "specs", "portal"):
         if (app_src / sub).is_dir():
             shutil.copytree(app_src / sub, dest / sub, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))

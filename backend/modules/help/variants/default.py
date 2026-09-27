@@ -1,7 +1,8 @@
 """help `default` variant — serves the catalog'd markdown (audience-gated).
 
-User pages = all signed-in users; dev pages = super_admin (HELP.DEV). The route
-guards the audience; this layer filters the catalog by `include_dev`.
+User pages = all signed-in users; dev pages = super_admin (HELP.DEV) **on a source checkout
+only** (catalog.dev_visible — a built station never exposes developer content). The route guards
+the audience; this layer filters the catalog by `include_dev`.
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ class DefaultHelp:
     async def stop(self) -> None: pass
 
     def _visible(self, include_dev: bool):
-        return [p for p in catalog.PAGES if p.audience == "user" or include_dev]
+        dev = catalog.dev_visible(include_dev)
+        return [p for p in catalog.all_pages() if p.audience == "user" or dev]
 
     def index(self, *, include_dev: bool) -> list[dict]:
         """Sidebar tree: [{section, audience, pages:[{id,title,route,audience}]}]."""
@@ -38,7 +40,7 @@ class DefaultHelp:
 
     def page(self, page_id: str, *, include_dev: bool) -> dict | None:
         p = catalog.get(page_id)
-        if p is None or (p.audience == "dev" and not include_dev):
+        if p is None or (p.audience == "dev" and not catalog.dev_visible(include_dev)):
             return None
         md = catalog.read(p)
         if md is None:
@@ -70,3 +72,18 @@ class DefaultHelp:
                 hits.append({"id": p.id, "title": p.title, "section": p.section,
                              "audience": p.audience, "snippet": snippet})
         return hits[:50]
+
+    # --- shared asset library + generated facts (docs/assets, docs/generated) ---
+
+    def assets(self, *, include_dev: bool) -> list[dict]:
+        return [catalog.asset_info(e) for e in catalog.asset_entries(include_dev)]
+
+    def asset(self, asset_id: str, *, include_dev: bool) -> tuple[bytes, str] | None:
+        return catalog.get_asset(asset_id, include_dev)
+
+    def app_asset(self, name: str) -> tuple[bytes, str] | None:
+        """An image from the app-owned portal folder (app/<name>/portal/img/) — user audience."""
+        return catalog.get_app_asset(name)
+
+    def facts(self, *, include_dev: bool) -> dict | None:
+        return catalog.facts() if catalog.dev_visible(include_dev) else None

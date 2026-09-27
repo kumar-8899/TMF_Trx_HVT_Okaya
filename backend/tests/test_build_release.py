@@ -208,3 +208,75 @@ def test_copy_vendor_broker_gate_fails_without_vcruntime(monkeypatch, tmp_path):
     monkeypatch.setattr(br, "DIST", dist)
     with pytest.raises(SystemExit):                   # build-gate: never ship a broker that can't start
         br.copy_vendor_broker()
+
+
+# --- copy_user_docs: developer content never ships in a built station ----------
+
+def _fake_docs_repo(tmp_path):
+    import json
+    repo = tmp_path / "repo"
+    docs = repo / "docs"
+    (docs / "help" / "user").mkdir(parents=True)
+    (docs / "help" / "dev" / "guide").mkdir(parents=True)
+    (docs / "generated").mkdir()
+    (docs / "contracts").mkdir()
+    (docs / "assets" / "screens").mkdir(parents=True)
+    (docs / "help" / "user" / "getting-started.md").write_text("# hi")
+    (docs / "help" / "dev" / "guide" / "start.md").write_text("# dev")
+    (docs / "PRINCIPLES.md").write_text("# principles")
+    (docs / "contracts" / "CORE.md").write_text("# core")
+    (docs / "generated" / "facts.json").write_text("{}")
+    for name in ("shared.png", "user.png", "devonly.png"):
+        (docs / "assets" / "screens" / name).write_bytes(b"png")
+    (docs / "assets" / "manifest.json").write_text(json.dumps({"schema_version": 1, "images": [
+        {"id": "shared", "file": "screens/shared.png", "audience": "both"},
+        {"id": "user", "file": "screens/user.png", "audience": "user"},
+        {"id": "devonly", "file": "screens/devonly.png", "audience": "dev"},
+    ]}))
+    return repo
+
+
+def test_copy_user_docs_ships_only_the_user_allowlist(tmp_path):
+    repo = _fake_docs_repo(tmp_path)
+    dest = tmp_path / "run.dist" / "docs"
+    br.copy_user_docs(repo, dest)
+    shipped = sorted(str(p.relative_to(dest)).replace("\\", "/") for p in dest.rglob("*") if p.is_file())
+    assert "help/user/getting-started.md" in shipped
+    assert not [p for p in shipped if p.startswith("help/dev") or "PRINCIPLES" in p
+                or p.startswith("contracts") or p.startswith("generated")]
+    assert "assets/screens/shared.png" in shipped and "assets/screens/user.png" in shipped
+    assert "assets/screens/devonly.png" not in shipped                # dev-only image never ships
+
+
+def test_copy_user_docs_filters_the_manifest_too(tmp_path):
+    import json
+    repo = _fake_docs_repo(tmp_path)
+    dest = tmp_path / "run.dist" / "docs"
+    br.copy_user_docs(repo, dest)
+    ids = [e["id"] for e in json.loads((dest / "assets" / "manifest.json").read_text())["images"]]
+    assert ids == ["shared", "user"]                                  # no trace of the dev image
+
+
+# --- copy_app_payload: the app's own portal content ships (pages, images, bundled PDFs) ---------
+
+def test_copy_app_payload_ships_the_apps_portal_folder_but_never_recipes(monkeypatch, tmp_path):
+    repo, dist = tmp_path / "repo", tmp_path / "dist"
+    app = repo / "app" / "acme"
+    (app / "portal" / "img").mkdir(parents=True)
+    (app / "portal" / "library").mkdir()
+    (app / "recipes").mkdir()
+    (app / "controller.json").write_text("{}")
+    (app / "VERSION").write_text("1.0.0")
+    (app / "portal" / "wiring.md").write_text("# Wiring")
+    (app / "portal" / "img" / "w.png").write_bytes(b"png")
+    (app / "portal" / "library" / "manual.pdf").write_bytes(b"%PDF-1.4")
+    (app / "recipes" / "site.json").write_text("{}")             # site data — must NOT ship
+    dist.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    br.copy_app_payload("acme")
+    out = dist / "app" / "acme"
+    assert (out / "portal" / "wiring.md").is_file()
+    assert (out / "portal" / "img" / "w.png").is_file()
+    assert (out / "portal" / "library" / "manual.pdf").is_file()
+    assert not (out / "recipes").exists()

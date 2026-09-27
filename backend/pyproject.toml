@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.22.1"
+version = "1.24.1"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -11,6 +11,7 @@ dependencies = [
     "jsonschema>=4.21",    # JSON Schema validation (PRINCIPLES §4)
     "argon2-cffi>=23.1",   # password hashing for the Auth module (CORE §6.4)
     "SQLAlchemy>=2.0",     # relational report store (MySQL / SQL Server), Report module
+    "pypdf>=4.0",          # pure-Python PDF text extraction (portal library search)
 ]
 
 [project.optional-dependencies]

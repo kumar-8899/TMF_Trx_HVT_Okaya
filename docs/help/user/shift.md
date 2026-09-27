@@ -3,6 +3,8 @@
 Configure the station's **shifts** — their **labels** and **start times** — and turn
 shift tracking on. This drives the **business day** that analytics count by.
 
+![Shifts — shift labels and timings that drive the business day](asset:config-shift)
+
 ## The rules
 - Shifts run **back-to-back over 24 hours**: each shift runs until the **next** shift's
   start; the last shift **wraps past midnight**.

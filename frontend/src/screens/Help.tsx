@@ -1,14 +1,20 @@
 /** Full help page: sidebar tree + search + markdown. super_admin also sees the
- * Developer docs via the audience toggle (backend gates the dev pages). */
-import { Search } from "@mui/icons-material";
+ * Developer docs via the audience toggle (backend gates the dev pages — and a built station
+ * never has any). Deep-linkable: `/help?page=<id>#<heading-anchor>`.
+ *
+ * `embedded` (used by the User Portal's Manual tab): no page header, user audience only, and
+ * `help:` links stay inside the portal (`/portal?tab=manual&page=<id>`). */
+import Search from "@mui/icons-material/Search";
 import {
   Box, InputAdornment, List, ListItemButton, ListItemText, Paper, Stack, TextField,
   ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { api } from "../api/client";
-import { Markdown } from "../components/help/Markdown";
+import { HelpLinkBase, Markdown } from "../components/help/Markdown";
+import "../components/help/widgets/register";
 import { PageHeader, Section } from "../components/ui";
 
 interface PageRef { id: string; title: string; route: string | null; audience: string }
@@ -16,7 +22,7 @@ interface SectionT { section: string; audience: string; pages: PageRef[] }
 interface Doc { id: string; title: string; markdown: string }
 interface Hit { id: string; title: string; section: string; snippet: string }
 
-export function Help() {
+export function Help({ embedded = false }: { embedded?: boolean }) {
   const [tree, setTree] = useState<SectionT[]>([]);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [aud, setAud] = useState<"user" | "dev">("user");
@@ -24,15 +30,33 @@ export function Help() {
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = (id: string) => { setHits(null); setQ(""); api.get(`/help/page/${id}`).then(setDoc).catch((e) => setError(e.message)); };
+  const [params, setParams] = useSearchParams();
+  const loc = useLocation();
+  const pageParam = params.get("page");
+  const load = (id: string) => setParams((prev) => { const n = new URLSearchParams(prev); n.set("page", id); return n; });
 
   useEffect(() => {
-    api.get("/help/index").then((t: SectionT[]) => {
-      setTree(t);
-      const first = t.find((s) => s.audience === "user")?.pages[0]?.id;
-      if (first) load(first);
-    }).catch((e) => setError(e.message));
+    api.get("/help/index").then(setTree).catch((e) => setError(e.message));
   }, []);
+
+  // The URL (?page=) is the source of truth: sidebar clicks, in-page help: links and shared
+  // links all just change it, and this loads the page (switching audience tab if it is a dev page).
+  useEffect(() => {
+    if (!tree.length) return;
+    const id = pageParam ?? tree.find((s) => s.audience === "user")?.pages[0]?.id;
+    if (!id) return;
+    const owner = tree.find((s) => s.pages.some((p) => p.id === id));
+    if (owner) setAud(!embedded && owner.audience === "dev" ? "dev" : "user");
+    setHits(null); setQ(""); setError(null);
+    api.get(`/help/page/${id}`).then(setDoc).catch((e) => setError(e.message));
+  }, [tree, pageParam]);
+
+  useEffect(() => {
+    if (doc && loc.hash) {
+      const t = setTimeout(() => document.getElementById(loc.hash.slice(1))?.scrollIntoView?.({ block: "start" }), 50);
+      return () => clearTimeout(t);
+    }
+  }, [doc, loc.hash]);
 
   useEffect(() => {
     if (!q.trim()) { setHits(null); return; }
@@ -40,18 +64,19 @@ export function Help() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const hasDev = useMemo(() => tree.some((s) => s.audience === "dev"), [tree]);
+  const hasDev = useMemo(() => !embedded && tree.some((s) => s.audience === "dev"), [tree, embedded]);
   const sections = tree.filter((s) => s.audience === aud);
 
   return (
+    <HelpLinkBase.Provider value={embedded ? "/portal?tab=manual" : "/help"}>
     <Box>
-      <PageHeader title="Help & Documentation" subtitle="Guides & reference"
+      {!embedded && <PageHeader title="Help & Documentation" subtitle="Guides & reference"
         actions={hasDev && (
           <ToggleButtonGroup size="small" exclusive value={aud} onChange={(_, v) => v && setAud(v)}>
             <ToggleButton value="user">User</ToggleButton>
             <ToggleButton value="dev">Developer</ToggleButton>
           </ToggleButtonGroup>
-        )} />
+        )} />}
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="stretch">
@@ -95,5 +120,6 @@ export function Help() {
         </Box>
       </Stack>
     </Box>
+    </HelpLinkBase.Provider>
   );
 }

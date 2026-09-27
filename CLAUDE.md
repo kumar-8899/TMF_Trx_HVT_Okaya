@@ -171,9 +171,13 @@ Debugging starts with MQTT Explorer on `tmf/#`, not a stack trace.
 
 **Modules** (`backend/modules/`): each has a `manifest.json`, the lifecycle construct → init →
 start → stop → health, and is gated by config ∩ license at activation. Modules depend **only on
-core, never on each other**, and consume **permissions (`DOMAIN.ACTION`), never roles**. This
-bench has no app-specific `backend/modules/okaya_*` module (none created yet) — only stock
-framework modules, per `app.json`'s module list above.
+core, never on each other**, and consume **permissions (`DOMAIN.ACTION`), never roles**. Each must
+run standalone (core + that module); testers live in `modules/*/tester/`. This bench has no
+app-specific `backend/modules/okaya_*` module (none created yet) — only stock framework modules,
+per `app.json`'s module list above (the framework's own module set now also includes `portal`,
+v1.24.0's User Portal — not currently enabled on this bench).
+
+**Multi-station** (`docs/MULTI_STATION.md`): one PC runs N sockets `st1…stN`; one socket looks single-station.
 
 ### Key cross-cutting facts
 
@@ -224,6 +228,16 @@ driver (`create-instrument-library`, the one that produced this bench's
 `waveshare_modbus_relay` / `meco_smp72` / `ut5320r`). Skills also live as a marketplace plugin
 (`plugins/tmf-tools/`) for the terminal `claude` CLI — keep the two copies in sync when editing
 one. See `docs/DEVELOPER_ONBOARDING.md`.
+
+### Developer Hub (source-only, never in a build)
+
+Help → Developer → **Developer Hub** is the interactive developer guide (`docs/DEVELOPER_HUB.md`). Facts on it are
+**generated**: after changing a module manifest, permission, role default, step type, capability interface,
+controller op, route, skill, or bumping the version/CHANGELOG, run `python tools/gen_devguide.py` and commit
+`docs/generated/` (CI and `backend/tests/test_devguide_facts.py` fail on stale facts). When you hit a real
+mistake worth warning others about, add it to `docs/help/dev/guide/gotchas.md`. Screenshots refresh with
+`cd tools/screenshots && npm run capture`. Developer docs must never be shipped: `build_release.copy_user_docs`
+is an allowlist — keep it that way.
 
 ## Testing conventions
 

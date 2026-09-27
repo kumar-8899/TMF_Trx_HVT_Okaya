@@ -1,7 +1,7 @@
 import {
   AppsOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
   Fullscreen, FullscreenExit,
-  GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MonitorHeartOutlined,
+  GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MenuBookOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
   ScienceOutlined, SettingsOutlined, SpaceDashboardOutlined, TuneOutlined,
 } from "@mui/icons-material";
@@ -75,6 +75,7 @@ const NAV: NavItem[] = [
   ...APP_PAGES.map((p): NavItem => (
     { label: p.navLabel, to: p.path, icon: p.navIcon ?? <AppsOutlined />, perm: p.permission }
   )),
+  { label: "Portal", to: "/portal", icon: <MenuBookOutlined />, perm: "PORTAL.VIEW" },
   { label: "Help", to: "/help", icon: <HelpOutlineOutlined />, perm: "HELP.VIEW" },
 ];
 

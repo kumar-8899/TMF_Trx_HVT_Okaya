@@ -22,6 +22,7 @@ import { Health } from "./screens/Health";
 import { Help } from "./screens/Help";
 import { Maintenance } from "./screens/Maintenance";
 import { Permissions } from "./screens/Permissions";
+import { Portal } from "./screens/Portal";
 import { Recipes } from "./screens/Recipes";
 import { Reports } from "./screens/Reports";
 import { Runs } from "./screens/Runs";
@@ -81,6 +82,7 @@ export function App() {
           <Route path="/permissions" element={<RequirePermission perm="AUTH.MANAGE_ROLES"><Permissions /></RequirePermission>} />
           <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />
           <Route path="/help" element={<RequirePermission perm="HELP.VIEW"><Help /></RequirePermission>} />
+          <Route path="/portal" element={<RequirePermission perm="PORTAL.VIEW"><Portal /></RequirePermission>} />
           {/* App-contributed pages (TEMPLATE.md §1.3) — path always starts with "/app/". */}
           {APP_PAGES.map((p) =>
             p.permission ? (

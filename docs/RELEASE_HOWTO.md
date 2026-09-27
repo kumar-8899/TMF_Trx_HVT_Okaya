@@ -26,9 +26,12 @@ Edit **both** version locations to `X.Y.Z`:
 - `backend/core/__init__.py` → `__version__`
 - `backend/pyproject.toml` → `version`
 
-Add a `## vX.Y.Z — <date>` section at the top of `CHANGELOG.md`, then:
+Add a `## vX.Y.Z — <date>` section at the top of `CHANGELOG.md`, then **regenerate the Developer Hub
+facts** (they embed the version and the release feed, so CI fails on a stale copy) and refresh any
+screenshots whose screen changed (`cd tools/screenshots && npm run capture`, see its README):
 ```bash
-git add backend/core/__init__.py backend/pyproject.toml CHANGELOG.md
+python tools/gen_devguide.py                     # rewrites docs/generated/facts.{json,md}
+git add backend/core/__init__.py backend/pyproject.toml CHANGELOG.md docs/generated
 git commit -m "release: vX.Y.Z"
 ```
 

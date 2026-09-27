@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "portal",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "User Portal",
+    "description": "The customer-facing support surface that replaces the printed software manual: a searchable library of PDFs (hardware manuals, drawings) users upload or an app ships. Later: a troubleshooting assistant and case log. No MQTT — it reasons over stored data."
+  },
+  "entitlement_key": "portal",
+  "variants": ["default"],
+  "core_dependencies": ["db", "diagnostics", "config", "auth", "web"],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/portal.config.schema.json"
+}

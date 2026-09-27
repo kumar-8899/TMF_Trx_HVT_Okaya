@@ -2,6 +2,8 @@
 
 Station administration (super_admin).
 
+![Settings — station administration](asset:settings)
+
 ## Station configuration
 Set how many **test sockets** this PC runs and which **controller** serves them.
 

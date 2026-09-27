@@ -1,6 +1,7 @@
 /** Context-aware help slide-over. Opens to the doc for the current screen, with
  * search and a link to the full /help page. (DEBUG/Help module.) */
-import { Close, Search } from "@mui/icons-material";
+import Close from "@mui/icons-material/Close";
+import Search from "@mui/icons-material/Search";
 import {
   Box, Button, Drawer, IconButton, InputAdornment, List, ListItemButton, ListItemText,
   Stack, TextField, Typography,
@@ -10,6 +11,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../../api/client";
 import { Markdown } from "./Markdown";
+import "./widgets/register";
 
 interface Doc { id: string; title: string; markdown: string }
 interface Hit { id: string; title: string; section: string; snippet: string }
@@ -49,7 +51,7 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
       PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, maxWidth: "100%" } }}>
       <Stack direction="row" alignItems="center" sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>Help</Typography>
-        <Button size="small" onClick={() => { onClose(); navigate("/help"); }} sx={{ mr: 0.5 }}>Open full help →</Button>
+        <Button size="small" onClick={() => { onClose(); navigate(doc ? `/help?page=${doc.id}` : "/help"); }} sx={{ mr: 0.5 }}>Open full help →</Button>
         <IconButton size="small" onClick={onClose}><Close fontSize="small" /></IconButton>
       </Stack>
       <Box sx={{ p: 1.5, pb: 1 }}>

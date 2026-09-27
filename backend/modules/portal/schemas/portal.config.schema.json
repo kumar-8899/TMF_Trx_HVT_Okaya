@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:portal:module",
+  "title": "portal module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_upload_mb": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50,
+                           "description": "Largest PDF a user may upload." },
+        "dir": { "type": "string", "default": "data/portal/library",
+                 "description": "Where uploaded PDFs are stored (relative to the state root, outside run.dist)." }
+      }
+    }
+  }
+}
