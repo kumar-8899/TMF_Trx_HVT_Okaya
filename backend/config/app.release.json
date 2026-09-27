@@ -10,7 +10,7 @@
   },
   "license": "config/license.json",
   "updates": {
-    "github_repo": "<owner>/TMF_Trx_HVT_Okaya",
+    "github_repo": "kumar-8899/TMF_Trx_HVT_Okaya",
     "github_token": "",
     "channel": "stable",
     "allow_unverified": true
