@@ -2,7 +2,8 @@
 
 This is THE single entry point for running the app, in every layout:
 
-    python station.py                 # source, production feel: backend serves the built UI, native window
+    python station.py                 # source, production feel: backend serves the built UI, native
+                                       # window, MAXIMIZED by default (not kiosk fullscreen)
     python station.py --dev           # source, development: Vite + HMR on :5173, window points there
     python station.py --browser       # open the default browser instead of a native window
     python station.py --fullscreen    # kiosk-style window (also --frameless)
@@ -24,10 +25,12 @@ Mode is detected at runtime:
 Either way the backend is supervised through `launcher.Supervisor`, so the "Relaunch to apply"
 + signed-update / rollback loop keeps working, and the broker + window lifecycle is identical.
 
-Shutdown is graceful. Closing the window (or the UI's "Shut down station" button) asks the
-supervisor to send the backend a CTRL_BREAK so its lifespan teardown runs — modules stop and
-the Python controller drives every instrument to a safe state — before the broker is stopped.
-Only what this launcher started is stopped; an already-running broker is left alone.
+Shutdown is graceful. Closing the window — via the OS title-bar close button, or the UI's "Exit
+station" button — asks the supervisor to send the backend a CTRL_BREAK so its lifespan teardown
+runs — modules stop and the Python controller drives every instrument to a safe state — before the
+broker is stopped. The title-bar close button is bound explicitly (`window.events.closing`) so it
+never just kills the window and leaves the backend/broker orphaned. Only what this launcher started
+is stopped; an already-running broker is left alone.
 
 pywebview is optional (`pip install -e "backend[desktop]"`). Without it, the launcher falls
 back to the default browser and says so.
@@ -304,6 +307,7 @@ def _open_window(station: Station, url: str) -> None:
     window = webview.create_window(
         _window_title(), url,
         width=1440, height=900,
+        maximized=not station.args.fullscreen,   # default: maximized, not kiosk-style fullscreen
         fullscreen=station.args.fullscreen,
         frameless=station.args.frameless,
         text_select=True,
@@ -322,6 +326,18 @@ def _open_window(station: Station, url: str) -> None:
                 pass
 
     threading.Thread(target=_watch_backend, daemon=True).start()
+
+    # The reverse direction: the user clicks the OS title-bar close (X) button. Bind it explicitly
+    # rather than relying on webview.start() merely returning afterwards — a bare window destroy
+    # must not race ahead of (or skip) the same graceful teardown "Exit station" triggers. Runs the
+    # shutdown on a background thread so the window itself closes immediately; station.shutdown()
+    # is idempotent (guarded by station._lock/_closing) so this can't double-run with the `finally`
+    # in main().
+    def _on_closing() -> None:
+        _log("window closed (title bar) - shutting down cleanly")
+        threading.Thread(target=station.shutdown, daemon=True).start()
+
+    window.events.closing += _on_closing
     icon = _window_icon()
     start_kw = {"icon": icon} if icon else {}
     try:
@@ -338,7 +354,8 @@ def main() -> int:
     ap.add_argument("--browser", action="store_true",
                     help="open the default browser instead of a native window")
     ap.add_argument("--no-window", action="store_true", help="run the services only (no window/browser)")
-    ap.add_argument("--fullscreen", action="store_true", help="open the window fullscreen (kiosk)")
+    ap.add_argument("--fullscreen", action="store_true",
+                    help="open the window fullscreen (kiosk); default without this flag is maximized")
     ap.add_argument("--frameless", action="store_true", help="open the window without a frame")
     ap.add_argument("--build", action="store_true",
                     help="(source) build the frontend before launching (production mode)")

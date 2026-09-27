@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.24.0"
+    "version": "1.24.1"
   },
   "releases": [
+    {
+      "version": "1.24.1",
+      "date": "2026-09-27",
+      "bump": "PATCH",
+      "summary": "Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).",
+      "body": "**Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).**\n\n- `station.py`/`run_station.exe` now open **maximized** by default (title bar, resizable, taskbar\n  visible) instead of a fixed 1440×900 window. `--fullscreen` still gives the old kiosk-style window\n  (no title bar) for benches that want it.\n- The OS **title-bar close (X) button** is now bound explicitly (`window.events.closing`) to the\n  same graceful teardown as the in-app **Exit station** button — CTRL_BREAK to the backend, modules\n  stop, the controller drives every instrument to a safe state, then the broker stops. Previously\n  this depended on `webview.start()` merely returning; it's now deterministic.\n- The installer's Desktop/Start-Menu/post-install shortcuts (`deploy/installer.iss.template`) dropped\n  `--fullscreen`, so newly built client installers open maximized too. Existing installs keep\n  whatever shortcut they already have; re-run the installer (or edit the shortcut) to pick this up."
+    },
     {
       "version": "1.24.0",
       "date": "2026-09-21",

@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.24.0**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.24.1**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.24.1** (2026-09-27, PATCH) — Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).
 - **v1.24.0** (2026-09-21, MINOR) — User Portal: a built-in replacement for the printed software manual, with a searchable PDF library (MINOR).
 - **v1.23.0** (2026-09-21, MINOR) — Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).
 - **v1.22.1** (2026-09-16, PATCH) — Fix: `run_station.exe` could compile but never open a window (PATCH).
@@ -13,7 +14,6 @@ Super_Test_App **v1.24.0**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.19.0** (2026-09-14, MINOR) — Config → Barcode: a generic, operator-editable barcode structure replaces the old prefix/fixed acquisition strategy (MINOR).
 - **v1.18.2** (2026-09-12, PATCH) — A crashed step reported PASS with zero measurements instead of FAIL (PATCH).
 - **v1.18.1** (2026-09-11, PATCH) — Backend no longer opens a second connection to a python-owned instrument (PATCH).
-- **v1.18.0** (2026-09-10, MINOR) — System Blueprint — author an app's I/O from a spreadsheet (MINOR).
 
 ## Modules
 

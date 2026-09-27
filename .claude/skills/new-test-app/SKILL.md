@@ -126,8 +126,8 @@ toggle on the Instruments page.)
   collides with them and `--tags` would fire the workflow once per inherited tag; the `app-v`
   prefix scopes the trigger and keeps the lines apart. The prefix is tag-only — asset names + the
   updater's manifest version are unaffected.
-- **First install** on a client is the offline `setup.exe` (double-click → fullscreen; no Python, no
-  pip, no broker service — the only post-install task is configuring instruments in-app). Every later
+- **First install** on a client is the offline `setup.exe` (double-click → maximized window; no
+  Python, no pip, no broker service — the only post-install task is configuring instruments in-app). Every later
   version arrives via the in-app updater (online or from USB for air-gapped benches).
   `deploy/install-station.ps1` remains a scriptable/headless fallback. See `docs/DEPLOY_STATION.md`.
 

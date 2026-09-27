@@ -20,7 +20,8 @@ client PC never builds — it only installs and updates.
 The frozen app is **self-contained**: `run_station.exe` bundles pywebview + the launcher, and the
 vendored **Mosquitto** rides inside `run.dist`. So the installer needs **zero online setup** and the
 **only** post-install task is configuring instruments in-app. Double-click the desktop shortcut → the
-app opens **fullscreen (kiosk)**.
+app opens **maximized** (title bar + close button; the close button shuts down cleanly, same as
+the in-app "Exit station" button).
 
 1. Copy `<AppShort>-Setup-<ver>.exe` (a GitHub Release asset — or from USB for an air-gapped site) to
    the client PC and run it.
@@ -31,7 +32,8 @@ app opens **fullscreen (kiosk)**.
    - installs the **WebView2** runtime from the bundled offline standalone (a no-op when already
      present — it ships on Win11/current Win10);
    - grants `Users:Modify` on `{app}` (so a non-elevated operator can apply in-app updates);
-   - creates a **Desktop + Start-Menu** shortcut → `run_station.exe --fullscreen`.
+   - creates a **Desktop + Start-Menu** shortcut → `run_station.exe` (maximized; pass
+     `--fullscreen` yourself if a bench needs the old kiosk-style window instead).
 3. Launch it. Then, once per bench: log in `admin`/`admin` (change it) and **configure the instrument
    instances on Config → Instruments** (IP/COM/port/simulated).
 

@@ -5,6 +5,21 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.24.1 — 2026-09-27
+
+**Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).**
+
+- `station.py`/`run_station.exe` now open **maximized** by default (title bar, resizable, taskbar
+  visible) instead of a fixed 1440×900 window. `--fullscreen` still gives the old kiosk-style window
+  (no title bar) for benches that want it.
+- The OS **title-bar close (X) button** is now bound explicitly (`window.events.closing`) to the
+  same graceful teardown as the in-app **Exit station** button — CTRL_BREAK to the backend, modules
+  stop, the controller drives every instrument to a safe state, then the broker stops. Previously
+  this depended on `webview.start()` merely returning; it's now deterministic.
+- The installer's Desktop/Start-Menu/post-install shortcuts (`deploy/installer.iss.template`) dropped
+  `--fullscreen`, so newly built client installers open maximized too. Existing installs keep
+  whatever shortcut they already have; re-run the installer (or edit the shortcut) to pick this up.
+
 ## v1.24.0 — 2026-09-21
 
 **User Portal: a built-in replacement for the printed software manual, with a searchable PDF library (MINOR).**

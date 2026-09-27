@@ -45,7 +45,7 @@ serves from.
 ## `station.py` — the one-click launcher
 
 ```pwsh
-python station.py                # backend serves the built UI, native pywebview window
+python station.py                # backend serves the built UI, native pywebview window, MAXIMIZED
 python station.py --dev          # Vite + HMR on :5173, window points there
 python station.py --browser      # default browser instead of a native window
 python station.py --fullscreen   # kiosk-style window (also --frameless)
@@ -74,8 +74,10 @@ What it does, in order:
 
 ### Graceful shutdown
 
-Closing the window — or the UI's **Exit station** (in the user menu) — must leave the
-bench safe. `station.py` sends the backend a console **CTRL_BREAK**; uvicorn runs its
+Closing the window — via the OS **title-bar close button** or the UI's **Exit station**
+(in the user menu) — must leave the bench safe. The title-bar close is bound explicitly
+(`window.events.closing`) so it always runs the same teardown, never a bare window kill.
+`station.py` sends the backend a console **CTRL_BREAK**; uvicorn runs its
 lifespan teardown (modules stop, the controller drives every instrument to a safe
 state, the bridge goes offline, the DB closes) and exits, then the launcher stops.
 `launcher.py` shields *only* SIGBREAK so it survives to observe that clean exit;
@@ -96,8 +98,9 @@ shipped station — from the `release-build/` root (the deploy root), NOT from i
 
 ```pwsh
 cd release-build
-run_station.exe                  # frozen window: broker + supervised backend + controller (NO Python)
-run_station.exe --fullscreen     # kiosk (what the installed Desktop shortcut runs)
+run_station.exe                  # frozen window: broker + supervised backend + controller (NO
+                                  # Python), MAXIMIZED (what the installed Desktop shortcut runs)
+run_station.exe --fullscreen     # kiosk-style window instead, if a bench needs it
 python station.py                # the SAME entrypoint from source (dev; needs Python + pywebview)
 python run.dist\launcher.py      # backend + controller only, no window
 ```
@@ -118,7 +121,7 @@ python run.dist\launcher.py      # backend + controller only, no window
   the app's sequence.
 - For a real client PC, don't run these by hand — build the offline **`setup.exe`** via
   **`deploy/cut-release.ps1`** (the one build/release entry; it invokes `build-installer.ps1`
-  internally), which lays this out + a fullscreen Desktop shortcut (DEPLOY_STATION.md).
+  internally), which lays this out + a maximized-by-default Desktop shortcut (DEPLOY_STATION.md).
 
 ---
 
