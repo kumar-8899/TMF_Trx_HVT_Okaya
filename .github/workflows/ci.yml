@@ -17,6 +17,8 @@ jobs:
         with: { python-version: "3.12" }
       - name: Install
         run: pip install -e ".[dev]"
+      - name: Install instrumentlib (tmf-controller's local dependency; not on PyPI)
+        run: pip install -e ./instrumentlib
       - name: Install controller (needed by the Developer Hub facts drift gate)
         run: pip install -e ../controller
       - name: Test
