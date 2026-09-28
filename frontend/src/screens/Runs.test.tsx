@@ -58,6 +58,57 @@ describe("Runs — Start dialog driven by Config → Barcode", () => {
     await waitFor(() => expect(posted).toEqual({ barcode: "INV12345" }));
   });
 
+  it("Enter in the serial field does NOT start the run when submit_on_enter is absent/false " +
+     "(framework-fix-prompt-2.md Issue 1) — a real scanner appends Enter to every scan, so " +
+     "'scan' and 'start the test' must not be the same action by default", async () => {
+    localStorage.setItem("tmf.token", "t");
+    let posted: any = null;
+    globalThis.fetch = (async (url: any, opts: any = {}) => {
+      const method = (opts.method || "GET").toUpperCase();
+      const path = String(url).split("?")[0];
+      const routes: Record<string, any> = baseRoutes(BARCODE_CFG);
+      if (method === "POST" && path === "/runs/start") {
+        posted = JSON.parse(opts.body);
+        return { ok: true, status: 200, text: async () => JSON.stringify({ run_id: "r1" }) } as Response;
+      }
+      const route = routes[`GET ${path}`];
+      return route
+        ? { ok: true, status: 200, text: async () => JSON.stringify(route.body) } as Response
+        : { ok: false, status: 404, text: async () => "" } as Response;
+    }) as any;
+
+    await openStartDialog();
+    const field = screen.getByLabelText("Serial number");
+    await userEvent.type(field, "INV12345{Enter}");
+    // dialog stays open, nothing posted — the operator must still click Start
+    expect(posted).toBeNull();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("Serial number")).toHaveValue("INV12345");
+  });
+
+  it("Enter DOES start the run when submit_on_enter is true (opt-in)", async () => {
+    localStorage.setItem("tmf.token", "t");
+    let posted: any = null;
+    const cfg = { ...BARCODE_CFG, submit_on_enter: true };
+    globalThis.fetch = (async (url: any, opts: any = {}) => {
+      const method = (opts.method || "GET").toUpperCase();
+      const path = String(url).split("?")[0];
+      const routes: Record<string, any> = baseRoutes(cfg);
+      if (method === "POST" && path === "/runs/start") {
+        posted = JSON.parse(opts.body);
+        return { ok: true, status: 200, text: async () => JSON.stringify({ run_id: "r1" }) } as Response;
+      }
+      const route = routes[`GET ${path}`];
+      return route
+        ? { ok: true, status: 200, text: async () => JSON.stringify(route.body) } as Response
+        : { ok: false, status: 404, text: async () => "" } as Response;
+    }) as any;
+
+    await openStartDialog();
+    await userEvent.type(screen.getByLabelText("Serial number"), "INV12345{Enter}");
+    await waitFor(() => expect(posted).toEqual({ barcode: "INV12345" }));
+  });
+
   it("barcode disabled: shows only the recipe dropdown and POSTs {recipe_id}", async () => {
     localStorage.setItem("tmf.token", "t");
     let posted: any = null;

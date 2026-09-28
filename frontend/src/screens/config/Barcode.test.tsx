@@ -66,6 +66,33 @@ describe("ConfigBarcode", () => {
     expect(putBody.recipe_part).toBe("serial");
   });
 
+  it("submit-on-scan is off by default, and Save PUTs it on when toggled " +
+     "(framework-fix-prompt-2.md Issue 1 — opt-in, not the unconditional default)", async () => {
+    localStorage.setItem("tmf.token", "t");
+    let putBody: any = null;
+    globalThis.fetch = (async (url: any, opts: any = {}) => {
+      const method = (opts.method || "GET").toUpperCase();
+      const path = String(url);
+      if (path === "/auth/me") return { ok: true, status: 200, text: async () => JSON.stringify(EDITOR) } as Response;
+      if (path === "/config/barcode" && method === "PUT") {
+        putBody = JSON.parse(opts.body);
+        return { ok: true, status: 200, text: async () => JSON.stringify(putBody) } as Response;
+      }
+      if (path === "/config/barcode") return { ok: true, status: 200, text: async () => JSON.stringify(SAVED_CFG) } as Response;
+      return { ok: false, status: 404, text: async () => "" } as Response;
+    }) as any;
+
+    render(<AuthProvider><ConfigBarcode /></AuthProvider>);
+    await waitFor(() => expect(screen.getByDisplayValue("model")).toBeInTheDocument());
+    const toggle = screen.getByRole("checkbox", { name: /submit on enter|submit.on.scan/i });
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putBody.submit_on_enter).toBe(true);
+  });
+
   it("surfaces a validation error from the backend", async () => {
     localStorage.setItem("tmf.token", "t");
     mockFetch({

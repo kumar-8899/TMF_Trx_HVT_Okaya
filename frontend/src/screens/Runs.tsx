@@ -25,7 +25,10 @@ interface Profile {
   ui: { verdict_banner: boolean; message_line: boolean; today_strip: boolean };
 }
 interface BarcodePart { name: string; start: number; length: number }
-interface BarcodeConfig { enabled: boolean; length: number; parts: BarcodePart[]; recipe_part: string | null }
+interface BarcodeConfig {
+  enabled: boolean; length: number; parts: BarcodePart[]; recipe_part: string | null;
+  submit_on_enter?: boolean;
+}
 const NO_BARCODE: BarcodeConfig = { enabled: false, length: 0, parts: [], recipe_part: null };
 
 const FINAL = new Set(["PASS", "FAIL", "ABORTED"]);
@@ -203,7 +206,15 @@ export function Runs() {
             <Stack spacing={1.5} sx={{ mt: 1 }}>
               <TextField label="Serial number" value={barcode} autoFocus
                 onChange={(e) => setBarcode(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && barcode) startRun(); }} />
+                onKeyDown={(e) => {
+                  // A real barcode scanner appends Enter to every scan (keyboard-emulation
+                  // mode, on by default on virtually every scanner) — so unless a fork has
+                  // explicitly opted into scan-to-submit, Enter must only populate the
+                  // field, never start the run itself. The operator reviews the resolved
+                  // recipe preview and clicks Start explicitly (framework-fix-prompt-2.md
+                  // Issue 1).
+                  if (e.key === "Enter" && barcode && barcodeCfg.submit_on_enter) startRun();
+                }} />
               <Typography variant="caption" color="text.secondary">
                 Recipe: <b style={{ fontFamily: MONO_STACK }}>{resolvedPreview || "—"}</b>
               </Typography>

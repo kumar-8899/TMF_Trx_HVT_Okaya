@@ -233,7 +233,12 @@ class DefaultConfig:
         return {"enabled": bool(data.get("enabled", False)),
                 "length": int(data.get("length", 0)),
                 "parts": data.get("parts", []) or [],
-                "recipe_part": data.get("recipe_part")}
+                "recipe_part": data.get("recipe_part"),
+                # Scan-to-submit must be an explicit opt-in (framework-fix-prompt-2.md
+                # Issue 1) — a real barcode scanner appends Enter to every scan, so an
+                # unconditional Enter-starts-the-run default removes an operator's chance
+                # to review what was scanned before hardware energizes. Default False.
+                "submit_on_enter": bool(data.get("submit_on_enter", False))}
 
     async def set_barcode_config(self, body: dict) -> dict:
         enabled = bool(body.get("enabled", False))
@@ -263,8 +268,10 @@ class DefaultConfig:
                 raise ConfigError("enable barcode requires at least one part")
             if not recipe_part or recipe_part not in seen:
                 raise ConfigError("recipe_part must reference a configured part")
+        submit_on_enter = bool(body.get("submit_on_enter", False))
         rec = {"enabled": enabled, "length": length, "parts": cleaned,
-               "recipe_part": recipe_part, "updated_ts": time.time()}
+               "recipe_part": recipe_part, "submit_on_enter": submit_on_enter,
+               "updated_ts": time.time()}
         await self.core.db.repo.put("barcode_config", rec, id=_BARCODE_ID,
                                     summary=f"{len(cleaned)} part(s)" + (" · enabled" if enabled else ""))
         self.core.diag.info("config", "barcode config updated", enabled=enabled, parts=len(cleaned))

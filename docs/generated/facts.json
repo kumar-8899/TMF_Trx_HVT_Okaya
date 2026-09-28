@@ -2,9 +2,23 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.24.1"
+    "version": "1.25.0"
   },
   "releases": [
+    {
+      "version": "1.25.0",
+      "date": "2026-09-28",
+      "bump": "MINOR",
+      "summary": "Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).",
+      "body": "**Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).**\n\nFound on a real downstream fork (`framework-fix-prompt-2.md` Issue 1) while building a bench-specific\ntwo-hand hardware-button start feature: the Start dialog's serial-number field started the run on\nEnter unconditionally, and every barcode scanner ships configured to send Enter after each scan —\nso \"scan the unit\" and \"start the test, energizing hardware\" were the same physical action, with no\nbeat for an operator to review the resolved recipe first.\n\n- Enter in the Start dialog's serial-number field now only populates the field by default; starting\n  the run requires the explicit **Start** button click.\n- Added a per-fork opt-in: barcode config (`GET`/`PUT /config/barcode`) gains `submit_on_enter`\n  (bool, default `false`), with a matching toggle on **Config → Barcode**\n  (`frontend/src/screens/config/Barcode.tsx`) — a bench where nothing is gained by that review beat\n  can switch scan-to-submit back on."
+    },
+    {
+      "version": "1.24.2",
+      "date": "2026-09-28",
+      "bump": "PATCH",
+      "summary": "Downstream fork fixes: a bad instrument no longer kills the whole controller, cycle time reaches reports, and results tables render human-readable (PATCH).",
+      "body": "**Downstream fork fixes: a bad instrument no longer kills the whole controller, cycle time reaches\nreports, and results tables render human-readable (PATCH).**\n\nThree issues found on a real downstream hardware fork (`framework-fix-prompt.md` Issues 6–8),\nall in framework-owned code.\n\n- **Controller — one misconfigured instrument no longer takes the whole bench offline.**\n  `InstrumentRegistry.build()` (`controller/controller/instruments/registry.py`) now catches a\n  driver's `__init__` raising (a real-hardware guard, a missing param, an unreachable resource)\n  the same way it already handled an unknown library: the instance is skipped and recorded with a\n  reason, every other instrument still constructs and connects, and the controller process itself\n  keeps running. Surfaced via the existing `status()`/`instrument.status` `state: \"skipped\"` shape,\n  so the Instruments page shows *which* instrument is the problem instead of every instrument\n  going dark.\n- **Controller — `cycle_time_ms` now reaches every report row.** `Sequencer._attempt`'s correctly\n  computed `elapsed_ms` never reached the per-measurement `test-result` event\n  (`measurement_dict()` had no timing field); every report (CSV/JSON/DB) had a blank\n  `cycle_time_ms` column, always. The report pipeline (`backend/modules/report/assembly.py`, its\n  schema) was already wired for this field — only the value was missing.\n- **Frontend — results tables render rounded, human-readable values.** `ResultsTable.tsx` (used by\n  both the live Runs screen and the historical Reports view — the one shared framework component a\n  fork cannot override) now rounds numeric `measured`/`expected` values to 2 decimal places and\n  Title-Cases a `snake_case` `test_name` (e.g. the framework's own `set_output` step type, which\n  always names its measurement after the raw signal id) — a no-op on a name a recipe author\n  already wrote as human-readable text, and on a pre-formatted range string like `\"229.0–231.0\"`."
+    },
     {
       "version": "1.24.1",
       "date": "2026-09-27",
