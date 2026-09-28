@@ -67,8 +67,14 @@ class InstrumentRegistry:
             # Global simulation replaces EVERY instrument (§12.1) — it wins over a per-instance
             # "simulated": false; a per-instance flag only opts a single device in.
             simulated = bool(simulation) or bool(cfg.get("simulated", False))
-            inst = entry["class"](iid, simulated=simulated, params=cfg.get("params", {}),
-                                  on_command=on_command)
+            try:
+                inst = entry["class"](iid, simulated=simulated, params=cfg.get("params", {}),
+                                      on_command=on_command)
+            except Exception as exc:  # noqa: BLE001 — one bad instrument must not kill the controller
+                self.skipped.append({"id": iid, "library": lib_id, "reason": f"{type(exc).__name__}: {exc}"})
+                if self._log:
+                    self._log("error", f"instance failed to construct: {lib_id} (instance {iid}): {exc}")
+                continue
             self._by_id[iid] = inst
             self._stations_by_id[iid] = list(cfg.get("stations") or [])
             self._resources.add(resource)

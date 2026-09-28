@@ -87,3 +87,42 @@ def test_registry_skips_unknown_library(loop):
     reg.build([{"id": "x", "library": "nope_not_registered", "simulated": True}])
     assert reg.get("x") is None
     assert reg.skipped and reg.skipped[0]["library"] == "nope_not_registered"
+
+
+def test_registry_skips_instrument_that_fails_to_construct(loop):
+    """Issue 6 (framework-fix-prompt.md): one instrument raising in __init__ must not take
+    the whole registry (and therefore the whole controller process) down with it — the
+    healthy instrument must still be built, and the faulty one must land in `skipped` with
+    a useful reason instead of propagating."""
+    good_lib = _fakelib.ensure_registered()
+    bad_lib = _fakelib.ensure_bad_registered()
+    reg = InstrumentRegistry(loop)
+    reg.build([
+        {"id": "good1", "library": good_lib, "simulated": True, "params": {"resource": "B"}},
+        # simulated=False on a driver that raises when not simulated (the real-hardware
+        # guard shape from the downstream bench) -- must be skipped, not fatal.
+        {"id": "bad1", "library": bad_lib, "simulated": False, "params": {"resource": "C"}},
+    ])
+    assert reg.require("good1") is not None
+    assert reg.get("bad1") is None
+    assert reg.skipped and reg.skipped[0]["id"] == "bad1"
+    assert "NotImplementedError" in reg.skipped[0]["reason"] or "not wired" in reg.skipped[0]["reason"]
+    # surfaced distinctly in status(), not just absent (the other half of Issue 6)
+    statuses = {s["id"]: s for s in reg.status()}
+    assert statuses["good1"]["state"] != "skipped"
+    assert statuses["bad1"]["state"] == "skipped"
+    assert statuses["bad1"]["reason"]
+
+
+def test_registry_construct_failure_does_not_block_connect_all(loop):
+    """Regression-guards the actual downstream symptom: a mixed healthy/faulty config must
+    still let connect_all() bring up the healthy instrument."""
+    good_lib = _fakelib.ensure_registered()
+    bad_lib = _fakelib.ensure_bad_registered()
+    reg = InstrumentRegistry(loop)
+    reg.build([
+        {"id": "good2", "library": good_lib, "simulated": True, "params": {"resource": "D"}},
+        {"id": "bad2", "library": bad_lib, "simulated": False, "params": {"resource": "E"}},
+    ])
+    loop.run(reg.connect_all())
+    assert reg.require("good2").state == "connected"

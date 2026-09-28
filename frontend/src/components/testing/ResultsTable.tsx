@@ -11,6 +11,22 @@ export interface ResultRow {
   result?: string; cycle_time_ms?: number;
 }
 
+/** snake_case/lower_case_with_underscores -> Title Case; a no-op on a name a recipe author
+ * already wrote as human-readable text (contains a space or a capital letter already). */
+function humanizeName(name: string | undefined): string {
+  if (!name || /[ A-Z]/.test(name)) return name ?? "";
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Display-only rounding for numeric measured/expected values. A pre-formatted range
+ * string (e.g. "229.0–231.0" from _expected_str()) is not a number, so it passes through
+ * unchanged rather than being mangled. Never touches the underlying value used elsewhere
+ * (evaluate()'s PASS/FAIL comparison reads the raw prop, not this rendered string). */
+function formatValue(v: unknown): string {
+  if (typeof v === "number" && Number.isFinite(v)) return v.toFixed(2);
+  return String(v ?? "");
+}
+
 /** The live test-result table (one row per `test-result` event).
  *
  * Setup/actuation measurements — status "INFO" (no limits/context, not pass/fail; e.g.
@@ -65,9 +81,9 @@ export function ResultsTable({ rows, subtitle }: { rows: ResultRow[]; subtitle?:
             {visible.map((r, i) => (
               <TableRow key={i}>
                 <TableCell sx={{ fontFamily: MONO_STACK }}>{r.serial_no ?? i + 1}</TableCell>
-                <TableCell>{r.test_name}</TableCell>
-                <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{String(r.expected ?? "")}</TableCell>
-                <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{String(r.measured ?? "")}</TableCell>
+                <TableCell>{humanizeName(r.test_name)}</TableCell>
+                <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{formatValue(r.expected)}</TableCell>
+                <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{formatValue(r.measured)}</TableCell>
                 <TableCell>{r.result ? <StatusChip label={r.result} kind={statusKind(r.result)} /> : "—"}</TableCell>
                 <TableCell align="right" sx={{ fontFamily: MONO_STACK }}>{r.cycle_time_ms != null ? `${r.cycle_time_ms} ms` : ""}</TableCell>
               </TableRow>

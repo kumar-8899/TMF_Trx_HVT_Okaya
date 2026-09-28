@@ -5,6 +5,34 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.24.2 — 2026-09-28
+
+**Downstream fork fixes: a bad instrument no longer kills the whole controller, cycle time reaches
+reports, and results tables render human-readable (PATCH).**
+
+Three issues found on a real downstream hardware fork (`framework-fix-prompt.md` Issues 6–8),
+all in framework-owned code.
+
+- **Controller — one misconfigured instrument no longer takes the whole bench offline.**
+  `InstrumentRegistry.build()` (`controller/controller/instruments/registry.py`) now catches a
+  driver's `__init__` raising (a real-hardware guard, a missing param, an unreachable resource)
+  the same way it already handled an unknown library: the instance is skipped and recorded with a
+  reason, every other instrument still constructs and connects, and the controller process itself
+  keeps running. Surfaced via the existing `status()`/`instrument.status` `state: "skipped"` shape,
+  so the Instruments page shows *which* instrument is the problem instead of every instrument
+  going dark.
+- **Controller — `cycle_time_ms` now reaches every report row.** `Sequencer._attempt`'s correctly
+  computed `elapsed_ms` never reached the per-measurement `test-result` event
+  (`measurement_dict()` had no timing field); every report (CSV/JSON/DB) had a blank
+  `cycle_time_ms` column, always. The report pipeline (`backend/modules/report/assembly.py`, its
+  schema) was already wired for this field — only the value was missing.
+- **Frontend — results tables render rounded, human-readable values.** `ResultsTable.tsx` (used by
+  both the live Runs screen and the historical Reports view — the one shared framework component a
+  fork cannot override) now rounds numeric `measured`/`expected` values to 2 decimal places and
+  Title-Cases a `snake_case` `test_name` (e.g. the framework's own `set_output` step type, which
+  always names its measurement after the raw signal id) — a no-op on a name a recipe author
+  already wrote as human-readable text, and on a pre-formatted range string like `"229.0–231.0"`.
+
 ## v1.24.1 — 2026-09-27
 
 **Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).**

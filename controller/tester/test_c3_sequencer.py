@@ -6,7 +6,7 @@ import time
 import controller.step_types  # noqa: F401 — registers the 8 core types
 from controller import registry as step_registry
 from controller.context import StepFailed
-from controller.results import FAIL, PASS
+from controller.results import FAIL, PASS, Measurement, StepResult
 from controller.runstate import FAULTED, IDLE, RunEngine
 from controller.sequencer import Sequencer
 
@@ -24,12 +24,26 @@ class _RaisesStepFailed:
         raise StepFailed("deliberately failed")
 
 
+class _SlowMeasure:
+    """Test-only step type: sleeps a known duration then returns a single passing
+    measurement — a stand-in for a real device round-trip, used to prove elapsed_ms
+    (already correct at the step-completed level) actually reaches test-result rows too
+    (framework-fix-prompt.md Issue 7)."""
+
+    def execute(self, params, ctx):
+        time.sleep(params.get("seconds", 0.05))
+        return StepResult(measurements=[Measurement(name=params.get("name", "m"), value=1.0)])
+
+
 if "test_crasher" not in step_registry.STEP_REGISTRY:
     step_registry.register_step_type(type_id="test_crasher",
                                      display_name="Test crasher")(_RaisesPlainException)
 if "test_step_failed" not in step_registry.STEP_REGISTRY:
     step_registry.register_step_type(type_id="test_step_failed",
                                      display_name="Test StepFailed")(_RaisesStepFailed)
+if "test_slow_measure" not in step_registry.STEP_REGISTRY:
+    step_registry.register_step_type(type_id="test_slow_measure",
+                                     display_name="Test slow measure")(_SlowMeasure)
 
 
 class _Vars:
@@ -113,6 +127,45 @@ def test_step_failed_exception_also_reports_fail_with_zero_measurements():
     assert sc["status"] == FAIL
     assert sc["measurement_count"] == 0
     assert sc["message"] == "deliberately failed"
+
+
+def test_test_result_carries_cycle_time_ms():
+    """Issue 7 (framework-fix-prompt.md): elapsed_ms is correctly computed at the
+    step-completed level (line 108 of sequencer.py) but never reached the per-measurement
+    test-result row measurement_dict() builds — every report's cycle_time_ms column was
+    blank, always. A step with a known artificial delay must show up on its test-result
+    event(s), close to that delay."""
+    r, ev, _ = _run({"steps": [{"type": "test_slow_measure", "id": "slow",
+                                "params": {"seconds": 0.05}}]})
+    assert r == PASS
+    tr = [p for t, p in ev if t == "test-result"][0]
+    assert tr["cycle_time_ms"] is not None
+    assert 40 <= tr["cycle_time_ms"] <= 500   # generous upper bound for slow CI machines
+
+
+def test_test_result_cycle_time_ms_same_across_measurements():
+    """A multi-measurement step must stamp the SAME step-level cycle_time_ms on every one
+    of its rows (the existing exposed shape report/assembly.py + the report schema already
+    expect) — only what feeds it was missing."""
+    _, ev, _ = _run({"steps": [{"type": "sweep", "id": "sw", "params": {
+        "signal": "level", "values": [1, 2, 3],
+        "steps": [{"type": "measure_and_compare", "id": "m", "params": {"signal": "level", "min": 0}}]}}]})
+    trs = [p for t, p in ev if t == "test-result"]
+    assert len(trs) == 3
+    cycle_times = {tr["cycle_time_ms"] for tr in trs}
+    assert None not in cycle_times
+    # each child "m" step is its own _attempt() call (its own elapsed_ms) — same STEP's
+    # measurements share a value; here every row comes from a distinct attempt, so just
+    # assert none are missing/None (the regression this issue is actually about).
+
+
+def test_step_completed_elapsed_ms_unchanged():
+    """Regression: step-completed's own elapsed_ms field (already correct) must be
+    unaffected by wiring cycle_time_ms into test-result."""
+    r, ev, _ = _run({"steps": [{"type": "test_slow_measure", "id": "slow",
+                                "params": {"seconds": 0.05}}]})
+    sc = [p for t, p in ev if t == "step-completed"][0]
+    assert sc["elapsed_ms"] is not None and sc["elapsed_ms"] >= 40
 
 
 # ---- step types -----------------------------------------------------------

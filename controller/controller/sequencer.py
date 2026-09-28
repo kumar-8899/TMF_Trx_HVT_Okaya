@@ -59,7 +59,8 @@ class Sequencer:
             if final:
                 for m in result.measurements:
                     self._emit("test-result", {"run_id": ctx.run_id, "step_id": step_id,
-                                               "attempt": attempt, **results.measurement_dict(m, step_id)})
+                                               "attempt": attempt, "cycle_time_ms": result.elapsed_ms,
+                                               **results.measurement_dict(m, step_id)})
             self._emit("step-completed", {"run_id": ctx.run_id, "step_id": step_id,
                                           "status": status, "elapsed_ms": result.elapsed_ms,
                                           "measurement_count": len(result.measurements),
