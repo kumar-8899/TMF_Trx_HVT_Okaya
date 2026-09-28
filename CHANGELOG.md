@@ -5,6 +5,23 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.25.0 — 2026-09-28
+
+**Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).**
+
+Found on a real downstream fork (`framework-fix-prompt-2.md` Issue 1) while building a bench-specific
+two-hand hardware-button start feature: the Start dialog's serial-number field started the run on
+Enter unconditionally, and every barcode scanner ships configured to send Enter after each scan —
+so "scan the unit" and "start the test, energizing hardware" were the same physical action, with no
+beat for an operator to review the resolved recipe first.
+
+- Enter in the Start dialog's serial-number field now only populates the field by default; starting
+  the run requires the explicit **Start** button click.
+- Added a per-fork opt-in: barcode config (`GET`/`PUT /config/barcode`) gains `submit_on_enter`
+  (bool, default `false`), with a matching toggle on **Config → Barcode**
+  (`frontend/src/screens/config/Barcode.tsx`) — a bench where nothing is gained by that review beat
+  can switch scan-to-submit back on.
+
 ## v1.24.2 — 2026-09-28
 
 **Downstream fork fixes: a bad instrument no longer kills the whole controller, cycle time reaches

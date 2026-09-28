@@ -32,7 +32,9 @@ Marking **model** as the recipe id means scanning `INV12345` runs the recipe who
 3. **Add part** for each field in the barcode; give it a **Name**, a **Start** (0-based),
    and a **Length**.
 4. Mark exactly one part as the **Recipe ID** (the radio button in its row).
-5. **Save.**
+5. Leave **Submit on Enter** off unless you want a scan to start the test immediately (see
+   below) — most benches should leave this off.
+6. **Save.**
 
 ## What it changes
 
@@ -42,6 +44,12 @@ Marking **model** as the recipe id means scanning `INV12345` runs the recipe who
   No manual recipe picker is shown.
 - **Disabled:** the popup shows a **Recipe** dropdown instead — the operator picks the
   recipe by hand, and no serial number is captured.
+- **Submit on Enter** (off by default): a real barcode scanner is configured, out of the
+  box, to send an Enter keystroke after every scan — so with this off, scanning (or typing
+  a serial and pressing Enter) only fills the field; the operator still reviews the
+  resolved recipe and clicks **Start** themselves. Turning it on makes Enter start the test
+  immediately, the same instant the scan lands — only do this if there's no value in an
+  operator reviewing the scan first (e.g. no risk from energizing hardware immediately).
 
 A barcode that doesn't match the configured length, or resolves to an empty recipe id, is
 rejected with an error — it never silently starts the wrong test.

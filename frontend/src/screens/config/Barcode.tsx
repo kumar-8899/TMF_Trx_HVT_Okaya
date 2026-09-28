@@ -23,6 +23,7 @@ export function ConfigBarcode() {
   const [length, setLength] = useState(0);
   const [parts, setParts] = useState<Part[]>([]);
   const [recipePart, setRecipePart] = useState<string | null>(null);
+  const [submitOnEnter, setSubmitOnEnter] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export function ConfigBarcode() {
   const load = () => {
     api.get("/config/barcode").then((c) => {
       setEnabled(c.enabled); setLength(c.length || 0); setParts(c.parts || []);
-      setRecipePart(c.recipe_part || null); setDirty(false);
+      setRecipePart(c.recipe_part || null); setSubmitOnEnter(!!c.submit_on_enter); setDirty(false);
     }).catch((e) => setError(e.message));
   };
   useEffect(load, []);
@@ -49,7 +50,9 @@ export function ConfigBarcode() {
   const save = async () => {
     setBusy(true); setError(null); setNotice(null);
     try {
-      await api.put("/config/barcode", { enabled, length, parts, recipe_part: recipePart });
+      await api.put("/config/barcode", {
+        enabled, length, parts, recipe_part: recipePart, submit_on_enter: submitOnEnter,
+      });
       setNotice("Saved. The Start dialog now reflects this configuration.");
       load();
     } catch (e: any) { setError(e.message); }
@@ -77,6 +80,18 @@ export function ConfigBarcode() {
               value={length} disabled={!edit}
               onChange={(e) => { setLength(Number(e.target.value)); setDirty(true); }}
               inputProps={{ min: 1, "aria-label": "barcode_length" }} />
+          </Stack>
+          <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+            <FormControlLabel control={<Switch checked={submitOnEnter} disabled={!edit}
+              onChange={(e) => { setSubmitOnEnter(e.target.checked); setDirty(true); }} />}
+              label={<Box><Typography variant="subtitle2">Submit on Enter (scan-to-submit)</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Off (default): a scan or Enter only fills the Serial number field — the
+                  operator reviews the resolved recipe and clicks Start. On: pressing Enter
+                  (what every barcode scanner sends after a scan) starts the test
+                  immediately — only enable this if there's no benefit to an operator
+                  reviewing the scan before the test energizes hardware.
+                </Typography></Box>} />
           </Stack>
         </Section>
 

@@ -123,7 +123,27 @@ async def test_barcode_config_round_trip(ctx):
     cfg = await module.get_barcode_config()
     assert cfg == {"enabled": True, "length": 8, "parts": [
         {"name": "model", "start": 0, "length": 3}, {"name": "serial", "start": 3, "length": 5}],
-        "recipe_part": "model"}
+        "recipe_part": "model", "submit_on_enter": False}
+
+
+async def test_barcode_config_submit_on_enter_defaults_false(ctx):
+    """framework-fix-prompt-2.md Issue 1: scan-to-submit must be opt-in, never the
+    unconditional default every fork inherits."""
+    module, _, _ = ctx
+    await module.set_barcode_config({"enabled": True, "length": 3,
+        "parts": [{"name": "model", "start": 0, "length": 3}], "recipe_part": "model"})
+    cfg = await module.get_barcode_config()
+    assert cfg["submit_on_enter"] is False
+
+
+async def test_barcode_config_submit_on_enter_round_trips_true(ctx):
+    module, _, _ = ctx
+    saved = await module.set_barcode_config({"enabled": True, "length": 3,
+        "parts": [{"name": "model", "start": 0, "length": 3}], "recipe_part": "model",
+        "submit_on_enter": True})
+    assert saved["submit_on_enter"] is True
+    cfg = await module.get_barcode_config()
+    assert cfg["submit_on_enter"] is True
 
 
 async def test_resolve_recipe_from_barcode_disabled(ctx):

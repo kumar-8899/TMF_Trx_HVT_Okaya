@@ -33,8 +33,8 @@ The **Shift** section configures the production schedule and, with it, the
 The **Barcode** section defines the shape of the barcode/label an operator scans or
 types at run-start, and which slice of it is the recipe id.
 
-- Config: `{enabled, length, parts:[{name, start, length}], recipe_part}` (DB record
-  `barcode_config`, fixed id `"barcode"` — one global record, like Shifts, not
+- Config: `{enabled, length, parts:[{name, start, length}], recipe_part, submit_on_enter}`
+  (DB record `barcode_config`, fixed id `"barcode"` — one global record, like Shifts, not
   per-station: barcode format is a labeling-scheme fact, not per-socket wiring).
   `length` is the barcode's total, exact-match-validated length; each `parts[]` entry is
   a named fixed-width slice (`start`/`length` offsets into the barcode string);
@@ -43,6 +43,12 @@ types at run-start, and which slice of it is the recipe id.
   separate and unused by this path). Validated on save: `length >= 1`; each part's name
   non-empty + unique, `start >= 0`, `length >= 1`, `start+length <= length`; when
   `enabled`, at least one part exists and `recipe_part` references one of them.
+  `submit_on_enter` (bool, default `false`) gates whether Enter in the Start dialog's
+  serial-number field starts the run: a real barcode scanner appends Enter to every scan
+  (keyboard-emulation, on by default on virtually every scanner), so the default keeps
+  "scan" and "start the test" two separate actions — the operator reviews the resolved
+  recipe preview and clicks Start explicitly. Set `true` only for a bench where nothing is
+  gained by that review beat (framework-fix-prompt-2.md Issue 1).
 - `resolve_recipe_from_barcode(barcode) -> {"ok": True, "recipe_id", "parts": {name: value}}`
   or `{"ok": False, "error"}` lives on the config module (contract + `GET /config/barcode`,
   `PUT /config/barcode`) — it's how `runs` resolves a scanned barcode to a recipe id

@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.24.2"
+    "version": "1.25.0"
   },
   "releases": [
+    {
+      "version": "1.25.0",
+      "date": "2026-09-28",
+      "bump": "MINOR",
+      "summary": "Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).",
+      "body": "**Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).**\n\nFound on a real downstream fork (`framework-fix-prompt-2.md` Issue 1) while building a bench-specific\ntwo-hand hardware-button start feature: the Start dialog's serial-number field started the run on\nEnter unconditionally, and every barcode scanner ships configured to send Enter after each scan —\nso \"scan the unit\" and \"start the test, energizing hardware\" were the same physical action, with no\nbeat for an operator to review the resolved recipe first.\n\n- Enter in the Start dialog's serial-number field now only populates the field by default; starting\n  the run requires the explicit **Start** button click.\n- Added a per-fork opt-in: barcode config (`GET`/`PUT /config/barcode`) gains `submit_on_enter`\n  (bool, default `false`), with a matching toggle on **Config → Barcode**\n  (`frontend/src/screens/config/Barcode.tsx`) — a bench where nothing is gained by that review beat\n  can switch scan-to-submit back on."
+    },
     {
       "version": "1.24.2",
       "date": "2026-09-28",
