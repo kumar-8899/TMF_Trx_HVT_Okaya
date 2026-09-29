@@ -843,16 +843,19 @@ def main() -> int:
         shutil.rmtree(OUT)
     build_backend(args.jobs, args.track, args.product, args.mingw64, args.compile_app_payload)
     if args.track == "app":
+        # A runnable app = the backend exe (which also runs the controller) + the app definition +
+        # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
+        # Copied BEFORE the verify below: the narrow-compile-surface default (ADR 0002) loads
+        # step_type_packages/library_packages from run.dist/app/<product> + run.dist/instrument_libs
+        # via sys.path at runtime, so those directories must exist before the verify can import them.
+        copy_app_payload(args.product, args.compile_app_payload)
         # run.exe doubles as the controller (`run.exe --controller`). Verify it can start as one
-        # BEFORE spending time on data/payload/zip — fail fast on a mis-bundled toolchain.
+        # BEFORE spending time on data/config/zip — fail fast on a mis-bundled toolchain.
         _verify_frozen_controller(args.product)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)
     run_station_ok: bool | None = None
     if args.track == "app":
-        # A runnable app = the backend exe (which also runs the controller) + the app definition +
-        # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
-        copy_app_payload(args.product, args.compile_app_payload)
         promote_app_config(args.app_config)
         copy_vendor_broker()            # vendored Mosquitto INSIDE run.dist (no service, no admin)
         # FAIL-SOFT (see build_run_station_exe docstring): run.dist + the .zip/.ksupdate are still
