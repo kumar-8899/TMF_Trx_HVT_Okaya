@@ -137,6 +137,26 @@ def _app_include_packages(product: str) -> list[str]:
     return pkgs
 
 
+def _app_extra_runtime_packages(product: str) -> list[str]:
+    """Third-party PyPI packages an app-owned driver imports (often lazily, e.g. `instrument_libs/
+    transports/visa.py`'s `import pyvisa` inside `connect()` so sim mode doesn't need it) that
+    Nuitka's static analysis will never see under the narrow-compile-surface default, because that
+    analysis only traces the compiled core/modules/controller graph — it never looks at app-owned
+    packages' own source at all (see docs/decisions/0002-nuitka-compile-scope.md). Declared per-app
+    in controller.json's `extra_runtime_packages` (a plain list of importable module names) rather
+    than hardcoded here, since this is app-owned business logic's own dependency, not framework IP.
+    Force-included via `--include-package` regardless of --compile-app-payload: harmless when
+    everything is compiled in (Nuitka already traced it there), required otherwise."""
+    ctrl = REPO / "app" / product / "controller.json"
+    if not ctrl.is_file():
+        return []
+    try:
+        data = json.loads(ctrl.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return list(data.get("extra_runtime_packages") or [])
+
+
 def _resolve_package_dir(pkg: str, product: str) -> Path | None:
     """Where a dynamically-named app package's SOURCE lives, for copying (not compiling) it into
     run.dist. Checked in the same order Nuitka would resolve it on `_app_build_env`'s PYTHONPATH:
@@ -189,6 +209,12 @@ def build_backend(jobs: int, track: str = "framework", product: str = "super_tes
         if compile_app_payload:
             for pkg in _app_include_packages(product):
                 cmd += [f"--include-package={pkg}", f"--include-package-data={pkg}"]
+        # Third-party deps an app-owned driver needs at runtime (e.g. pyvisa for a VISA
+        # instrument) — invisible to Nuitka's analysis either way (lazy-imported, and the
+        # narrow-compile default never even looks at instrument_libs' source); force-include them
+        # explicitly rather than silently shipping a build that crashes on first real connect().
+        for pkg in _app_extra_runtime_packages(product):
+            cmd.append(f"--include-package={pkg}")
         env = _app_build_env(product)
     cmd.append("run.py")
     _run(cmd, cwd=BACKEND, env=env)
