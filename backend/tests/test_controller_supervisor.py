@@ -82,6 +82,41 @@ def test_global_simulation_always_off_under_supervision(tmp_path):
     assert cfg["simulation"] is False
 
 
+# --- narrow compile surface: step_type_paths/library_paths auto-append ------------------------
+# build_release.py's default (narrow compile surface) ships app-owned step-type/library packages
+# as plain .py under run.dist/app/<product>/ + run.dist/instrument_libs/ instead of compiling them
+# in — load_step_type_packages/load_libraries only find them via sys.path, so _write_config must
+# add those directories to step_type_paths/library_paths itself (an app author's controller.json
+# should not have to hand-maintain a build-output path).
+
+def test_write_config_appends_cfg_dir_to_step_type_paths(tmp_path):
+    sup, _ = _sup(tmp_path, config_file=_app_cfg(tmp_path, []), instruments=PAGE)
+    cfg = json.loads(sup._write_config().read_text(encoding="utf-8"))
+    assert str(tmp_path) in cfg["step_type_paths"]
+
+
+def test_write_config_appends_repo_root_to_library_paths(tmp_path):
+    """library_paths gets the REPO ROOT (where instrument_libs/ lives), not cfg_dir — the two
+    package kinds live at different depths (app/<product>/<steps_pkg>/ vs repo-root
+    instrument_libs/)."""
+    sup, _ = _sup(tmp_path, config_file=_app_cfg(tmp_path, []), instruments=PAGE)
+    cfg = json.loads(sup._write_config().read_text(encoding="utf-8"))
+    assert str(tmp_path) in cfg["library_paths"]
+
+
+def test_write_config_preserves_app_authored_paths_and_does_not_duplicate(tmp_path):
+    p = tmp_path / "controller.json"
+    p.write_text(json.dumps({
+        "schema_version": 1, "step_type_paths": ["/some/dev/checkout"],
+        "library_paths": [str(tmp_path)],          # already equals the auto-appended path
+        "stations": [{"station": "st1"}],
+    }), encoding="utf-8")
+    sup, _ = _sup(tmp_path, config_file=str(p), instruments=PAGE)
+    cfg = json.loads(sup._write_config().read_text(encoding="utf-8"))
+    assert cfg["step_type_paths"] == ["/some/dev/checkout", str(tmp_path)]
+    assert cfg["library_paths"] == [str(tmp_path)]                 # no duplicate
+
+
 def test_variable_map_still_resolved_relative_to_config_file(tmp_path):
     sup, _ = _sup(tmp_path, config_file=_app_cfg(tmp_path, []), instruments=PAGE)
     cfg = json.loads(sup._write_config().read_text(encoding="utf-8"))

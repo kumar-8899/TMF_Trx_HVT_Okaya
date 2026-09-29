@@ -19,6 +19,8 @@ these tests lock in the bugs found running that pipeline against live app forks:
      for real: an exe with no run.dist exited in <1s, an unrelated already-running station on :8000
      answered the probe instead, and the smoke test returned True)."""
 
+import json
+
 import pytest
 
 import build_release as br
@@ -280,3 +282,160 @@ def test_copy_app_payload_ships_the_apps_portal_folder_but_never_recipes(monkeyp
     assert (out / "portal" / "img" / "w.png").is_file()
     assert (out / "portal" / "library" / "manual.pdf").is_file()
     assert not (out / "recipes").exists()
+
+
+# --- narrow compile surface: app-owned packages ship as plain .py, not compiled in ------------
+
+def _fake_app_with_step_package(repo, product="acme"):
+    """A minimal app: one step-type package (`acme_steps`) + instrument_libs, named in
+    controller.json's step_type_packages/library_packages — the two dynamically-loaded package
+    kinds build_release.py must be able to either compile in or copy as source."""
+    app = repo / "app" / product
+    app.mkdir(parents=True)
+    (app / "controller.json").write_text(json.dumps({
+        "schema_version": 1, "step_type_packages": ["acme_steps"],
+        "library_packages": ["instrument_libs"],
+    }))
+    (app / "VERSION").write_text("1.0.0")
+    steps_pkg = app / "acme_steps"
+    steps_pkg.mkdir()
+    (steps_pkg / "__init__.py").write_text("# acme step types")
+    (steps_pkg / "__pycache__").mkdir()
+    (steps_pkg / "__pycache__" / "x.pyc").write_bytes(b"junk")
+    il = repo / "instrument_libs"
+    il.mkdir()
+    (il / "__init__.py").write_text("# drivers")
+    return app, steps_pkg, il
+
+
+def test_resolve_package_dir_finds_app_and_repo_root_packages(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    app, steps_pkg, il = _fake_app_with_step_package(repo)
+    monkeypatch.setattr(br, "REPO", repo)
+    assert br._resolve_package_dir("acme_steps", "acme") == steps_pkg
+    assert br._resolve_package_dir("instrument_libs", "acme") == il
+    assert br._resolve_package_dir("no_such_package", "acme") is None
+
+
+def test_copy_app_code_packages_ships_source_and_skips_pycache(monkeypatch, tmp_path):
+    repo, dist = tmp_path / "repo", tmp_path / "dist"
+    _fake_app_with_step_package(repo)
+    dist.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    n = br.copy_app_code_packages("acme", compile_app_payload=False)
+    assert n == 1                                    # instrument_libs is excluded here (handled by copy_app_payload)
+    out = dist / "app" / "acme" / "acme_steps"
+    assert (out / "__init__.py").is_file()
+    assert not (out / "__pycache__").exists()
+
+
+def test_copy_app_code_packages_warns_but_does_not_crash_on_missing_package(monkeypatch, tmp_path, capsys):
+    repo, dist = tmp_path / "repo", tmp_path / "dist"
+    app = repo / "app" / "acme"
+    app.mkdir(parents=True)
+    (app / "controller.json").write_text(json.dumps({
+        "schema_version": 1, "step_type_packages": ["ghost_steps"]}))
+    dist.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    n = br.copy_app_code_packages("acme", compile_app_payload=False)
+    assert n == 0
+    assert "ghost_steps" in capsys.readouterr().out
+
+
+def test_copy_app_payload_copies_step_type_packages_by_default(monkeypatch, tmp_path):
+    repo, dist = tmp_path / "repo", tmp_path / "dist"
+    _fake_app_with_step_package(repo)
+    dist.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    br.copy_app_payload("acme")                      # compile_app_payload defaults False
+    assert (dist / "app" / "acme" / "acme_steps" / "__init__.py").is_file()
+    assert (dist / "instrument_libs" / "__init__.py").is_file()      # unconditional, as before
+
+
+def test_build_backend_omits_app_packages_by_default_but_includes_controller(monkeypatch, tmp_path):
+    """The narrow-compile-surface default: controller is still force-compiled (the recipe
+    catalog imports it), but the app's OWN step-type/library packages are NOT — they ship as
+    plain .py instead (copy_app_code_packages), which is what makes them independently
+    patchable without a full run.exe recompile."""
+    repo = tmp_path / "repo"
+    _fake_app_with_step_package(repo)
+    backend = tmp_path / "backend"
+    backend.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "BACKEND", backend)
+    monkeypatch.setattr(br, "OUT", tmp_path / "release-build")
+    captured = {}
+
+    def _fake_run(cmd, cwd, env=None):
+        captured["cmd"] = cmd
+    monkeypatch.setattr(br, "_run", _fake_run)
+
+    br.build_backend(jobs=1, track="app", product="acme", compile_app_payload=False)
+    cmd = captured["cmd"]
+    assert "--include-package=controller" in cmd
+    assert "--include-package=acme_steps" not in cmd
+    assert "--include-package=instrument_libs" not in cmd
+
+
+def test_build_backend_compiles_app_packages_in_with_the_opt_in_flag(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    _fake_app_with_step_package(repo)
+    backend = tmp_path / "backend"
+    backend.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "BACKEND", backend)
+    monkeypatch.setattr(br, "OUT", tmp_path / "release-build")
+    captured = {}
+
+    def _fake_run(cmd, cwd, env=None):
+        captured["cmd"] = cmd
+    monkeypatch.setattr(br, "_run", _fake_run)
+
+    br.build_backend(jobs=1, track="app", product="acme", compile_app_payload=True)
+    cmd = captured["cmd"]
+    assert "--include-package=acme_steps" in cmd
+    assert "--include-package=instrument_libs" in cmd
+
+
+def test_package_app_payload_artifact_zips_app_and_instrument_libs_with_run_dist_layout(monkeypatch, tmp_path):
+    out = tmp_path / "release-build"
+    dist = out / "run.dist"
+    (dist / "app" / "acme").mkdir(parents=True)
+    (dist / "app" / "acme" / "acme_steps").mkdir()
+    (dist / "app" / "acme" / "acme_steps" / "__init__.py").write_text("# steps")
+    (dist / "instrument_libs").mkdir()
+    (dist / "instrument_libs" / "__init__.py").write_text("# drivers")
+    out.mkdir(exist_ok=True)
+    (out / "RELEASE.json").write_text(json.dumps({"version": "1.2.3"}))
+    monkeypatch.setattr(br, "OUT", out)
+    monkeypatch.setattr(br, "DIST", dist)
+
+    br.package_app_payload_artifact("acme")
+
+    archive = out / "acme-1.2.3-app-payload.zip"
+    assert archive.is_file()
+    import zipfile
+    with zipfile.ZipFile(archive) as zf:
+        names = set(zf.namelist())
+    assert "app/acme/acme_steps/__init__.py" in names
+    assert "instrument_libs/__init__.py" in names
+    rel = json.loads((out / "RELEASE.json").read_text())
+    assert rel["app_payload_artifact"] == "acme-1.2.3-app-payload.zip"
+    assert len(rel["app_payload_artifact_hash"]) == 64        # sha256 hex
+
+
+def test_package_app_payload_artifact_skips_when_nothing_to_package(monkeypatch, tmp_path, capsys):
+    out = tmp_path / "release-build"
+    dist = out / "run.dist"
+    dist.mkdir(parents=True)                          # no app/ or instrument_libs/ subdirs
+    (out / "RELEASE.json").write_text(json.dumps({"version": "1.0.0"}))
+    monkeypatch.setattr(br, "OUT", out)
+    monkeypatch.setattr(br, "DIST", dist)
+
+    br.package_app_payload_artifact("acme")
+
+    assert not (out / "acme-1.0.0-app-payload.zip").exists()
+    assert "skipped" in capsys.readouterr().out

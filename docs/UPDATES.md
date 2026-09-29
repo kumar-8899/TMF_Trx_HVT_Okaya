@@ -41,6 +41,7 @@ decision below follows from that.
 | **AMC tier** | Present in the schema, **non-functional in phase 1.** | Reserved without committing to semantics. |
 | **Framework sync** | Weekly workflow that **opens a PR and never auto-merges**, restricted to the **same MAJOR**. | Its real purpose is drift detection, not updating. |
 | **Traceability** | No additional stamping. `RELEASE.json` already carries the pinned framework version. | Already covered. |
+| **Patch granularity** | A release publishes either a full or an app-payload-only artifact (`sign_update.py`'s `KS_ARTIFACT_SCOPE`), never a manifest-side "choose one" flag. The station **detects** which kind it received from the hash-verified content (top-level `run.exe` present → full) and swaps only `run.dist/app` + `run.dist/instrument_libs` for the app-payload kind, never `run.exe`. | Narrow compile surface (ADR [0002](decisions/0002-nuitka-compile-scope.md)) means app-owned code (step types, drivers) is no longer compiled into `run.exe` by default — a bugfix to it doesn't need a full-tree swap. A signed `scope` field was considered and rejected: `manifest_signing_bytes()` mirrors a fixed external Rust struct, so an extra field would ride along **unsigned** — detecting scope from already-hash-verified content has no such gap. |
 
 ---
 
@@ -126,12 +127,22 @@ POST /update/apply/{release_id}
      → 409 if a run is active, or if the offer is not applicable.
 
 POST /update/install-file   { ksupdate_path, zip_path }
-     → 200 { source: "file", state: "downloaded", staged_dir, ... }
+     → 200 { source: "file", state: "downloaded", staged_dir, scope, ... }
      AIR-GAPPED (§E-bis): stage an update from LOCAL .ksupdate + .zip (USB),
      no network. Runs the SAME verify (ingest → signature + tripwire) +
      full_artifact_hash check + stage pipeline as /update/download — only the
      SOURCE differs. Then Install + Relaunch the staged offer as usual.
      → 402 AMC, 404 missing file, 502 bad signature / hash mismatch.
+
+POST /update/scan-incoming   {}
+     → 200 { found: [ {source:"file", scope, version, ...} | {slot, error} ] }
+     AIR-GAPPED convenience over /update/install-file: no paths to type — looks
+     in two FIXED slots, <data_dir>/updates/incoming/{full,app-payload}/
+     update.{ksupdate,zip}, and stages whichever are present (§3.2). A bad
+     slot doesn't block the other — its entry carries an `error` instead. The
+     delivery tool (deploy/build-update-package.ps1's Inno .exe) drops files
+     at these fixed names; this is what "Scan for updates on this PC" calls.
+     → 409 if station_mode is "online" (same source gate as install-file).
 
 POST /update/relaunch/{release_id}
      → 200, then exit(42). Launcher swaps. (Existing.)
@@ -194,6 +205,60 @@ Rate limits are a non-issue: 5,000 requests/hour authenticated against an
 hourly poll. **No network must log and continue.** A bench that cannot reach
 GitHub still boots and still runs tests.
 
+### 3.2 App-payload-scope releases (patch-only)
+
+`build_release.py`'s `package_app_payload_artifact()` produces a SECOND,
+smaller zip — `<slug>-<version>-app-payload.zip` — alongside the full one
+whenever there is app-owned payload to package (skipped for `--track
+framework` or `--compile-app-payload`). A release whose diff is entirely
+app-owned (a step-type bugfix, a new instrument driver, updated maps/specs)
+signs **that** artifact instead of the full one —
+`tools/ks_release_signer/sign_update.py`'s `KS_ARTIFACT_SCOPE=app-payload`
+picks `RELEASE.json`'s `app_payload_artifact_hash` as the signed
+`full_artifact_hash` field — and publishes the matching zip as the release's
+one `.zip` asset, under the SAME standard name (§3's "exactly one
+`.ksupdate`, exactly one `.zip`" rule is completely unchanged — a release
+ships one scope, decided at signing time, never both).
+
+In practice, cut a patch-only release with `deploy/cut-release.ps1 -Scope
+app-payload` — the wrapper that sets `KS_ARTIFACT_SCOPE`, verifies
+`RELEASE.json` actually has an `app_payload_artifact_hash` first (a build with
+nothing app-owned to package fails loudly with a clear message instead of
+silently falling back to full), and aliases the smaller zip onto the
+standard `<slug>-<ver>.zip` path before publishing — every other step is
+identical to a normal (`-Scope full`, the default) release: same version bump
+on `app/<slug>/VERSION`, same tag, same GitHub Release.
+
+**The signed manifest itself carries no `scope` field.** Station side:
+`UpdateService._stage_zip_bytes` verifies the single `full_artifact_hash` as
+always, then inspects the verified zip's own content — a top-level `run.exe`
+means a full artifact, its absence means app-payload-only — and stages
+accordingly (`staged/run.dist/` vs. `staged/app-payload/`).
+`download()`/`install_from_file()` record that *detected* scope on the offer;
+`request_relaunch`'s marker carries it through to the launcher. This
+avoids adding an unsigned field to the trust boundary — see ADR
+[0002](decisions/0002-nuitka-compile-scope.md) for why a manifest-side
+`scope` flag was rejected (it would ride along unsigned and could redirect a
+legitimately-signed manifest's hash check onto attacker-chosen content).
+
+### 3.3 Incoming-folder delivery (no manual paths, no manual scope choice)
+
+`install_from_file` needs two typed paths per update — fine occasionally, friction for a fleet.
+`UpdateService.scan_incoming` (`POST /update/scan-incoming`) instead looks in two FIXED slots:
+
+```
+<data_dir>/updates/incoming/full/{update.ksupdate, update.zip}
+<data_dir>/updates/incoming/app-payload/{update.ksupdate, update.zip}
+```
+
+and stages whichever pair(s) are present through the identical `install_from_file` pipeline (same
+verify, same hash check, same content-based scope detection — this is a convenience over WHERE the
+two paths come from, not a second trust path). `deploy/build-update-package.ps1` builds an Inno
+tool that drops files at exactly these fixed names on an EXISTING install — see
+`docs/DEPLOY_STATION.md`'s air-gapped section. A bad slot's error is returned alongside a good
+slot's success (`{"slot": ..., "error": ...}` vs. a normal offer dict) so one bad file never blocks
+the other.
+
 ---
 
 ## 4. The swap journal (highest-severity item in this document)
@@ -239,6 +304,24 @@ instrument I/O. Three layers stop that:
 If the swap still fails, the launcher writes `data/last_swap_error.json`; the
 Updates page shows `swap_failed` with the error and strike count instead of
 looping forever on `relaunch_requested`.
+
+### 4.1a App-payload scope: the same journal, two smaller swap units
+
+`SwapManager` (`launcher.py`) is already path-generic — nothing about it is
+`run.dist`-specific. An `"app-payload"`-scope marker (§3.2) reuses it
+unchanged, twice: one instance scoped to `run.dist/app` (own journal/backups
+under `state/app-payload-swap/app/`), one scoped to `run.dist/instrument_libs`
+(`state/app-payload-swap/instrument_libs/`) — each independently
+journal-safe, reconciled at every launcher startup exactly like the full-tree
+swap. Either unit can be absent from a given patch (staged_dir missing →
+`apply_staged` no-ops cleanly), so a step-type-only patch doesn't touch
+`instrument_libs` and vice versa.
+
+No separate rollback path was built for this scope: the existing "two failed
+boots → revert to `last_known_good`" auto-recovery (§6) already covers it,
+because `mark_last_known_good()` snapshots the whole live `run.dist` —
+including whatever app payload an app-payload-scope swap most recently put
+there — so reverting the full tree correctly undoes a bad patch too.
 
 ### 4.2 Config-supplied paths must resolve OUTSIDE run.dist
 

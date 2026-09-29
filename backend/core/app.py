@@ -613,6 +613,18 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 — bad signature / hash mismatch / unreadable
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    @app.post("/update/scan-incoming", dependencies=_LIC)
+    async def update_scan_incoming() -> dict:
+        """Air-gapped convenience: stage from the two FIXED incoming/{full,app-payload} slots
+        instead of typing two file paths — see UpdateService.scan_incoming. A delivery tool
+        (deploy/build-update-package.ps1's Inno .exe) drops files there; the operator just clicks
+        this instead of hunting for where the update files landed."""
+        from core.services.updates import StationModeBlocked
+        try:
+            return {"found": await app.state.updates.scan_incoming()}
+        except StationModeBlocked as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.post("/update/apply/{release_id}", dependencies=_LIC)
     async def update_apply(release_id: str) -> dict:
         # Never swap a binary mid-test (UPDATES.md item 8): refuse while any run is active.

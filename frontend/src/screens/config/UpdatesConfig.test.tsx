@@ -70,6 +70,60 @@ describe("UpdatesConfig", () => {
     expect(screen.getByText(/Online check .* download is disabled/)).toBeInTheDocument();
   });
 
+  it("air_gapped: Scan for updates stages what it finds and shows a summary", async () => {
+    mockFetch({
+      "GET /update/offers": {
+        body: { current: { version: "1.16.0" }, offers: [], source: null, station_mode: "air_gapped" },
+      },
+      "GET /update/status": { body: { backups: [], last_known_good: null } },
+      "POST /update/scan-incoming": {
+        body: { found: [
+          { track: "app", version: "2.0.0", scope: "full" },
+          { track: "app", version: "2.0.1", scope: "app-payload" },
+        ] },
+      },
+    });
+    render(<UpdatesConfig />);
+    const btn = await screen.findByText("Scan for updates on this PC");
+    fireEvent.click(btn.closest("button")!);
+    await waitFor(() => expect(screen.getByText(
+      /Staged from local files: app 2\.0\.0 \(full\), app 2\.0\.1 \(app-payload\)/)).toBeInTheDocument());
+  });
+
+  it("air_gapped: Scan for updates reports nothing found without erroring", async () => {
+    mockFetch({
+      "GET /update/offers": {
+        body: { current: { version: "1.16.0" }, offers: [], source: null, station_mode: "air_gapped" },
+      },
+      "GET /update/status": { body: { backups: [], last_known_good: null } },
+      "POST /update/scan-incoming": { body: { found: [] } },
+    });
+    render(<UpdatesConfig />);
+    const btn = await screen.findByText("Scan for updates on this PC");
+    fireEvent.click(btn.closest("button")!);
+    await waitFor(() => expect(screen.getByText(/No update files found/)).toBeInTheDocument());
+  });
+
+  it("air_gapped: Scan for updates surfaces a per-slot error without hiding a good slot", async () => {
+    mockFetch({
+      "GET /update/offers": {
+        body: { current: { version: "1.16.0" }, offers: [], source: null, station_mode: "air_gapped" },
+      },
+      "GET /update/status": { body: { backups: [], last_known_good: null } },
+      "POST /update/scan-incoming": {
+        body: { found: [
+          { track: "app", version: "2.0.0", scope: "full" },
+          { slot: "app-payload", error: "artifact hash mismatch: got deadbe… want abc123…" },
+        ] },
+      },
+    });
+    render(<UpdatesConfig />);
+    const btn = await screen.findByText("Scan for updates on this PC");
+    fireEvent.click(btn.closest("button")!);
+    await waitFor(() => expect(screen.getByText(/Staged from local files: app 2\.0\.0 \(full\)/)).toBeInTheDocument());
+    expect(screen.getByText(/app-payload: artifact hash mismatch/)).toBeInTheDocument();
+  });
+
   it("relaunch waits for the backend to return, then re-fetches (not a static message)", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let offersCalls = 0;

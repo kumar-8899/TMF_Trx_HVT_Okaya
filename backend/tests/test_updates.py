@@ -412,8 +412,9 @@ async def test_materialize_unpacks_and_verifies_hash(tmp_path, monkeypatch):
     svc, db = await _svc(_manifest())
     svc._data_dir = tmp_path
     rel = {"assets": [{"name": "app-1.2.0.zip", "url": "http://x/z", "browser_download_url": "http://x/z"}]}
-    staged = svc._materialize(rel, {"release_id": "r", "full_artifact_hash": sha}, None)
-    assert (Path(staged) / "run.exe").read_text() == "BINARY"     # unpacked
+    result = svc._materialize(rel, {"release_id": "r", "full_artifact_hash": sha}, None)
+    assert (Path(result["staged_dir"]) / "run.exe").read_text() == "BINARY"     # unpacked
+    assert result["scope"] == "full"                                # detected from run.exe's presence
     with pytest.raises(RuntimeError):                              # hash mismatch rejected
         svc._materialize(rel, {"release_id": "r2", "full_artifact_hash": "deadbeef"}, None)
     await db.close()
@@ -542,4 +543,227 @@ async def test_air_gapped_station_allows_install_from_file(tmp_path):
 async def test_unknown_station_mode_falls_back_to_online():
     svc, db = await _svc(_manifest(), station_mode="weird")
     assert svc.station_mode == "online"
+    await db.close()
+
+
+# --- app-payload scope: a patch-only artifact that swaps run.dist/app + instrument_libs,
+# not run.exe (build_release.py's package_app_payload_artifact / narrow compile surface).
+#
+# Scope is NEVER read from the manifest — sign_update.py never puts a "scope" field on the
+# signed manifest (tools/ks_release_signer/canonical.py mirrors a FIXED Rust struct; any extra
+# Python dict key would ride along UNSIGNED and be a real signature-bypass gap — see
+# _stage_zip_bytes's docstring). Instead the ONE signed `full_artifact_hash` is verified as
+# always, and scope is DETECTED from the verified zip's own content (a top-level run.exe means
+# "full"). These tests lock in that detection, not a manifest claim. ---------------------------
+
+def _zip_bytes(*names: str) -> bytes:
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in names:
+            z.writestr(n, "x")
+    return buf.getvalue()
+
+
+async def test_ingest_never_reads_a_scope_field_off_the_manifest():
+    """Even if something upstream stuffed an unsigned 'scope' onto the parsed manifest dict
+    (e.g. a dev-signed/untrusted bundle), ingest() must not carry it into the offer — scope is
+    only ever set later, from hash-verified content (download()/install_from_file())."""
+    m = _manifest(version="1.2.0")
+    m["scope"] = "app-payload"                     # simulates an attacker-added unsigned field
+    svc, db = await _svc(m)
+    rec = await svc.ingest("dummy.ksupdate")
+    assert "scope" not in rec
+    await db.close()
+
+
+async def test_materialize_detects_full_scope_from_a_top_level_run_exe(tmp_path):
+    import hashlib
+
+    data = _zip_bytes("run.exe", "RELEASE.json")
+    sha = hashlib.sha256(data).hexdigest()
+
+    from core.services import updates as U
+    orig = U._asset_bytes
+    U._asset_bytes = staticmethod(lambda asset, token: data)
+    try:
+        svc, db = await _svc(_manifest())
+        svc._data_dir = tmp_path
+        rel = {"assets": [{"name": "acme-1.2.0.zip", "url": "http://x/full"}]}
+        result = svc._materialize(rel, {"release_id": "r", "full_artifact_hash": sha}, None)
+        assert result["scope"] == "full"
+        assert result["staged_dir"].endswith("run.dist")
+    finally:
+        U._asset_bytes = orig
+    await db.close()
+
+
+async def test_materialize_detects_app_payload_scope_from_the_absence_of_run_exe(tmp_path):
+    import hashlib
+    from pathlib import Path
+
+    data = _zip_bytes("app/acme/acme_steps/__init__.py", "instrument_libs/__init__.py")
+    sha = hashlib.sha256(data).hexdigest()
+
+    from core.services import updates as U
+    orig = U._asset_bytes
+    U._asset_bytes = staticmethod(lambda asset, token: data)
+    try:
+        svc, db = await _svc(_manifest())
+        svc._data_dir = tmp_path
+        rel = {"assets": [{"name": "acme-1.2.0.zip", "url": "http://x/patch"}]}
+        result = svc._materialize(rel, {"release_id": "r", "full_artifact_hash": sha}, None)
+        assert result["scope"] == "app-payload"
+        assert result["staged_dir"].endswith("app-payload")           # separate leaf from run.dist
+        assert (Path(result["staged_dir"]) / "app" / "acme" / "acme_steps" / "__init__.py").is_file()
+    finally:
+        U._asset_bytes = orig
+    await db.close()
+
+
+async def test_stage_zip_bytes_still_verifies_against_the_one_signed_hash(tmp_path):
+    """There is only ONE hash field (full_artifact_hash) regardless of scope — a mismatch is
+    rejected before content is even inspected for scope."""
+    svc, db = await _svc(_manifest())
+    svc._data_dir = tmp_path
+    data = _zip_bytes("app/acme/acme_steps/__init__.py")
+    with pytest.raises(RuntimeError):
+        svc._stage_zip_bytes(data, {"release_id": "r", "full_artifact_hash": "deadbeef"})
+    await db.close()
+
+
+async def test_request_relaunch_marker_carries_the_detected_app_payload_scope(tmp_path):
+    svc, db = await _svc(_manifest(track="app", version="1.4.0"), version="1.0.0")
+    svc._data_dir = tmp_path
+    rec = await svc.ingest("dummy.ksupdate")
+    # Simulate what download()/install_from_file() would have set post-stage (content-detected,
+    # not manifest-derived) — request_relaunch just reads whatever the offer record already has.
+    rec["scope"] = "app-payload"
+    rec["staged_dir"] = str(tmp_path / "staged" / "app-payload")
+    await db.repo.put("update_offer", rec, id=rec["release_id"])
+    await svc.apply(rec["release_id"])
+    marker = await svc.request_relaunch(rec["release_id"])
+    assert marker["scope"] == "app-payload"
+    assert marker["expected_hash"] == "abc"        # still the one full_artifact_hash field
+    await db.close()
+
+
+async def test_request_relaunch_marker_defaults_scope_full_when_never_staged(tmp_path):
+    """Dev / a trust-only release with no staged_dir (offer["scope"] never set) — the marker
+    must still default to "full" so the launcher's original single-tree restart-only path holds."""
+    svc, db = await _svc(_manifest(version="1.5.0"))
+    svc._data_dir = tmp_path
+    rec = await svc.ingest("dummy.ksupdate")
+    await svc.apply(rec["release_id"])
+    marker = await svc.request_relaunch(rec["release_id"])
+    assert marker["scope"] == "full"
+    assert marker["expected_hash"] == "abc"         # full_artifact_hash
+    await db.close()
+
+
+# --- scan_incoming: fixed-slot convenience over install_from_file (no manual path typing) ------
+# deploy/build-update-package.ps1's Inno .exe drops files at these two fixed slots; the operator
+# clicks "Scan for updates" instead of browsing to two paths per release.
+
+class _SlotLicensing:
+    """Returns a different manifest depending on which .ksupdate path is ingested — the two
+    incoming slots are independent releases (different release_id/version), unlike the single
+    shared manifest _FakeLicensing uses elsewhere in this file."""
+
+    def __init__(self, by_path: dict):
+        self._by_path = by_path
+
+    def ingest_manifest(self, bundle_path):
+        for needle, manifest in self._by_path.items():
+            if needle in bundle_path:
+                return dict(manifest)
+        raise RuntimeError(f"no fake manifest registered for {bundle_path}")
+
+
+async def _svc_slots(by_path, *, version="1.0.0", station_mode="air_gapped"):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    diag = Diagnostics("st1", "0.0.0", sinks=[lambda e: None])
+    return UpdateService(db, _SlotLicensing(by_path), diag,
+                         current_version=version, station_mode=station_mode), db
+
+
+def _write_incoming(svc, slot, *, ksupdate_marker: str, zip_bytes: bytes):
+    d = svc.incoming_dir(slot)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "update.ksupdate").write_text(ksupdate_marker, encoding="utf-8")
+    (d / "update.zip").write_bytes(zip_bytes)
+
+
+async def test_scan_incoming_stages_both_slots_when_present(tmp_path):
+    import hashlib
+
+    full_zip = _zip_bytes("run.exe")
+    patch_zip = _zip_bytes("app/acme/acme_steps/__init__.py")
+    manifests = {
+        "full": _manifest(track="app", version="2.0.0"),
+        "app-payload": _manifest(track="app", version="2.0.1"),
+    }
+    manifests["full"]["full_artifact_hash"] = hashlib.sha256(full_zip).hexdigest()
+    manifests["app-payload"]["full_artifact_hash"] = hashlib.sha256(patch_zip).hexdigest()
+    svc, db = await _svc_slots({"full": manifests["full"], "app-payload": manifests["app-payload"]},
+                               version="1.9.0")
+    svc._data_dir = tmp_path
+    _write_incoming(svc, "full", ksupdate_marker="full", zip_bytes=full_zip)
+    _write_incoming(svc, "app-payload", ksupdate_marker="app-payload", zip_bytes=patch_zip)
+
+    found = await svc.scan_incoming()
+
+    assert len(found) == 2
+    by_version = {f["version"]: f for f in found}
+    assert by_version["2.0.0"]["scope"] == "full"
+    assert by_version["2.0.1"]["scope"] == "app-payload"
+    offers = await svc.list_offers()
+    assert len(offers) == 2                                        # both recorded as distinct offers
+    await db.close()
+
+
+async def test_scan_incoming_skips_a_missing_slot(tmp_path):
+    import hashlib
+
+    full_zip = _zip_bytes("run.exe")
+    manifest = _manifest(track="app", version="2.0.0")
+    manifest["full_artifact_hash"] = hashlib.sha256(full_zip).hexdigest()
+    svc, db = await _svc_slots({"full": manifest}, version="1.9.0")
+    svc._data_dir = tmp_path
+    _write_incoming(svc, "full", ksupdate_marker="full", zip_bytes=full_zip)
+    # app-payload slot deliberately left empty
+
+    found = await svc.scan_incoming()
+
+    assert len(found) == 1 and found[0]["scope"] == "full"
+    await db.close()
+
+
+async def test_scan_incoming_requires_air_gapped():
+    from core.services.updates import StationModeBlocked
+    svc, db = await _svc_slots({}, station_mode="online")
+    with pytest.raises(StationModeBlocked):
+        await svc.scan_incoming()
+    await db.close()
+
+
+async def test_scan_incoming_reports_a_bad_slot_without_blocking_the_other(tmp_path):
+    import hashlib
+
+    full_zip = _zip_bytes("run.exe")
+    manifest_full = _manifest(track="app", version="2.0.0")
+    manifest_full["full_artifact_hash"] = hashlib.sha256(full_zip).hexdigest()
+    svc, db = await _svc_slots({"full": manifest_full}, version="1.9.0")
+    svc._data_dir = tmp_path
+    _write_incoming(svc, "full", ksupdate_marker="full", zip_bytes=full_zip)
+    # app-payload slot: files exist, but no fake manifest registered for it → ingest raises
+    _write_incoming(svc, "app-payload", ksupdate_marker="app-payload", zip_bytes=_zip_bytes("x"))
+
+    found = await svc.scan_incoming()
+
+    by_scope_or_slot = {f.get("scope") or f.get("slot"): f for f in found}
+    assert by_scope_or_slot["full"]["version"] == "2.0.0"
+    assert "error" in by_scope_or_slot["app-payload"]
     await db.close()

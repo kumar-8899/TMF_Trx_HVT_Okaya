@@ -103,27 +103,49 @@ mints a dev lease — verified green on this workstation.
     manifests/schemas, AND — for `--track app` — everything the app needs, INSIDE run.dist so an
     update swap carries it all:
     - **`run.exe` also runs the controller** — `run.exe --controller <config>` (ONE compiled exe).
-      The app's `step_type_packages` + `instrument_libs` are **compiled into run.exe** (they load by
-      name via config; `--include-package(-data)` for each, discovered from `app/<slug>/controller.json`).
-      A lean, separately-compiled `controller.exe` fails to bundle the pure-Python stdlib on Nuitka's
-      **zig** backend (what an MSVC-less Windows builder gets); the backend's large graph always pulls
-      the stdlib in, so the controller reuses it. **MSVC is the tested backend** — install VS "Desktop
-      development with C++" (or the standalone Build Tools) for a reliable Windows app build.
-    - `app/<slug>/` — the app DEFINITION (controller.json, maps/, specs/). **No `recipes/`, no
-      instrument instances, no credentials** — those are site config set on the bench, held in the
-      external state (`STATE_ROOT/config` + DB) and untouched by a swap.
-    - `instrument_libs/` — the copied drivers (provenance; imports use the compiled-in copy).
+      `core` + `modules` + `controller` are **compiled into run.exe** — that's the framework's own
+      IP. The app's `step_type_packages` + `library_packages` + `instrument_libs` are, by default,
+      **NOT compiled in** (narrow compile surface, ADR
+      [0002](decisions/0002-nuitka-compile-scope.md)) — app-owned code, not framework IP. They ship
+      as plain `.py` under `run.dist/app/<slug>/` + `run.dist/instrument_libs/` instead and load at
+      runtime via `step_type_paths`/`library_paths` (the frozen build's `controller_supervisor.py`
+      auto-appends those directories). Pass `--compile-app-payload` to force-compile them in
+      instead (the old behavior) if this app's own step types/drivers need Nuitka's protection too
+      — that's the fork owner's call. A lean, separately-compiled `controller.exe` fails to bundle
+      the pure-Python stdlib on Nuitka's **zig** backend (what an MSVC-less Windows builder gets);
+      the backend's large graph always pulls the stdlib in, so the controller reuses it. **MSVC is
+      the tested backend** — install VS "Desktop development with C++" (or the standalone Build
+      Tools) for a reliable Windows app build.
+    - `app/<slug>/` — the app DEFINITION (controller.json, maps/, specs/, and — narrow compile
+      surface — the step-type/library packages' source). **No `recipes/`, no instrument instances,
+      no credentials** — those are site config set on the bench, held in the external state
+      (`STATE_ROOT/config` + DB) and untouched by a swap.
+    - `instrument_libs/` — the copied drivers (the LOADED copy by default; provenance-only source
+      copy when `--compile-app-payload`).
     - `config/app.example.json` — promoted from the app-owned, non-secret `backend/config/
       app.release.json` (or `--app-config`); credentials are stripped. This is what `ensure_live`
       copies to the external live config on first boot, so the frozen app boots with the app's own
       branding + controller block, not the framework shell.
   - plus `docs/` + `frontend/` (built SPA) + `station.py` + `keystation_core.dll` +
     `RELEASE.json` (version + framework_version + pinned_fw_version + SHA-256 of every file +
-    `full_artifact_hash`).
+    `full_artifact_hash` + `app_payload_artifact`/`app_payload_artifact_hash` when a supplementary
+    app-payload-only zip was also produced).
   `--track framework` builds the backend-only shell (framework self-test).
 - **A frozen app runs its OWN test sequence**, not just the UI: the supervisor spawns
-  `run.exe --controller <config>`, which imports the app's step-type package by name (compiled in) —
-  verified by the app-build acceptance step (a build-time gate; TEMPLATE.md §4).
+  `run.exe --controller <config>`, which imports the app's step-type package by name (from disk by
+  default, or compiled in with `--compile-app-payload`) — verified by the app-build acceptance step
+  (a build-time gate; TEMPLATE.md §4).
+- **Patch-only releases** (app-owned code changed, framework didn't): `build_release.py` always
+  produces `package_app_payload_artifact`'s `<slug>-<ver>-app-payload.zip` alongside the full zip
+  when there's app payload to package; `cut-release.ps1 -Scope app-payload` (which sets
+  `sign_update.py`'s `KS_ARTIFACT_SCOPE=app-payload` and fails loudly if there's nothing app-owned
+  to patch) then signs and publishes that smaller artifact **instead of** the full one, as the
+  release's one `.zip` asset (§3's "exactly one" rule unchanged — a release ships one scope, not
+  both). The signed manifest carries no new field for this — the station detects scope from the
+  hash-verified content itself (a top-level `run.exe` means "full") and the launcher swaps only
+  `run.dist/app` + `run.dist/instrument_libs`, leaving `run.exe` untouched — see
+  [UPDATES.md §app-payload-scope](UPDATES.md) and ADR [0002](decisions/0002-nuitka-compile-scope.md)
+  (including why a signed `scope` field would have been a real signature-bypass gap).
 - The app repo's `release.yml` (a template ships in P-b2) runs: tests → Nuitka →
   zip+hash → sign the app `.ksupdate` → publish the app's GitHub Release.
 - Registration as a **signed** Keystation framework release (manifest + signed

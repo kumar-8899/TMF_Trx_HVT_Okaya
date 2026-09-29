@@ -4,6 +4,21 @@ cut-release.ps1 - the ONE file to build or release a Test & Measurement app.
   .\deploy\cut-release.ps1                 # build + publish a GitHub Release (default)
   .\deploy\cut-release.ps1 -BuildOnly      # build the artifacts only (no git, no publish)
   .\deploy\cut-release.ps1 -Slug <product> # override the auto-detected app slug
+  .\deploy\cut-release.ps1 -BuildUpdatePackage  # ALSO build deploy\Output\<AppShort>-Update-<ver>.exe
+                                                 # (an offline delivery tool for air-gapped fleets -
+                                                 # docs/DEPLOY_STATION.md, ADR 0002); off by default,
+                                                 # since a networked fleet just uses the GitHub Release
+                                                 # + in-app Check/Download and never needs this.
+  .\deploy\cut-release.ps1 -Scope app-payload   # cut THIS release itself as an app-payload-only
+                                                 # patch: signs KS_ARTIFACT_SCOPE=app-payload and
+                                                 # publishes the SMALLER package_app_payload_artifact
+                                                 # zip as the release's one <slug>-<ver>.zip asset
+                                                 # (same name, smaller content - docs/UPDATES.md
+                                                 # §3.2) instead of the full run.dist. Use this when
+                                                 # the diff since the last release is entirely
+                                                 # app-owned (a step-type bugfix, a new driver,
+                                                 # updated maps/specs) - nothing in core/modules/
+                                                 # controller. Default "full" is the normal release.
 
 This is the single entry point for the app-track build/release pipeline: it orchestrates
 every step so you never invoke the sub-scripts directly - fetch-mosquitto.ps1,
@@ -15,7 +30,9 @@ The output matches docs/templates/release.yml's GitHub-hosted job - a GitHub Rel
 the same FOUR assets (<slug>-<ver>.ksupdate, <slug>-<ver>.zip, run_station.exe,
 <AppShort>-Setup-<ver>.exe) - but built with a PERSISTENT LOCAL Nuitka cache. `-BuildOnly`
 stops after producing those artifacts locally (no commit/tag/push, no gh release), for a quick
-local build or a dry build check.
+local build or a dry build check. `-Scope app-payload` keeps those same FOUR asset names but
+makes the .zip smaller (package_app_payload_artifact instead of the full run.dist) - see the
+-Scope example above.
 
 Slug is auto-detected as the sole directory under app/ (pass -Slug to override / disambiguate),
 so a fork runs it with no args. Every fork inherits this file unchanged - it is no longer a
@@ -38,7 +55,9 @@ param(
   [string]$Iscc,
   [switch]$SkipTests,
   [switch]$AllowDirty,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$BuildUpdatePackage,
+  [ValidateSet("full", "app-payload")][string]$Scope = "full"
 )
 
 $ErrorActionPreference = "Stop"
@@ -153,13 +172,31 @@ if ($rc -eq 3) {
 }
 
 # --- 6. Sign the .ksupdate (internal step; KS_INTERMEDIATE_* from the env if present) ---------
-Step "6/10  sign .ksupdate"
+Step "6/10  sign .ksupdate  (scope=$Scope)"
 $env:KS_TRACK = "app"
+$env:KS_ARTIFACT_SCOPE = $Scope
 if (-not $env:KS_INTERMEDIATE_SEED) {
   Warn "KS_INTERMEDIATE_SEED not set - DEV-signing an UNTRUSTED .ksupdate (installs only where updates.allow_unverified=true)."
 }
 python tools/ks_release_signer/sign_update.py "release-build/RELEASE.json" "release-build/$Slug-$new.ksupdate"
-if ($LASTEXITCODE) { throw "sign_update.py failed" }
+if ($LASTEXITCODE) { throw "sign_update.py failed (scope=$Scope - if this is 'app-payload', check RELEASE.json has an app_payload_artifact_hash: build_release.py --track app only produces one when there's app-owned payload to package)." }
+if ($Scope -eq "app-payload") {
+  # The release's ONE .zip asset keeps the SAME name (<slug>-<ver>.zip, §3's naming contract) -
+  # only its CONTENT differs. package_app_payload_artifact already wrote the smaller archive at
+  # this path; alias it over the full zip build_release.py also produced, so every downstream
+  # step (asset upload, docs, the station's own asset-matching) needs no scope-awareness at all.
+  $rel = Get-Content "release-build/RELEASE.json" -Raw | ConvertFrom-Json
+  $appPayloadZip = Join-Path $repo "release-build/$($rel.app_payload_artifact)"
+  if (-not $rel.app_payload_artifact -or -not (Test-Path $appPayloadZip)) {
+    throw "Scope 'app-payload' requested but release-build\RELEASE.json has no app_payload_artifact " +
+      "(package_app_payload_artifact only produces one when this build has app-owned payload to " +
+      "package - a step-type/library package or instrument_libs). Use -Scope full for this build, " +
+      "or check that app/$Slug/controller.json actually names app-owned packages."
+  }
+  Copy-Item $appPayloadZip "release-build/$Slug-$new.zip" -Force
+  Info "scope=app-payload: release-build/$Slug-$new.zip is now $($rel.app_payload_artifact) " +
+    "(the smaller archive) - run.exe is unchanged from the last full release"
+}
 
 # --- 7. WebView2 offline runtime - cache locally once, reuse --------------------------------
 Step "7/10  WebView2 offline runtime (cached)"
@@ -177,15 +214,27 @@ if ($runStationOk) {
   & (Join-Path $PSScriptRoot "build-installer.ps1") -Slug $Slug @isccArg
 } else { Warn "skipped (no run_station.exe this build)" }
 
+# --- 8b. Offline UPDATE delivery package (optional; air-gapped fleets) ------------------------
+if ($BuildUpdatePackage) {
+  Step "8b/10  build update package (-BuildUpdatePackage)"
+  $isccArg = @{}; if ($Iscc) { $isccArg["Iscc"] = $Iscc }
+  & (Join-Path $PSScriptRoot "build-update-package.ps1") -Slug $Slug @isccArg
+} else {
+  Step "8b/10  build update package  (skipped: pass -BuildUpdatePackage for an air-gapped fleet)"
+}
+
 # --- BuildOnly stops here: the artifacts are on disk, nothing is published --------------------
 if ($BuildOnly) {
   Step "done (build-only)"
   Info "artifacts:"
   Info "  release-build\run.dist\            (the swap unit)"
-  Info "  release-build\$Slug-$new.zip       (+ .ksupdate)"
+  Info "  release-build\$Slug-$new.zip       (+ .ksupdate)  [scope=$Scope]"
   if ($runStationOk) {
     Info "  release-build\run_station.exe"
     Info "  deploy\Output\*-Setup-$new.exe    (offline installer)"
+  }
+  if ($BuildUpdatePackage) {
+    Info "  deploy\Output\*-Update-$new.exe   (offline update delivery - Config -> Updates -> Scan)"
   }
   Info "Skipped: git commit/tag/push and the GitHub Release (that's the default mode, without -BuildOnly)."
   return
@@ -206,17 +255,24 @@ if ($notes.Count -eq 0) { $notes.Add("Release $new") }
 Set-Content "release-notes.md" ($notes -join "`n") -Encoding UTF8
 
 # --- 10. Publish the GitHub Release (same 4 assets as release.yml) ---------------------------
-Step "10/10  publish GitHub Release"
+Step "10/10  publish GitHub Release  (scope=$Scope)"
+$appJson = Join-Path $repo "backend/config/app.json"
+if (-not (Test-Path $appJson)) { $appJson = Join-Path $repo "backend/config/app.example.json" }
+$name = (Get-Content $appJson -Raw | ConvertFrom-Json).branding.name
+$short = ($name -replace '[^A-Za-z0-9]', ''); if (-not $short) { $short = ($Slug -replace '[^A-Za-z0-9]', '') }
 $assets = @("release-build/$Slug-$new.ksupdate", "release-build/$Slug-$new.zip")
 if ($runStationOk) {
-  $appJson = Join-Path $repo "backend/config/app.json"
-  if (-not (Test-Path $appJson)) { $appJson = Join-Path $repo "backend/config/app.example.json" }
-  $name = (Get-Content $appJson -Raw | ConvertFrom-Json).branding.name
-  $short = ($name -replace '[^A-Za-z0-9]', ''); if (-not $short) { $short = ($Slug -replace '[^A-Za-z0-9]', '') }
   $assets += "release-build/run_station.exe"
   $assets += "deploy/Output/$short-Setup-$new.exe"
 } else {
   Warn "publishing WITHOUT run_station.exe / setup.exe - first-install stays on deploy/install-station.ps1 until a rebuild fixes it."
+}
+if ($BuildUpdatePackage) {
+  # A 5th, OPTIONAL asset: the offline update-delivery tool. Published here too so an admin on a
+  # NETWORKED machine can fetch it from the release and carry it to the air-gapped bench (same
+  # reasoning as publishing the offline setup.exe) - it is never itself downloaded BY an
+  # air-gapped station.
+  $assets += "deploy/Output/$short-Update-$new.exe"
 }
 foreach ($a in $assets) { if (-not (Test-Path $a)) { throw "missing release asset: $a" } }
 if ($DryRun) {

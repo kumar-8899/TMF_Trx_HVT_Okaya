@@ -5,6 +5,65 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.26.1 — 2026-09-29
+
+**`cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).**
+
+v1.26.0 shipped the app-payload artifact + station-side detection, but `cut-release.ps1`'s main
+flow always signed and published the **full** scope — an app-payload-only patch had no way to be
+its own tagged release with a smaller primary `.zip`; it only existed as a supplementary asset via
+`-BuildUpdatePackage`.
+
+- New `-Scope full|app-payload` (default `full`, no behavior change for existing usage). With
+  `-Scope app-payload`: sets `KS_ARTIFACT_SCOPE`, verifies `RELEASE.json` actually has an
+  `app_payload_artifact_hash` first (fails loudly with a clear message otherwise, instead of
+  silently falling back to full), and aliases the smaller zip onto the standard
+  `<slug>-<ver>.zip` path — every downstream step (asset upload, the station's own asset
+  matching) needs no scope-awareness at all.
+- Fixed a latent bug in the same area: `$short` (used to name the `-BuildUpdatePackage` asset) was
+  only computed inside the `run_station.exe`-succeeded branch, so `-BuildUpdatePackage` combined
+  with a failed/fail-soft `run_station.exe` build would have published a broken asset path. Moved
+  the branding lookup out so it's always available.
+
+See `docs/UPDATES.md` §3.2, `docs/DEPLOY_STATION.md`'s patch-only-updates paragraph.
+
+## v1.26.0 — 2026-09-29
+
+**Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).**
+
+App-track builds took the full analysis+codegen hit on every build (only the C-compiler step was
+cached), and the update pipeline could only ever swap the entire `run.dist` tree — so a one-line
+bugfix in a customer's step type cost the same build time and swap risk as a framework upgrade.
+Neither was actually protecting framework IP: per `CLAUDE.md`'s fork-ownership boundary,
+`app/<name>/` is app-owned code, not Super_Test_App's. See ADR
+[0002](docs/decisions/0002-nuitka-compile-scope.md).
+
+- `--track app` builds no longer force-compile the app's `step_type_packages` /
+  `library_packages` / `instrument_libs` by default — they ship as plain `.py` under
+  `run.dist/app/<product>/` + `run.dist/instrument_libs/` instead, loaded at runtime via the
+  controller's existing `step_type_paths`/`library_paths` mechanism
+  (`controller_supervisor.py` now auto-appends the right directories). `core`/`modules`/
+  `controller` — the actual framework IP — are unaffected. `--compile-app-payload` opts back
+  into the old fully-compiled behavior for a fork that wants its own step types/drivers
+  protected too.
+- New `package_app_payload_artifact()` produces a supplementary `<slug>-<version>-app-payload.zip`
+  release asset. `core/services/updates.py` and `launcher.py` gained scope-aware staging: a
+  release can sign either the full artifact or `package_app_payload_artifact`'s smaller one
+  (`tools/ks_release_signer/sign_update.py`'s `KS_ARTIFACT_SCOPE`); the station **detects** which
+  kind it received from the hash-verified content itself (never a signed manifest field — that
+  would have been an unsigned, spoofable side-channel, see ADR 0002) and swaps only
+  `run.dist/app` + `run.dist/instrument_libs` for an app-payload artifact, leaving `run.exe`
+  untouched. See `docs/UPDATES.md` §3.2/§4.1a.
+- New `deploy/build-update-package.ps1` + `update-package.iss.template` (`cut-release.ps1
+  -BuildUpdatePackage`): an Inno-built `<AppShort>-Update-<ver>.exe` that drops an already-signed
+  update (full and/or app-payload scope) into an existing install's fixed incoming-update slots —
+  for an air-gapped fleet, no more hunting for where two files go or typing paths. New
+  `UpdateService.scan_incoming` / `POST /update/scan-incoming` / the Updates page's **"Scan for
+  updates on this PC"** button stage whatever the tool dropped, through the identical
+  verify/hash/stage pipeline as every other update path. Rollback (to a local backup) is
+  unaffected either way — it never needed file delivery. See `docs/DEPLOY_STATION.md`'s
+  air-gapped section and `docs/UPDATES.md` §3.3.
+
 ## v1.25.0 — 2026-09-28
 
 **Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).**

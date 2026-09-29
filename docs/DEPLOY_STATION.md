@@ -164,17 +164,57 @@ It disables `/update/check` + `/update/download` (they'd just fail against GitHu
 explanation. A networked station keeps the default `"online"`, which conversely refuses
 `install-file`. It's a **source** lock, independent of `allow_unverified` (trust). See UPDATES.md §9.
 
-The online **Check/Download** talks to GitHub, so it can't run offline. Two ways to update instead —
-both preserve config + data exactly like the online path:
+The online **Check/Download** talks to GitHub, so it can't run offline. Three ways to update
+instead — all preserve config + data exactly like the online path:
 
-1. **In-app, from USB (recommended).** Copy the release's two assets — `<slug>-<ver>.ksupdate` and
-   `<slug>-<ver>.zip` — to the bench (USB). On Config → **Updates → Install from file**, point the two
-   fields at those local paths and press **Stage from file**. This runs the **same** signature +
-   `full_artifact_hash` verification and the same stage → Install → Relaunch (swap/rollback) pipeline
-   as the online flow — only the source differs. No internet, no reinstall.
-2. **Re-run setup.exe.** Running a newer `<AppShort>-Setup-<ver>.exe` (same Inno `AppId`) upgrades
+1. **In-app, via the update-delivery tool (recommended, v1.26+).** `cut-release.ps1
+   -BuildUpdatePackage` (or `deploy/build-update-package.ps1` directly) produces
+   `<AppShort>-Update-<ver>.exe` — a small Inno-based tool, published as a 5th GitHub Release
+   asset alongside the usual four, that carries an already-signed update (full and/or
+   app-payload scope, see below) and does exactly one thing when run on the bench: copies those
+   files into the station's **fixed** incoming-update slots
+   (`{app}\data\updates\incoming\{full,app-payload}\update.{ksupdate,zip}`) and exits — no
+   install, no registration, nothing else touched. Then in the app: Config → **Updates → Scan
+   for updates on this PC**. That single click runs the **same** signature + hash verification
+   and the same stage → Install → Relaunch (swap/rollback) pipeline as every other path here —
+   this tool's only job is answering "where do the update files go," never verification or
+   staging (deliberately: those stay in the one already-tested, already-signed pipeline —
+   `core/services/updates.py`'s `UpdateService.scan_incoming`, `docs/UPDATES.md` §3.2/§4.1a).
+2. **In-app, from USB, manual paths (fallback).** Copy the release's `<slug>-<ver>.ksupdate` +
+   `<slug>-<ver>.zip` to the bench yourself (any location) and, on Config → **Updates**, use the
+   "advanced" `.ksupdate path` / artifact `.zip path` fields under **Install from file**. Same
+   pipeline as option 1 — this is what to reach for when the delivery tool wasn't built for this
+   release, or the files came from somewhere other than a GitHub Release asset.
+3. **Re-run setup.exe.** Running a newer `<AppShort>-Setup-<ver>.exe` (same Inno `AppId`) upgrades
    `{app}\run.dist` in place; `{app}\config` + `{app}\data` (DB, live config, instruments) are
    external and preserved. Use this for a full refresh or when the launcher itself changed (below).
+
+**Patch-only updates (v1.26+, narrow compile surface — ADR
+[0002](decisions/0002-nuitka-compile-scope.md)).** When a release changed only app-owned code (a
+step-type bugfix, a new instrument driver, updated maps/specs — nothing in `core`/`modules`/
+`controller`), cut it with `deploy/cut-release.ps1 -Scope app-payload` instead of the default
+`-Scope full` — same version bump, same tag, same GitHub Release, just a `.zip` that is
+`package_app_payload_artifact`'s smaller archive instead of the full `run.dist` — it skips the
+compiled `run.exe`, the built frontend SPA, docs and the vendored broker. The manifest carries no
+"scope" flag at all; the station detects which kind it received from the hash-verified content
+itself (no `run.exe` at the top → app-payload) once staged, and the launcher swaps only
+`run.dist/app` + `run.dist/instrument_libs`, leaving `run.exe` untouched. `build-update-package.ps1`
+signs **both** scopes by default when there's app-owned payload to patch, so the ONE delivery
+`.exe` for a release can carry either or both — the operator doesn't need to know which scope
+applies; "Scan for updates on this PC" stages whichever slot(s) it finds. A single release still
+only ever signs ONE scope for the plain GitHub-Release `.ksupdate`/`.zip` pair (§3's "exactly one"
+rule, used by option 2 above) — the dual-scope bundling is specific to the delivery-tool path.
+
+**Rollback is unaffected by any of the above.** However an update got onto the station — GitHub
+Check/Download, the delivery tool, or manual paths — it lands as a staged offer through the exact
+same `UpdateService` pipeline, and **Roll back to last known good** / **Roll back** (Config →
+Updates, under "Installed builds") reverts to a **local backup already on the machine** — no file
+delivery needed for a rollback, ever. The safety net is automatic too: two consecutive failed
+boots after ANY update (full-scope or app-payload-scope) auto-revert to `last_known_good` and try
+once more before stopping with a clear message (`UPDATES.md` §6). This holds for an app-payload
+patch as much as a full update: `mark_last_known_good()` snapshots the WHOLE live `run.dist`,
+including whatever app payload a prior patch already put there, so reverting the full tree
+correctly undoes a bad patch too (`UPDATES.md` §4.1a).
 
 > **Launcher-swap caveat.** The in-app updater swaps only `run.dist`. `run_station.exe` is a sibling
 > in the station root, so an online/USB update does **not** refresh it. That's fine while the launcher

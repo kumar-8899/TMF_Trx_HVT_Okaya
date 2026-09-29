@@ -1,0 +1,75 @@
+; ==========================================================================================
+; deploy/update-package.iss.template — offline UPDATE delivery for an already-installed frozen
+; TMF station (Inno Setup). NOT a first-install package (see installer.iss.template for that) and
+; NOT a registered/uninstallable program — it drops files into an existing install's fixed
+; incoming-update slots and exits. The station picks them up itself (Config -> Updates -> "Scan
+; for updates on this PC", core/services/updates.py UpdateService.scan_incoming) through the SAME
+; signature + hash verification pipeline as every other update path; this tool moves bytes onto
+; the machine, nothing more (deploy/build-update-package.ps1, docs/DEPLOY_STATION.md).
+;
+; Carries up to TWO independently-signed pairs for the SAME version (each optional; whichever
+; deploy/build-update-package.ps1 found and signed rides along):
+;   full        -> {app}\data\updates\incoming\full\update.{ksupdate,zip}         (whole run.dist)
+;   app-payload -> {app}\data\updates\incoming\app-payload\update.{ksupdate,zip}  (app/ + drivers
+;                                                                                   only; run.exe
+;                                                                                   untouched)
+; Rendered per fork by build-update-package.ps1 (substitutes the @@...@@ tokens, same branding
+; source as installer.iss.template) then compiled with ISCC.
+; ==========================================================================================
+
+#define AppName    "@@APP_NAME@@"
+#define AppShort   "@@APP_SHORT@@"
+#define AppVersion "@@APP_VERSION@@"
+#define Publisher  "@@PUBLISHER@@"
+#ifndef HasFull
+  #define HasFull "@@HAS_FULL@@"
+#endif
+#ifndef HasAppPayload
+  #define HasAppPayload "@@HAS_APP_PAYLOAD@@"
+#endif
+
+[Setup]
+AppName={#AppName} Update {#AppVersion}
+AppVersion={#AppVersion}
+AppPublisher={#Publisher}
+; Same default as installer.iss.template's DefaultDirName — this is an UPDATE for an install that
+; (almost always) already exists there; the operator can still redirect it if they installed
+; somewhere else. Uninstallable=no: this tool doesn't register a program, it just drops two small
+; files and exits — nothing here should show up in "Apps & features" or need its own uninstall.
+DefaultDirName=C:\{#Publisher}\{#AppShort}
+DisableDirPage=no
+DisableProgramGroupPage=yes
+DisableReadyPage=yes
+DisableFinishedPage=no
+Uninstallable=no
+UninstallDisplayName={#AppName} Update {#AppVersion}
+OutputBaseFilename={#AppShort}-Update-{#AppVersion}
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64compatible
+; No elevation needed: this only writes under {app}\data, which the main installer already
+; grants Users:Modify on (installer.iss.template's icacls [Run] step) so an operator's own account
+; can run this without an admin prompt.
+PrivilegesRequired=lowest
+
+[Files]
+#if HasFull == "1"
+Source: "..\release-build\update-package\full\update.ksupdate"; DestDir: "{app}\data\updates\incoming\full"; DestName: "update.ksupdate"; Flags: ignoreversion
+Source: "..\release-build\update-package\full\update.zip";      DestDir: "{app}\data\updates\incoming\full"; DestName: "update.zip";      Flags: ignoreversion
+#endif
+#if HasAppPayload == "1"
+Source: "..\release-build\update-package\app-payload\update.ksupdate"; DestDir: "{app}\data\updates\incoming\app-payload"; DestName: "update.ksupdate"; Flags: ignoreversion
+Source: "..\release-build\update-package\app-payload\update.zip";      DestDir: "{app}\data\updates\incoming\app-payload"; DestName: "update.zip";      Flags: ignoreversion
+#endif
+
+[Code]
+{ Nothing to verify/launch — this tool's only job is placing files. The finished-page message
+  (below) tells the operator the one remaining step, in-app. }
+procedure InitializeWizard();
+begin
+  WizardForm.FinishedLabel.Caption :=
+    'Update files for ' + '{#AppName}' + ' ' + '{#AppVersion}' + ' have been copied.' + #13#10#13#10 +
+    'Open ' + '{#AppName}' + ', go to Config -> Updates, and click "Scan for updates on this PC" ' +
+    'to verify and stage it - nothing is installed yet.';
+end;

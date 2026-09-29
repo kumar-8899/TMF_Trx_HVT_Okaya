@@ -61,3 +61,26 @@ async def test_online_blocks_install_file_with_409(config_dir):
                              json={"ksupdate_path": "x.ksupdate", "zip_path": "x.zip"}, headers=admin)
             assert r.status_code == 409, r.json()
             assert "online" in str(r.json()), r.json()
+
+
+# --- /update/scan-incoming: same source gate as install-file --------------------------------
+
+async def test_online_blocks_scan_incoming_with_409(config_dir):
+    _write_app_json(config_dir, station_mode="online")
+    app = _app(config_dir)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            admin = await _admin(c)
+            r = await c.post("/update/scan-incoming", headers=admin)
+            assert r.status_code == 409, r.json()
+            assert "online" in str(r.json()), r.json()
+
+
+async def test_air_gapped_scan_incoming_finds_nothing_when_no_files_staged(config_dir):
+    _write_app_json(config_dir, station_mode="air_gapped")
+    app = _app(config_dir)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            admin = await _admin(c)
+            r = await c.post("/update/scan-incoming", headers=admin)
+            assert r.status_code == 200 and r.json()["found"] == []
