@@ -192,7 +192,8 @@ instead — all preserve config + data exactly like the online path:
 **Patch-only updates (v1.26+, narrow compile surface — ADR
 [0002](decisions/0002-nuitka-compile-scope.md)).** When a release changed only app-owned code (a
 step-type bugfix, a new instrument driver, updated maps/specs — nothing in `core`/`modules`/
-`controller`), the app repo signs `KS_ARTIFACT_SCOPE=app-payload` and publishes a `.zip` that is
+`controller`), cut it with `deploy/cut-release.ps1 -Scope app-payload` instead of the default
+`-Scope full` — same version bump, same tag, same GitHub Release, just a `.zip` that is
 `package_app_payload_artifact`'s smaller archive instead of the full `run.dist` — it skips the
 compiled `run.exe`, the built frontend SPA, docs and the vendored broker. The manifest carries no
 "scope" flag at all; the station detects which kind it received from the hash-verified content

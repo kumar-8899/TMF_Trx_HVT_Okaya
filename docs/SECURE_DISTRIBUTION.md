@@ -137,8 +137,9 @@ mints a dev lease — verified green on this workstation.
   (a build-time gate; TEMPLATE.md §4).
 - **Patch-only releases** (app-owned code changed, framework didn't): `build_release.py` always
   produces `package_app_payload_artifact`'s `<slug>-<ver>-app-payload.zip` alongside the full zip
-  when there's app payload to package; `sign_update.py`'s `KS_ARTIFACT_SCOPE=app-payload` then
-  signs (and the release publishes) that smaller artifact **instead of** the full one, as the
+  when there's app payload to package; `cut-release.ps1 -Scope app-payload` (which sets
+  `sign_update.py`'s `KS_ARTIFACT_SCOPE=app-payload` and fails loudly if there's nothing app-owned
+  to patch) then signs and publishes that smaller artifact **instead of** the full one, as the
   release's one `.zip` asset (§3's "exactly one" rule unchanged — a release ships one scope, not
   both). The signed manifest carries no new field for this — the station detects scope from the
   hash-verified content itself (a top-level `run.exe` means "full") and the launcher swaps only

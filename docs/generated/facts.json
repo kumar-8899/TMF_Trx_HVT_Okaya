@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.26.0"
+    "version": "1.26.1"
   },
   "releases": [
+    {
+      "version": "1.26.1",
+      "date": "2026-09-29",
+      "bump": "PATCH",
+      "summary": "`cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).",
+      "body": "**`cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).**\n\nv1.26.0 shipped the app-payload artifact + station-side detection, but `cut-release.ps1`'s main\nflow always signed and published the **full** scope — an app-payload-only patch had no way to be\nits own tagged release with a smaller primary `.zip`; it only existed as a supplementary asset via\n`-BuildUpdatePackage`.\n\n- New `-Scope full|app-payload` (default `full`, no behavior change for existing usage). With\n  `-Scope app-payload`: sets `KS_ARTIFACT_SCOPE`, verifies `RELEASE.json` actually has an\n  `app_payload_artifact_hash` first (fails loudly with a clear message otherwise, instead of\n  silently falling back to full), and aliases the smaller zip onto the standard\n  `<slug>-<ver>.zip` path — every downstream step (asset upload, the station's own asset\n  matching) needs no scope-awareness at all.\n- Fixed a latent bug in the same area: `$short` (used to name the `-BuildUpdatePackage` asset) was\n  only computed inside the `run_station.exe`-succeeded branch, so `-BuildUpdatePackage` combined\n  with a failed/fail-soft `run_station.exe` build would have published a broken asset path. Moved\n  the branding lookup out so it's always available.\n\nSee `docs/UPDATES.md` §3.2, `docs/DEPLOY_STATION.md`'s patch-only-updates paragraph."
+    },
     {
       "version": "1.26.0",
       "date": "2026-09-29",

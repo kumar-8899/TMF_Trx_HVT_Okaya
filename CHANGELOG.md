@@ -5,6 +5,28 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.26.1 — 2026-09-29
+
+**`cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).**
+
+v1.26.0 shipped the app-payload artifact + station-side detection, but `cut-release.ps1`'s main
+flow always signed and published the **full** scope — an app-payload-only patch had no way to be
+its own tagged release with a smaller primary `.zip`; it only existed as a supplementary asset via
+`-BuildUpdatePackage`.
+
+- New `-Scope full|app-payload` (default `full`, no behavior change for existing usage). With
+  `-Scope app-payload`: sets `KS_ARTIFACT_SCOPE`, verifies `RELEASE.json` actually has an
+  `app_payload_artifact_hash` first (fails loudly with a clear message otherwise, instead of
+  silently falling back to full), and aliases the smaller zip onto the standard
+  `<slug>-<ver>.zip` path — every downstream step (asset upload, the station's own asset
+  matching) needs no scope-awareness at all.
+- Fixed a latent bug in the same area: `$short` (used to name the `-BuildUpdatePackage` asset) was
+  only computed inside the `run_station.exe`-succeeded branch, so `-BuildUpdatePackage` combined
+  with a failed/fail-soft `run_station.exe` build would have published a broken asset path. Moved
+  the branding lookup out so it's always available.
+
+See `docs/UPDATES.md` §3.2, `docs/DEPLOY_STATION.md`'s patch-only-updates paragraph.
+
 ## v1.26.0 — 2026-09-29
 
 **Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).**

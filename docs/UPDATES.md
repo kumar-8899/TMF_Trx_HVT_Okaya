@@ -220,6 +220,15 @@ one `.zip` asset, under the SAME standard name (§3's "exactly one
 `.ksupdate`, exactly one `.zip`" rule is completely unchanged — a release
 ships one scope, decided at signing time, never both).
 
+In practice, cut a patch-only release with `deploy/cut-release.ps1 -Scope
+app-payload` — the wrapper that sets `KS_ARTIFACT_SCOPE`, verifies
+`RELEASE.json` actually has an `app_payload_artifact_hash` first (a build with
+nothing app-owned to package fails loudly with a clear message instead of
+silently falling back to full), and aliases the smaller zip onto the
+standard `<slug>-<ver>.zip` path before publishing — every other step is
+identical to a normal (`-Scope full`, the default) release: same version bump
+on `app/<slug>/VERSION`, same tag, same GitHub Release.
+
 **The signed manifest itself carries no `scope` field.** Station side:
 `UpdateService._stage_zip_bytes` verifies the single `full_artifact_hash` as
 always, then inspects the verified zip's own content — a top-level `run.exe`
