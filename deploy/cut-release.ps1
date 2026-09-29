@@ -81,23 +81,30 @@ $tagExists = $false
 if (-not $BuildOnly) {
   Step "1/10  version-collision guard"
   git fetch --tags origin --quiet
-  $published = @(git tag -l "app-v*" | ForEach-Object { $_ -replace '^app-v', '' } |
-    Where-Object { $_ -as [version] } | Sort-Object { [version]$_ })
-  $latest = if ($published) { $published[-1] } else { $null }
-  if ($latest) {
-    if ([version]$new -le [version]$latest) {
-      throw "app/$Slug/VERSION is $new, but $tag would not be newer than the latest published tag app-v$latest. Bump the VERSION file."
-    }
-    Info "latest published: app-v$latest  ->  new: $tag  (OK, strictly greater)"
-  } else {
-    Info "no app-v* tags published yet - $tag is the first"
-  }
+  # Check resume-mode FIRST: an interrupted run (e.g. killed after step 4's tag/push but before
+  # publish) leaves $tag already at HEAD with the SAME version — new == latest by definition in
+  # that case, so the "strictly newer" guard below must never see it, or a legitimate resume can
+  # never pass (new <= latest is always true when new == latest, unconditionally throwing before
+  # this existence check even runs).
   if (git tag -l $tag) {
     $tagSha = git rev-list -n 1 $tag
     $headSha = git rev-parse HEAD
     if ($tagSha -ne $headSha) { throw "tag $tag already exists and points at $tagSha, not HEAD ($headSha). Delete it or bump VERSION." }
     Warn "tag $tag already exists at HEAD - resume mode (skipping the tag/push step)"
     $tagExists = $true
+  }
+  if (-not $tagExists) {
+    $published = @(git tag -l "app-v*" | ForEach-Object { $_ -replace '^app-v', '' } |
+      Where-Object { $_ -as [version] } | Sort-Object { [version]$_ })
+    $latest = if ($published) { $published[-1] } else { $null }
+    if ($latest) {
+      if ([version]$new -le [version]$latest) {
+        throw "app/$Slug/VERSION is $new, but $tag would not be newer than the latest published tag app-v$latest. Bump the VERSION file."
+      }
+      Info "latest published: app-v$latest  ->  new: $tag  (OK, strictly greater)"
+    } else {
+      Info "no app-v* tags published yet - $tag is the first"
+    }
   }
 
   $dirty = @(git status --porcelain | Where-Object { $_ -notmatch 'CHANGELOG\.md$|app/' + [regex]::Escape($Slug) + '/VERSION$' })
