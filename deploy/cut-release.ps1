@@ -4,6 +4,11 @@ cut-release.ps1 - the ONE file to build or release a Test & Measurement app.
   .\deploy\cut-release.ps1                 # build + publish a GitHub Release (default)
   .\deploy\cut-release.ps1 -BuildOnly      # build the artifacts only (no git, no publish)
   .\deploy\cut-release.ps1 -Slug <product> # override the auto-detected app slug
+  .\deploy\cut-release.ps1 -BuildUpdatePackage  # ALSO build deploy\Output\<AppShort>-Update-<ver>.exe
+                                                 # (an offline delivery tool for air-gapped fleets -
+                                                 # docs/DEPLOY_STATION.md, ADR 0002); off by default,
+                                                 # since a networked fleet just uses the GitHub Release
+                                                 # + in-app Check/Download and never needs this.
 
 This is the single entry point for the app-track build/release pipeline: it orchestrates
 every step so you never invoke the sub-scripts directly - fetch-mosquitto.ps1,
@@ -38,7 +43,8 @@ param(
   [string]$Iscc,
   [switch]$SkipTests,
   [switch]$AllowDirty,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$BuildUpdatePackage
 )
 
 $ErrorActionPreference = "Stop"
@@ -177,6 +183,15 @@ if ($runStationOk) {
   & (Join-Path $PSScriptRoot "build-installer.ps1") -Slug $Slug @isccArg
 } else { Warn "skipped (no run_station.exe this build)" }
 
+# --- 8b. Offline UPDATE delivery package (optional; air-gapped fleets) ------------------------
+if ($BuildUpdatePackage) {
+  Step "8b/10  build update package (-BuildUpdatePackage)"
+  $isccArg = @{}; if ($Iscc) { $isccArg["Iscc"] = $Iscc }
+  & (Join-Path $PSScriptRoot "build-update-package.ps1") -Slug $Slug @isccArg
+} else {
+  Step "8b/10  build update package  (skipped: pass -BuildUpdatePackage for an air-gapped fleet)"
+}
+
 # --- BuildOnly stops here: the artifacts are on disk, nothing is published --------------------
 if ($BuildOnly) {
   Step "done (build-only)"
@@ -186,6 +201,9 @@ if ($BuildOnly) {
   if ($runStationOk) {
     Info "  release-build\run_station.exe"
     Info "  deploy\Output\*-Setup-$new.exe    (offline installer)"
+  }
+  if ($BuildUpdatePackage) {
+    Info "  deploy\Output\*-Update-$new.exe   (offline update delivery - Config -> Updates -> Scan)"
   }
   Info "Skipped: git commit/tag/push and the GitHub Release (that's the default mode, without -BuildOnly)."
   return
@@ -217,6 +235,13 @@ if ($runStationOk) {
   $assets += "deploy/Output/$short-Setup-$new.exe"
 } else {
   Warn "publishing WITHOUT run_station.exe / setup.exe - first-install stays on deploy/install-station.ps1 until a rebuild fixes it."
+}
+if ($BuildUpdatePackage) {
+  # A 5th, OPTIONAL asset: the offline update-delivery tool. Published here too so an admin on a
+  # NETWORKED machine can fetch it from the release and carry it to the air-gapped bench (same
+  # reasoning as publishing the offline setup.exe) - it is never itself downloaded BY an
+  # air-gapped station.
+  $assets += "deploy/Output/$short-Update-$new.exe"
 }
 foreach ($a in $assets) { if (-not (Test-Path $a)) { throw "missing release asset: $a" } }
 if ($DryRun) {

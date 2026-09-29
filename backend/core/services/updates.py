@@ -146,6 +146,9 @@ class UpdateService:
             "channel": manifest.get("channel"),
             "criticality": manifest.get("criticality"),
             "full_artifact_hash": manifest.get("full_artifact_hash"),
+            # NOT read from the manifest: "scope" is never a signed field (see _stage_zip_bytes) —
+            # it is filled in AFTER staging, once the hash-verified content itself has been
+            # inspected. Absent here until then; docs/UPDATES.md §app-payload-scope.
             "build_timestamp": manifest.get("build_timestamp"),
             "min_abi_required": manifest.get("min_abi_required"),
             "verified": manifest.get("verified", False),
@@ -263,17 +266,22 @@ class UpdateService:
                                reason=reason)
             raise AmcRequired(reason)
         # Materialize the real artifact (a separate .zip Release asset) → a staged
-        # run.dist the launcher can swap. Verify sha == full_artifact_hash first.
-        rec["staged_dir"] = await asyncio.get_running_loop().run_in_executor(
+        # tree the launcher can swap. Verify sha == full_artifact_hash first; scope (full vs
+        # app-payload) is detected from the verified content, not a manifest claim (see
+        # _stage_zip_bytes).
+        staged = await asyncio.get_running_loop().run_in_executor(
             None, lambda: self._materialize(rel, rec, token))
+        rec["staged_dir"] = staged.get("staged_dir") if staged else None
+        rec["scope"] = staged.get("scope") if staged else None
         rec["status"] = "downloaded"
         await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
                                 summary=f"{rec['track']} {rec['version']} (downloaded)")
         return {"source": repo, "release": tag, "idempotent": False, **rec}
 
-    def _materialize(self, rel: dict, offer: dict, token: str | None) -> str | None:
-        """Fetch the artifact zip (GitHub), then stage it. Returns the staged path, or None
-        when there's no zip asset (dev / a trust-only release) — the launcher then no-ops."""
+    def _materialize(self, rel: dict, offer: dict, token: str | None) -> dict | None:
+        """Fetch the artifact zip (GitHub — §3: exactly one `.zip` per release, same as the one
+        `.ksupdate`), then stage it. Returns `{"staged_dir", "scope"}`, or None when there's no
+        zip asset (dev / a trust-only release) — the launcher then no-ops."""
         zip_asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".zip")), None)
         if zip_asset is None:
             self._diag.warning("updates", "no artifact zip asset — offer not stageable",
@@ -281,11 +289,28 @@ class UpdateService:
             return None
         return self._stage_zip_bytes(_asset_bytes(zip_asset, token), offer)
 
-    def _stage_zip_bytes(self, data: bytes, offer: dict) -> str:
-        """Verify sha256 == full_artifact_hash, then unpack the artifact zip to a staged
-        run.dist the launcher can swap. Shared by the GitHub path (_materialize) and the
-        local-file path (install_from_file) — only the SOURCE of `data` differs, so hash
-        verification + swap/rollback semantics stay identical (UPDATES.md / DEPLOY_STATION §E-bis)."""
+    def _stage_zip_bytes(self, data: bytes, offer: dict) -> dict:
+        """Verify sha256 == full_artifact_hash (the one SIGNED hash field — see below), unpack
+        the zip, then DETECT scope from the verified content itself: a top-level `run.exe` means
+        this is a full `run.dist` artifact; its absence means it's an app-payload-only artifact
+        (build_release.py's package_app_payload_artifact — just `app/` + `instrument_libs/`),
+        staged separately so the launcher swaps only those two subdirs, leaving `run.exe`
+        untouched (docs/UPDATES.md §app-payload-scope).
+
+        Deliberately NOT a manifest field: `tools/ks_release_signer/canonical.py`'s
+        `manifest_signing_bytes()` mirrors a FIXED Rust struct byte-for-byte
+        (`core/src/manifest.rs`, external `Build License Track` repo) — any field added to the
+        Python manifest dict that ISN'T in that fixed encoding rides along in the JSON as
+        UNSIGNED, attacker-editable metadata. A `scope`/second-hash field there would let anyone
+        who can edit the (already-signed) `.ksupdate` file redirect a legitimately-signed
+        manifest's hash check onto attacker-chosen content, without invalidating the signature.
+        Detecting scope from the hash-checked bytes themselves has no such gap — content that
+        matches the SIGNED `full_artifact_hash` is exactly as trustworthy as the signature,
+        whichever shape it turns out to have.
+
+        Shared by the GitHub path (_materialize) and the local-file path (install_from_file) —
+        only the SOURCE of `data` differs, so hash verification + swap/rollback semantics stay
+        identical (UPDATES.md / DEPLOY_STATION §E-bis)."""
         import io
         import shutil
         import zipfile
@@ -294,13 +319,18 @@ class UpdateService:
         want = offer.get("full_artifact_hash")
         if want and sha != want:
             raise RuntimeError(f"artifact hash mismatch: got {sha[:12]}… want {want[:12]}…")
-        staged = Path(self._data_dir or ".") / "updates" / "staged" / "run.dist"
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        names = zf.namelist()
+        scope = "full" if any(n in ("run.exe", "run.exe/") for n in names) else "app-payload"
+        leaf = "run.dist" if scope == "full" else "app-payload"
+        staged = Path(self._data_dir or ".") / "updates" / "staged" / leaf
         if staged.exists():
             shutil.rmtree(staged)
         staged.mkdir(parents=True)
-        zipfile.ZipFile(io.BytesIO(data)).extractall(staged)
-        self._diag.info("updates", "artifact staged", release_id=offer.get("release_id"), dir=str(staged))
-        return str(staged)
+        zf.extractall(staged)
+        self._diag.info("updates", "artifact staged", release_id=offer.get("release_id"),
+                        scope=scope, dir=str(staged))
+        return {"staged_dir": str(staged), "scope": scope}
 
     # ---- local-file (air-gapped / USB) install ----------------------------
 
@@ -333,14 +363,51 @@ class UpdateService:
                                     summary=f"{rec['track']} {rec['version']} (AMC required)")
             raise AmcRequired(reason)
         data = Path(zip_path).read_bytes()
-        rec["staged_dir"] = await asyncio.get_running_loop().run_in_executor(
+        staged = await asyncio.get_running_loop().run_in_executor(
             None, lambda: self._stage_zip_bytes(data, rec))
+        rec["staged_dir"] = staged["staged_dir"]
+        rec["scope"] = staged["scope"]
         rec["status"] = "downloaded"
         await self._db.repo.put(_OFFER, rec, id=rec["release_id"],
                                 summary=f"{rec['track']} {rec['version']} (staged from file)")
         self._diag.info("updates", "update staged from local file", release_id=rec["release_id"],
                         version=rec.get("version"))
         return {"source": "file", "idempotent": False, **rec}
+
+    # ---- incoming-folder convenience (deploy/build-update-package.ps1) --------
+
+    INCOMING_SLOTS = ("full", "app-payload")
+
+    def incoming_dir(self, slot: str):
+        from pathlib import Path
+        return Path(self._data_dir or ".") / "updates" / "incoming" / slot
+
+    async def scan_incoming(self) -> list[dict]:
+        """Air-gapped convenience: stage from TWO FIXED slots —
+        `<data_dir>/updates/incoming/{full,app-payload}/update.{ksupdate,zip}` — instead of the
+        operator typing two file paths per update. A delivery tool (the Inno-built
+        `<AppShort>-Update-<ver>.exe`, deploy/build-update-package.ps1) drops files at these
+        fixed names so "where do the update files go" is answered once, not per-release; running
+        it again just overwrites the same two slots with whatever it carries this time (it may
+        carry one pair or both — see the .iss template).
+
+        Same verify + stage pipeline as `install_from_file` (called per slot) — this is a
+        convenience over WHERE the two paths come from, not a new trust path. A bad/missing pair
+        in one slot does not block the other: each slot's outcome (staged offer, or an error) is
+        returned so the caller can show a partial result rather than fail the whole scan."""
+        self._require_air_gapped()
+        results: list[dict] = []
+        for slot in self.INCOMING_SLOTS:
+            d = self.incoming_dir(slot)
+            ks, zp = d / "update.ksupdate", d / "update.zip"
+            if not (ks.is_file() and zp.is_file()):
+                continue
+            try:
+                results.append(await self.install_from_file(str(ks), str(zp)))
+            except Exception as exc:  # noqa: BLE001 — one bad slot must not sink the other
+                self._diag.warning("updates", f"incoming/{slot} could not be staged", error=str(exc))
+                results.append({"source": "file", "slot": slot, "error": str(exc)})
+        return results
 
     # back-compat alias
     async def check_github(self, repo: str, token: str | None = None) -> dict:
@@ -386,6 +453,10 @@ class UpdateService:
             "release_id": release_id,
             "version": offer.get("version"),
             "staged_dir": offer.get("staged_dir"),         # None in dev → launcher restarts only
+            # "full" (whole run.dist) or "app-payload" — detected from the hash-verified content
+            # at stage time (_stage_zip_bytes), never from a manifest claim. Absent (dev/no-op
+            # swap) defaults to "full", matching the launcher's original single-tree behavior.
+            "scope": offer.get("scope") or "full",
             "expected_hash": offer.get("full_artifact_hash"),
             "requested_ts": time.time(),
         }

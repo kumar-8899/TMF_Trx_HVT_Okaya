@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.25.0"
+    "version": "1.26.0"
   },
   "releases": [
+    {
+      "version": "1.26.0",
+      "date": "2026-09-29",
+      "bump": "MINOR",
+      "summary": "Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).",
+      "body": "**Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).**\n\nApp-track builds took the full analysis+codegen hit on every build (only the C-compiler step was\ncached), and the update pipeline could only ever swap the entire `run.dist` tree — so a one-line\nbugfix in a customer's step type cost the same build time and swap risk as a framework upgrade.\nNeither was actually protecting framework IP: per `CLAUDE.md`'s fork-ownership boundary,\n`app/<name>/` is app-owned code, not Super_Test_App's. See ADR\n[0002](docs/decisions/0002-nuitka-compile-scope.md).\n\n- `--track app` builds no longer force-compile the app's `step_type_packages` /\n  `library_packages` / `instrument_libs` by default — they ship as plain `.py` under\n  `run.dist/app/<product>/` + `run.dist/instrument_libs/` instead, loaded at runtime via the\n  controller's existing `step_type_paths`/`library_paths` mechanism\n  (`controller_supervisor.py` now auto-appends the right directories). `core`/`modules`/\n  `controller` — the actual framework IP — are unaffected. `--compile-app-payload` opts back\n  into the old fully-compiled behavior for a fork that wants its own step types/drivers\n  protected too.\n- New `package_app_payload_artifact()` produces a supplementary `<slug>-<version>-app-payload.zip`\n  release asset. `core/services/updates.py` and `launcher.py` gained scope-aware staging: a\n  release can sign either the full artifact or `package_app_payload_artifact`'s smaller one\n  (`tools/ks_release_signer/sign_update.py`'s `KS_ARTIFACT_SCOPE`); the station **detects** which\n  kind it received from the hash-verified content itself (never a signed manifest field — that\n  would have been an unsigned, spoofable side-channel, see ADR 0002) and swaps only\n  `run.dist/app` + `run.dist/instrument_libs` for an app-payload artifact, leaving `run.exe`\n  untouched. See `docs/UPDATES.md` §3.2/§4.1a.\n- New `deploy/build-update-package.ps1` + `update-package.iss.template` (`cut-release.ps1\n  -BuildUpdatePackage`): an Inno-built `<AppShort>-Update-<ver>.exe` that drops an already-signed\n  update (full and/or app-payload scope) into an existing install's fixed incoming-update slots —\n  for an air-gapped fleet, no more hunting for where two files go or typing paths. New\n  `UpdateService.scan_incoming` / `POST /update/scan-incoming` / the Updates page's **\"Scan for\n  updates on this PC\"** button stage whatever the tool dropped, through the identical\n  verify/hash/stage pipeline as every other update path. Rollback (to a local backup) is\n  unaffected either way — it never needed file delivery. See `docs/DEPLOY_STATION.md`'s\n  air-gapped section and `docs/UPDATES.md` §3.3."
+    },
     {
       "version": "1.25.0",
       "date": "2026-09-28",
@@ -1200,6 +1207,10 @@
       {
         "method": "POST",
         "path": "/update/rollback"
+      },
+      {
+        "method": "POST",
+        "path": "/update/scan-incoming"
       },
       {
         "method": "GET",

@@ -100,6 +100,24 @@ export function UpdatesConfig() {
       : `Offered ${r.track} ${r.version} — ${r.verdict?.reason}`);
     await refresh();
   });
+  const scanIncoming = () => run(async () => {
+    const r = await api.post("/update/scan-incoming", {});
+    const found: any[] = r.found || [];
+    const ok = found.filter((f) => !f.error);
+    const failed = found.filter((f) => f.error);
+    await refresh();
+    if (found.length === 0) {
+      setMsg("No update files found — nothing has been copied to this station yet.");
+      return;
+    }
+    const summary = ok.map((f) => `${f.track} ${f.version} (${f.scope})`).join(", ");
+    setMsg(ok.length
+      ? `Staged from local files: ${summary} — review below, then Install.`
+      : "Found update files, but none could be staged.");
+    if (failed.length) {
+      setError(failed.map((f) => `${f.slot}: ${f.error}`).join(" · "));
+    }
+  });
   const install = (id: string) => run(async () => {
     const r = await api.post(`/update/apply/${id}`, {}); setMsg(r.note || "Staged."); await refresh();
   });
@@ -236,6 +254,22 @@ export function UpdatesConfig() {
         </Typography>
       ) : (
         <>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+            <Button variant="contained" disabled={busy} onClick={scanIncoming}>Scan for updates on this PC</Button>
+            <Typography variant="caption" color="text.secondary">
+              Ran the update delivery tool (the .exe from IT/support)? Click this — no paths to type.
+            </Typography>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block" }}>
+            Same signature + hash verification and swap/rollback as everything else here — this just
+            looks in the two fixed spots the delivery tool drops files into instead of asking you to
+            browse for them.
+          </Typography>
+          <Divider sx={{ my: 1.5 }} />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+            Advanced: point directly at a <b>.ksupdate</b> + <b>.zip</b> pair copied anywhere else (USB,
+            a network share):
+          </Typography>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <TextField size="small" label=".ksupdate path" value={path}
               onChange={(e) => setPath(e.target.value)} sx={{ minWidth: 300 }} />
@@ -245,10 +279,8 @@ export function UpdatesConfig() {
             <Button variant="text" disabled={!path || busy} onClick={ingest}>Verify only</Button>
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
-            No internet at the bench? Copy the release's <b>.ksupdate</b> + <b>.zip</b> to USB and point
-            the two fields at them — same signature + hash verification and swap/rollback as the online path.
-            Then Install + Relaunch the staged offer above. The launcher swaps the artifact on the next
-            restart and auto-reverts to last-known-good if the new build won't boot.
+            Either way: Install + Relaunch the staged offer above. The launcher swaps the artifact on
+            the next restart and auto-reverts to last-known-good if the new build won't boot.
           </Typography>
         </>
       )}

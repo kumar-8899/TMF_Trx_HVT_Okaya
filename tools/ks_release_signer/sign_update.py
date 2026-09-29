@@ -15,6 +15,19 @@ come from the environment (GitHub Actions secrets / the app repo's release.yml):
   KS_CHANNEL              stable | beta | dev             (default stable)
   KS_MIN_ABI              min core ABI required           (default 1)
   KS_CRITICALITY          optional | recommended | required (default recommended)
+  KS_ARTIFACT_SCOPE       full | app-payload              (default full)
+
+KS_ARTIFACT_SCOPE picks WHICH of RELEASE.json's two hashes becomes the signed
+`full_artifact_hash` field — "full" (build_release.py's whole-run.dist zip) or "app-payload"
+(package_app_payload_artifact's smaller app/+instrument_libs-only zip, for a release that only
+touched app-owned code — docs/decisions/0002-nuitka-compile-scope.md). There is deliberately no
+separate "scope" field on the signed manifest: the station DETECTS which kind it received by
+inspecting the hash-verified zip's own content (a top-level run.exe means "full") rather than
+trusting an out-of-band claim — see core/services/updates.py's _stage_zip_bytes docstring for why
+a second, unsigned field here would be a real signature-bypass gap. Whichever scope you sign here,
+publish the MATCHING zip (release-build/<slug>-<ver>.zip for full, release-build/<slug>-<ver>-
+app-payload.zip for app-payload) as the release's ONE `.zip` asset (UPDATES.md §3: exactly one
+`.ksupdate`, exactly one matching `.zip`, standard name — do not publish both for one release).
 
 Usage:  python sign_update.py <RELEASE.json> <out.ksupdate>
 
@@ -57,7 +70,16 @@ def main() -> int:
         key = Ed25519PrivateKey.generate()
         cert = {"key_version": 0, "dev": True}
 
-    full_hash = rel["full_artifact_hash"] if "full_artifact_hash" in rel else \
+    artifact_scope = os.environ.get("KS_ARTIFACT_SCOPE", "full").strip() or "full"
+    if artifact_scope not in ("full", "app-payload"):
+        raise SystemExit(f"KS_ARTIFACT_SCOPE must be 'full' or 'app-payload', got {artifact_scope!r}")
+    hash_key = "app_payload_artifact_hash" if artifact_scope == "app-payload" else "full_artifact_hash"
+    if artifact_scope == "app-payload" and not rel.get(hash_key):
+        raise SystemExit(
+            f"KS_ARTIFACT_SCOPE=app-payload but {release_json} has no '{hash_key}' — "
+            "run build_release.py --track app first (package_app_payload_artifact only produces "
+            "one when there is app-owned payload to package).")
+    full_hash = rel[hash_key] if rel.get(hash_key) else \
         _hash_of(rel, release_json)
 
     track = os.environ.get("KS_TRACK") or rel.get("track") or "framework"
@@ -87,7 +109,8 @@ def main() -> int:
     open(out_path, "w", encoding="utf-8").write(json.dumps(bundle, indent=2))
     pin = f", pins fw {pinned_fw}" if pinned_fw else ""
     print(f"signed {out_path}: {track} {manifest['version']}{pin} "
-          f"(hash {full_hash[:12]}…, kv {manifest['signed_by_key_version']})")
+          f"(scope={artifact_scope}, hash {full_hash[:12]}…, kv {manifest['signed_by_key_version']}) "
+          f"— publish the MATCHING zip as this release's one .zip asset")
     return 0
 
 
