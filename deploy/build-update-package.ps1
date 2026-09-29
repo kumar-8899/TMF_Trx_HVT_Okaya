@@ -1,35 +1,27 @@
 <#
 build-update-package.ps1 - build "<AppShort>-Update-<ver>.exe": a small Inno-based tool that
-copies an already-signed update (full and/or app-payload scope - ADR
-docs/decisions/0002-nuitka-compile-scope.md) onto an EXISTING install's fixed incoming-update
-slots, so a site engineer no longer has to know where the .ksupdate/.zip files go or type two
-paths into the Updates page - they run this .exe, then click "Scan for updates on this PC" in the
-app (Config -> Updates). This tool never applies anything itself: verification/staging/rollback
-all stay in the already-signed, already-tested station-side pipeline (core/services/updates.py) -
-see update-package.iss.template's header for why that boundary matters.
+copies an already-signed update onto an EXISTING install's fixed incoming-update slot, so a site
+engineer no longer has to know where the .ksupdate/.zip files go or type two paths into the
+Updates page - they run this .exe, then click "Scan for updates on this PC" in the app (Config ->
+Updates). This tool never applies anything itself: verification/staging/rollback all stay in the
+already-signed, already-tested station-side pipeline (core/services/updates.py) - see
+update-package.iss.template's header for why that boundary matters.
 
 Prereqs on the BUILD machine (not the client):
   * a COMPLETED `python backend/build_release.py --track app --product <slug>` (release-build\
-    RELEASE.json with full_artifact_hash, and app_payload_artifact_hash when there is app-owned
-    payload to patch).
+    RELEASE.json with full_artifact_hash).
   * Inno Setup 6 (`choco install innosetup -y` / `winget install JRSoftware.InnoSetup`).
   * Optional Keystation signing: set KS_INTERMEDIATE_SEED / KS_INTERMEDIATE_CERT in the
-    environment (else both .ksupdate files are dev-signed / UNTRUSTED, same as cut-release.ps1
-    with no secrets - installs only where a station's app.json has updates.allow_unverified=true).
+    environment (else the .ksupdate is dev-signed / UNTRUSTED, same as cut-release.ps1 with no
+    secrets - installs only where a station's app.json has updates.allow_unverified=true).
 
   .\deploy\build-update-package.ps1 -Slug <product> [-Publisher <name>] [-AppShort <name>]
-                                    [-SkipFull] [-Iscc <path-to-ISCC.exe>]
-
--SkipFull builds ONLY the app-payload-scope pair (skip when a release is a pure app-owned patch
-and there is no reason to also carry the full artifact - smaller .exe). By default BOTH are
-signed and bundled when RELEASE.json has an app_payload_artifact_hash; only "full" is bundled
-when it doesn't (nothing app-owned changed - e.g. --track framework, or --compile-app-payload).
+                                    [-Iscc <path-to-ISCC.exe>]
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Slug,
   [string]$Publisher,
   [string]$AppShort,
-  [switch]$SkipFull,
   [string]$Iscc
 )
 
@@ -74,55 +66,34 @@ if ($rel.version -ne $version) {
 if (-not $rel.full_artifact_hash) { throw "RELEASE.json has no full_artifact_hash - incomplete build." }
 Info "release-build verified: track=app, version=$version"
 
-$hasAppPayload = [bool]($rel.app_payload_artifact_hash -and $rel.app_payload_artifact)
-if (-not $hasAppPayload) {
-  Warn "no app_payload_artifact_hash in RELEASE.json - this build has nothing app-owned to " +
-    "patch separately (pure framework build, or --compile-app-payload) - bundling FULL only."
-}
-$buildFull = -not $SkipFull -or -not $hasAppPayload
-if ($SkipFull -and -not $hasAppPayload) {
-  Warn "-SkipFull was passed but there is no app-payload artifact to bundle instead - " +
-    "bundling FULL anyway (an update package with nothing in it is useless)."
-}
-
-# --- stage + sign each requested scope into release-build\update-package\<scope>\ -------------
+# --- stage + sign into release-build\update-package\ -------------------------------------------
 $stageRoot = Join-Path $repo "release-build\update-package"
 if (Test-Path $stageRoot) { Remove-Item -Recurse -Force $stageRoot }
 New-Item -ItemType Directory -Force $stageRoot | Out-Null
 
 if (-not $env:KS_INTERMEDIATE_SEED) {
-  Warn "KS_INTERMEDIATE_SEED not set - both pairs will be DEV-signed / UNTRUSTED (installs only " +
+  Warn "KS_INTERMEDIATE_SEED not set - the pair will be DEV-signed / UNTRUSTED (installs only " +
     "where the target station's app.json has updates.allow_unverified=true)."
 }
 
-function Sign-Scope([string]$scope, [string]$zipName) {
-  $dir = Join-Path $stageRoot $scope
-  New-Item -ItemType Directory -Force $dir | Out-Null
-  $env:KS_TRACK = "app"
-  $env:KS_ARTIFACT_SCOPE = $scope
-  $ks = Join-Path $dir "update.ksupdate"
-  python (Join-Path $repo "tools\ks_release_signer\sign_update.py") $releaseJson $ks
-  if ($LASTEXITCODE) { throw "sign_update.py failed for scope=$scope" }
-  Copy-Item (Join-Path $repo "release-build\$zipName") (Join-Path $dir "update.zip")
-  Info "staged $scope -> $dir (from release-build\$zipName)"
-}
-
-if ($buildFull) { Sign-Scope "full" "$Slug-$version.zip" }
-if ($hasAppPayload) { Sign-Scope "app-payload" $rel.app_payload_artifact }
+$env:KS_TRACK = "app"
+$ks = Join-Path $stageRoot "update.ksupdate"
+python (Join-Path $repo "tools\ks_release_signer\sign_update.py") $releaseJson $ks
+if ($LASTEXITCODE) { throw "sign_update.py failed" }
+Copy-Item (Join-Path $repo "release-build\$Slug-$version.zip") (Join-Path $stageRoot "update.zip")
+Info "staged -> $stageRoot (from release-build\$Slug-$version.zip)"
 
 # --- render the template + compile with ISCC --------------------------------------------------
 $map = @{
-  "@@APP_NAME@@"        = $appName
-  "@@APP_SHORT@@"       = $AppShort
-  "@@APP_VERSION@@"     = $version
-  "@@PUBLISHER@@"       = $Publisher
-  "@@HAS_FULL@@"        = if ($buildFull) { "1" } else { "0" }
-  "@@HAS_APP_PAYLOAD@@" = if ($hasAppPayload) { "1" } else { "0" }
+  "@@APP_NAME@@"    = $appName
+  "@@APP_SHORT@@"   = $AppShort
+  "@@APP_VERSION@@" = $version
+  "@@PUBLISHER@@"   = $Publisher
 }
 $text = Get-Content $template -Raw
 foreach ($k in $map.Keys) { $text = $text.Replace($k, $map[$k]) }
 Set-Content -Path $rendered -Value $text -Encoding UTF8
-Info "rendered $rendered  (full=$($map['@@HAS_FULL@@']), app-payload=$($map['@@HAS_APP_PAYLOAD@@']))"
+Info "rendered $rendered"
 
 if (-not $Iscc) {
   $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue

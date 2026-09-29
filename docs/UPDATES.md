@@ -41,7 +41,7 @@ decision below follows from that.
 | **AMC tier** | Present in the schema, **non-functional in phase 1.** | Reserved without committing to semantics. |
 | **Framework sync** | Weekly workflow that **opens a PR and never auto-merges**, restricted to the **same MAJOR**. | Its real purpose is drift detection, not updating. |
 | **Traceability** | No additional stamping. `RELEASE.json` already carries the pinned framework version. | Already covered. |
-| **Patch granularity** | A release publishes either a full or an app-payload-only artifact (`sign_update.py`'s `KS_ARTIFACT_SCOPE`), never a manifest-side "choose one" flag. The station **detects** which kind it received from the hash-verified content (top-level `run.exe` present → full) and swaps only `run.dist/app` + `run.dist/instrument_libs` for the app-payload kind, never `run.exe`. | Narrow compile surface (ADR [0002](decisions/0002-nuitka-compile-scope.md)) means app-owned code (step types, drivers) is no longer compiled into `run.exe` by default — a bugfix to it doesn't need a full-tree swap. A signed `scope` field was considered and rejected: `manifest_signing_bytes()` mirrors a fixed external Rust struct, so an extra field would ride along **unsigned** — detecting scope from already-hash-verified content has no such gap. |
+| **Patch granularity** | A release publishes exactly one artifact: the full `run.dist` tree. | ADR [0003](decisions/0003-pyinstaller-and-bundle-packages.md) retired the dual-scope (full / app-payload-only) update system that existed to make a patch cheap under Nuitka's slow rebuilds — PyInstaller made the full build itself fast enough (~1.5 min) that the extra mechanism was no longer solving a real problem. |
 
 ---
 
@@ -127,7 +127,7 @@ POST /update/apply/{release_id}
      → 409 if a run is active, or if the offer is not applicable.
 
 POST /update/install-file   { ksupdate_path, zip_path }
-     → 200 { source: "file", state: "downloaded", staged_dir, scope, ... }
+     → 200 { source: "file", state: "downloaded", staged_dir, ... }
      AIR-GAPPED (§E-bis): stage an update from LOCAL .ksupdate + .zip (USB),
      no network. Runs the SAME verify (ingest → signature + tripwire) +
      full_artifact_hash check + stage pipeline as /update/download — only the
@@ -135,13 +135,12 @@ POST /update/install-file   { ksupdate_path, zip_path }
      → 402 AMC, 404 missing file, 502 bad signature / hash mismatch.
 
 POST /update/scan-incoming   {}
-     → 200 { found: [ {source:"file", scope, version, ...} | {slot, error} ] }
-     AIR-GAPPED convenience over /update/install-file: no paths to type — looks
-     in two FIXED slots, <data_dir>/updates/incoming/{full,app-payload}/
-     update.{ksupdate,zip}, and stages whichever are present (§3.2). A bad
-     slot doesn't block the other — its entry carries an `error` instead. The
-     delivery tool (deploy/build-update-package.ps1's Inno .exe) drops files
-     at these fixed names; this is what "Scan for updates on this PC" calls.
+     → 200 { found: [ {source:"file", version, ...} | {error} ] }
+     AIR-GAPPED convenience over /update/install-file: no path to type — looks
+     in ONE fixed slot, <data_dir>/updates/incoming/update.{ksupdate,zip}, and
+     stages it if present (§3.3). The delivery tool
+     (deploy/build-update-package.ps1's Inno .exe) drops files at these fixed
+     names; this is what "Scan for updates on this PC" calls.
      → 409 if station_mode is "online" (same source gate as install-file).
 
 POST /update/relaunch/{release_id}
@@ -205,59 +204,21 @@ Rate limits are a non-issue: 5,000 requests/hour authenticated against an
 hourly poll. **No network must log and continue.** A bench that cannot reach
 GitHub still boots and still runs tests.
 
-### 3.2 App-payload-scope releases (patch-only)
-
-`build_release.py`'s `package_app_payload_artifact()` produces a SECOND,
-smaller zip — `<slug>-<version>-app-payload.zip` — alongside the full one
-whenever there is app-owned payload to package (skipped for `--track
-framework` or `--compile-app-payload`). A release whose diff is entirely
-app-owned (a step-type bugfix, a new instrument driver, updated maps/specs)
-signs **that** artifact instead of the full one —
-`tools/ks_release_signer/sign_update.py`'s `KS_ARTIFACT_SCOPE=app-payload`
-picks `RELEASE.json`'s `app_payload_artifact_hash` as the signed
-`full_artifact_hash` field — and publishes the matching zip as the release's
-one `.zip` asset, under the SAME standard name (§3's "exactly one
-`.ksupdate`, exactly one `.zip`" rule is completely unchanged — a release
-ships one scope, decided at signing time, never both).
-
-In practice, cut a patch-only release with `deploy/cut-release.ps1 -Scope
-app-payload` — the wrapper that sets `KS_ARTIFACT_SCOPE`, verifies
-`RELEASE.json` actually has an `app_payload_artifact_hash` first (a build with
-nothing app-owned to package fails loudly with a clear message instead of
-silently falling back to full), and aliases the smaller zip onto the
-standard `<slug>-<ver>.zip` path before publishing — every other step is
-identical to a normal (`-Scope full`, the default) release: same version bump
-on `app/<slug>/VERSION`, same tag, same GitHub Release.
-
-**The signed manifest itself carries no `scope` field.** Station side:
-`UpdateService._stage_zip_bytes` verifies the single `full_artifact_hash` as
-always, then inspects the verified zip's own content — a top-level `run.exe`
-means a full artifact, its absence means app-payload-only — and stages
-accordingly (`staged/run.dist/` vs. `staged/app-payload/`).
-`download()`/`install_from_file()` record that *detected* scope on the offer;
-`request_relaunch`'s marker carries it through to the launcher. This
-avoids adding an unsigned field to the trust boundary — see ADR
-[0002](decisions/0002-nuitka-compile-scope.md) for why a manifest-side
-`scope` flag was rejected (it would ride along unsigned and could redirect a
-legitimately-signed manifest's hash check onto attacker-chosen content).
-
-### 3.3 Incoming-folder delivery (no manual paths, no manual scope choice)
+### 3.3 Incoming-folder delivery (no manual paths)
 
 `install_from_file` needs two typed paths per update — fine occasionally, friction for a fleet.
-`UpdateService.scan_incoming` (`POST /update/scan-incoming`) instead looks in two FIXED slots:
+`UpdateService.scan_incoming` (`POST /update/scan-incoming`) instead looks in ONE fixed slot:
 
 ```
-<data_dir>/updates/incoming/full/{update.ksupdate, update.zip}
-<data_dir>/updates/incoming/app-payload/{update.ksupdate, update.zip}
+<data_dir>/updates/incoming/{update.ksupdate, update.zip}
 ```
 
-and stages whichever pair(s) are present through the identical `install_from_file` pipeline (same
-verify, same hash check, same content-based scope detection — this is a convenience over WHERE the
-two paths come from, not a second trust path). `deploy/build-update-package.ps1` builds an Inno
-tool that drops files at exactly these fixed names on an EXISTING install — see
-`docs/DEPLOY_STATION.md`'s air-gapped section. A bad slot's error is returned alongside a good
-slot's success (`{"slot": ..., "error": ...}` vs. a normal offer dict) so one bad file never blocks
-the other.
+and stages it through the identical `install_from_file` pipeline (same verify, same hash check —
+this is a convenience over WHERE the two paths come from, not a second trust path).
+`deploy/build-update-package.ps1` builds an Inno tool that drops files at exactly these fixed
+names on an EXISTING install — see `docs/DEPLOY_STATION.md`'s air-gapped section. A staging
+failure (bad hash, bad signature) is returned as `{"error": ...}` rather than raised, so the
+caller can show it without a 5xx.
 
 ---
 
@@ -304,24 +265,6 @@ instrument I/O. Three layers stop that:
 If the swap still fails, the launcher writes `data/last_swap_error.json`; the
 Updates page shows `swap_failed` with the error and strike count instead of
 looping forever on `relaunch_requested`.
-
-### 4.1a App-payload scope: the same journal, two smaller swap units
-
-`SwapManager` (`launcher.py`) is already path-generic — nothing about it is
-`run.dist`-specific. An `"app-payload"`-scope marker (§3.2) reuses it
-unchanged, twice: one instance scoped to `run.dist/app` (own journal/backups
-under `state/app-payload-swap/app/`), one scoped to `run.dist/instrument_libs`
-(`state/app-payload-swap/instrument_libs/`) — each independently
-journal-safe, reconciled at every launcher startup exactly like the full-tree
-swap. Either unit can be absent from a given patch (staged_dir missing →
-`apply_staged` no-ops cleanly), so a step-type-only patch doesn't touch
-`instrument_libs` and vice versa.
-
-No separate rollback path was built for this scope: the existing "two failed
-boots → revert to `last_known_good`" auto-recovery (§6) already covers it,
-because `mark_last_known_good()` snapshots the whole live `run.dist` —
-including whatever app payload an app-payload-scope swap most recently put
-there — so reverting the full tree correctly undoes a bad patch too.
 
 ### 4.2 Config-supplied paths must resolve OUTSIDE run.dist
 
@@ -571,8 +514,11 @@ is a real test. The frontend is different: TypeScript must be compiled before a
 browser can use it, so `npm run build` is a **compile check** that catches
 broken TypeScript in the PR rather than at release time.
 
-Nuitka is deliberately **excluded** from `ci.yml`: it takes many minutes and
-proves nothing `pytest` did not already prove.
+The full app-track build (`build_release.py`) is deliberately **excluded**
+from `ci.yml`: even a fast PyInstaller backend build (ADR
+[0003](decisions/0003-pyinstaller-and-bundle-packages.md), ~1.5 min) plus
+`run_station.exe`'s Nuitka onefile compile, WebView2 fetch, and Inno setup
+compile prove nothing `pytest` did not already prove faster.
 
 > `ci.yml` = *is the code correct?* — fast, frequent.
 > `release.yml` = *make the shippable thing* — slow, rare.
@@ -580,7 +526,8 @@ proves nothing `pytest` did not already prove.
 ### 10.3 App repo — `release.yml` (on tag `app-v*`) OR `deploy/cut-release.ps1` (local)
 
 `version guard (tag == VERSION **and** strictly newer than the latest published
-`app-v*`) → tests → vendor Mosquitto → Nuitka → zip + hash → sign .ksupdate →
+`app-v*`) → tests → vendor Mosquitto → PyInstaller (backend, ~1.5 min) + Nuitka
+(run_station.exe onefile, unaffected by ADR 0003) → zip + hash → sign .ksupdate →
 WebView2 + setup.exe → publish Release with the changelog body`. Signing secrets
 (`KS_INTERMEDIATE_*`) live only in app-repo Actions secrets or the releasing
 developer's environment — never committed, never in the framework repo.
@@ -589,15 +536,17 @@ developer's environment — never committed, never in the framework repo.
 
 - **GitHub-hosted `release.yml`** — on the `app-v*` tag push. Simple, but every
   tagged build is **cold**: GitHub Actions cache is ref-scoped, a cache saved on
-  one tag is unreachable from the next, and nothing runs the Nuitka build on the
-  default branch to seed the fallback scope. Measured ~45 min ≈ 90 GitHub-Free
-  minutes (Windows bills 2×) **per release**.
+  one tag is unreachable from the next, and nothing runs `run_station.exe`'s
+  Nuitka build on the default branch to seed the fallback scope. The backend
+  step itself is now fast (PyInstaller); the remaining per-release cost is
+  `run_station.exe`'s cold Nuitka compile + the WebView2/Inno steps.
 - **`deploy/cut-release.ps1`** (rendered from `deploy/cut-release.ps1.template` by
   `new-test-app`) — the identical steps on a developer's machine with a
-  **persistent** local `NUITKA_CACHE_DIR` (warm after the first build), no CI
-  minutes. A fork that adopts it retargets its own `release.yml` to
-  `on: workflow_dispatch:` so the tag push doesn't fire both. Prereqs:
-  `CONTRIBUTING.md`.
+  **persistent** local `NUITKA_CACHE_DIR` (warm after the first build — still
+  used by `run_station.exe`'s Nuitka compile even though the backend itself no
+  longer compiles), no CI minutes. A fork that adopts it retargets its own
+  `release.yml` to `on: workflow_dispatch:` so the tag push doesn't fire both.
+  Prereqs: `CONTRIBUTING.md`.
 
 **Tag with the `app-v<version>` prefix and push ONLY that tag:**
 

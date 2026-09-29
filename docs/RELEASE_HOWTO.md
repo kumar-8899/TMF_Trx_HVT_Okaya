@@ -2,14 +2,14 @@
 
 **The framework ships source, not binaries.** A framework release is just a **git tag**
 `vX.Y.Z` on `main` — the point a customer application forks from (TEMPLATE.md §2). The
-framework does **not** build a Nuitka artifact, sign a `.ksupdate`, or publish a GitHub
+framework does **not** freeze a build artifact, sign a `.ksupdate`, or publish a GitHub
 Release. That build+sign+license+distribute pipeline lives in the **app repo** (per
 customer), which forks the tag and uses the framework-provided tools it inherits
 (`backend/build_release.py`, `tools/ks_release_signer/`). See SECURE_DISTRIBUTION.md §5–6.
 
 ```
 framework repo ── git tag vX.Y.Z ──► App_<Customer> (fork the TAG = editable source)
-                                          └── app-track CI: Nuitka → sign .ksupdate → Release (LICENSED build)
+                                          └── app-track CI: PyInstaller → sign .ksupdate → Release (LICENSED build)
 ```
 
 ---

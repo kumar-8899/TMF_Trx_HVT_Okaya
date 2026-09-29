@@ -110,12 +110,12 @@ export function UpdatesConfig() {
       setMsg("No update files found — nothing has been copied to this station yet.");
       return;
     }
-    const summary = ok.map((f) => `${f.track} ${f.version} (${f.scope})`).join(", ");
+    const summary = ok.map((f) => `${f.track} ${f.version}`).join(", ");
     setMsg(ok.length
       ? `Staged from local files: ${summary} — review below, then Install.`
       : "Found update files, but none could be staged.");
     if (failed.length) {
-      setError(failed.map((f) => `${f.slot}: ${f.error}`).join(" · "));
+      setError(failed.map((f) => f.error).join(" · "));
     }
   });
   const install = (id: string) => run(async () => {

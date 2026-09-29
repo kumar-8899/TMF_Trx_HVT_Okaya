@@ -13,7 +13,6 @@ import sys
 import time
 from pathlib import Path
 
-import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 REPO = Path(__file__).resolve().parents[2]
@@ -32,26 +31,24 @@ def _keypair_and_cert():
     return seed, pub, cert
 
 
-def _release_json(tmp_path, version="1.2.0", app_payload_hash=None):
+def _release_json(tmp_path, version="1.2.0"):
     data = {
         "product": "exeliq.acme_eol", "version": version,
         "full_artifact_hash": hashlib.sha256(b"artifact").hexdigest(),
         "built_at": int(time.time()), "sbom_hash": hashlib.sha256(b"sbom").hexdigest(),
     }
-    if app_payload_hash:
-        data["app_payload_artifact_hash"] = app_payload_hash
     p = tmp_path / "RELEASE.json"
     p.write_text(json.dumps(data), encoding="utf-8")
     return p
 
 
-def _sign(tmp_path, env_extra, *, app_payload_hash=None) -> dict:
+def _sign(tmp_path, env_extra) -> dict:
     seed, _pub, cert = _keypair_and_cert()
     env = {**os.environ, "KS_INTERMEDIATE_SEED": seed,
            "KS_INTERMEDIATE_CERT": json.dumps(cert), **env_extra}
     out = tmp_path / "out.ksupdate"
     r = subprocess.run([sys.executable, str(SIGNER / "sign_update.py"),
-                        str(_release_json(tmp_path, app_payload_hash=app_payload_hash)), str(out)],
+                        str(_release_json(tmp_path)), str(out)],
                        env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr + r.stdout
     return json.loads(out.read_text())
@@ -97,44 +94,9 @@ def test_tamper_breaks_signature(tmp_path):
     assert not _verify(b), "a modified manifest must fail verification"
 
 
-# --- KS_ARTIFACT_SCOPE: which of RELEASE.json's two hashes gets signed --------------------------
-# The signed manifest itself never carries a "scope" field (see updates.py's _stage_zip_bytes
-# docstring for why: manifest_signing_bytes() mirrors a FIXED Rust struct, so any extra Python
-# dict key rides along UNSIGNED — a real signature-bypass gap). The station instead detects scope
-# from the hash-verified zip's own content. These tests lock in the signing-time half of that.
-
-def test_default_scope_signs_the_full_artifact_hash(tmp_path):
+def test_signs_the_full_artifact_hash(tmp_path):
     b = _sign(tmp_path, {})
     assert b["manifest"]["full_artifact_hash"] == hashlib.sha256(b"artifact").hexdigest()
-    assert "scope" not in b["manifest"]           # never a field on the signed manifest
+    assert "scope" not in b["manifest"]           # never a field on the signed manifest — see
+                                                   # updates.py's _stage_zip_bytes docstring for why
     assert _verify(b)
-
-
-def test_app_payload_scope_signs_the_app_payload_hash_instead(tmp_path):
-    payload_hash = hashlib.sha256(b"app-payload-artifact").hexdigest()
-    b = _sign(tmp_path, {"KS_ARTIFACT_SCOPE": "app-payload"}, app_payload_hash=payload_hash)
-    assert b["manifest"]["full_artifact_hash"] == payload_hash    # same signed FIELD, different SOURCE
-    assert b["manifest"]["full_artifact_hash"] != hashlib.sha256(b"artifact").hexdigest()
-    assert "scope" not in b["manifest"]
-    assert _verify(b), "app-payload-scope manifest signature must still verify byte-exact"
-
-
-def test_app_payload_scope_requires_the_hash_to_exist(tmp_path):
-    seed, _pub, cert = _keypair_and_cert()
-    env = {**os.environ, "KS_INTERMEDIATE_SEED": seed, "KS_INTERMEDIATE_CERT": json.dumps(cert),
-           "KS_ARTIFACT_SCOPE": "app-payload"}
-    r = subprocess.run([sys.executable, str(SIGNER / "sign_update.py"),
-                        str(_release_json(tmp_path)),                 # no app_payload_artifact_hash
-                        str(tmp_path / "x.ksupdate")],
-                       env=env, capture_output=True, text=True)
-    assert r.returncode != 0 and "app_payload_artifact_hash" in (r.stderr + r.stdout)
-
-
-def test_invalid_artifact_scope_rejected(tmp_path):
-    seed, _pub, cert = _keypair_and_cert()
-    env = {**os.environ, "KS_INTERMEDIATE_SEED": seed, "KS_INTERMEDIATE_CERT": json.dumps(cert),
-           "KS_ARTIFACT_SCOPE": "bogus"}
-    r = subprocess.run([sys.executable, str(SIGNER / "sign_update.py"),
-                        str(_release_json(tmp_path)), str(tmp_path / "x.ksupdate")],
-                       env=env, capture_output=True, text=True)
-    assert r.returncode != 0 and "KS_ARTIFACT_SCOPE" in (r.stderr + r.stdout)

@@ -8,8 +8,16 @@ an issuer server + portal, and a 3-track signed release/update model
 **framework track** (`runtime=python_framework`); each client deployment is an
 *app-track* release pinning the `(core, framework)` versions it was validated with.
 
-Phases: **P1 licensing (done)** → P2 obfuscated release build + CI (Nuitka,
+Phases: **P1 licensing (done)** → P2 frozen release build + CI (PyInstaller,
 `release/*` branch) → P3 signed code updates (`.ksupdate`, operator-gated apply).
+
+**No IP protection** (ADR [0003](decisions/0003-pyinstaller-and-bundle-packages.md)):
+the backend is PyInstaller-frozen, not compiled — plain, extractable bytecode,
+same tradeoff `tmf-sidecar.spec` (retired) always made. This is deliberate:
+build time (PyInstaller, no compile step) was judged more valuable than
+protecting code that was never actually protected against a determined
+attacker anyway. If protection is needed later, that's a fresh decision — see
+the ADR.
 
 ---
 
@@ -94,59 +102,40 @@ mints a dev lease — verified green on this workstation.
 > the build/sign tools below, which a forked app repo runs in its own CI. The framework
 > repo has only `ci.yml` (tests).
 
-- **Nuitka** compiles the backend Python → C → native machine code (real IP
-  protection; decompilation ≈ reverse-engineering a C binary). PyInstaller
-  (`tmf-sidecar.spec`) remains for dev-only bundles (it only zips `.pyc`s — no protection).
+- **PyInstaller** freezes the backend Python into a standalone `run.dist/run.exe`
+  (onedir, flat layout) — no compile step, no IP protection (plain bytecode;
+  ADR [0003](decisions/0003-pyinstaller-and-bundle-packages.md)). Build time is
+  the entire reason for this over a real compiler: a full `--track app` build
+  measures ~1.5 minutes.
 - Build (run in the app repo): `python build_release.py --track app --product <slug>
   [--app-config <path>]` → a **complete, runnable** `release-build/`:
-  - `run.dist/` (the swap unit) = compiled backend (`run.exe`) + `launcher.py` + bundled
+  - `run.dist/` (the swap unit) = frozen backend (`run.exe`) + `launcher.py` + bundled
     manifests/schemas, AND — for `--track app` — everything the app needs, INSIDE run.dist so an
     update swap carries it all:
-    - **`run.exe` also runs the controller** — `run.exe --controller <config>` (ONE compiled exe).
-      `core` + `modules` + `controller` are **compiled into run.exe** — that's the framework's own
-      IP. The app's `step_type_packages` + `library_packages` + `instrument_libs` are, by default,
-      **NOT compiled in** (narrow compile surface, ADR
-      [0002](decisions/0002-nuitka-compile-scope.md)) — app-owned code, not framework IP. They ship
-      as plain `.py` under `run.dist/app/<slug>/` + `run.dist/instrument_libs/` instead and load at
-      runtime via `step_type_paths`/`library_paths` (the frozen build's `controller_supervisor.py`
-      auto-appends those directories). Pass `--compile-app-payload` to force-compile them in
-      instead (the old behavior) if this app's own step types/drivers need Nuitka's protection too
-      — that's the fork owner's call. A lean, separately-compiled `controller.exe` fails to bundle
-      the pure-Python stdlib on Nuitka's **zig** backend (what an MSVC-less Windows builder gets);
-      the backend's large graph always pulls the stdlib in, so the controller reuses it. **MSVC is
-      the tested backend** — install VS "Desktop development with C++" (or the standalone Build
-      Tools) for a reliable Windows app build.
-    - `app/<slug>/` — the app DEFINITION (controller.json, maps/, specs/, and — narrow compile
-      surface — the step-type/library packages' source). **No `recipes/`, no instrument instances,
-      no credentials** — those are site config set on the bench, held in the external state
-      (`STATE_ROOT/config` + DB) and untouched by a swap.
-    - `instrument_libs/` — the copied drivers (the LOADED copy by default; provenance-only source
-      copy when `--compile-app-payload`).
+    - **`run.exe` also runs the controller** — `run.exe --controller <config>` (ONE frozen exe).
+      `core` + `modules` + `controller` bundle into `run.exe` by name (PyInstaller
+      `--collect-submodules`), and so do the app's own `step_type_packages` +
+      `library_packages` + `instrument_libs` — there is only one mode, always bundled; that
+      distinction (compiled-in vs. loaded from disk) only ever meant something under a real
+      machine-code compiler, which PyInstaller isn't (ADR 0003).
+    - `app/<slug>/` — the app DEFINITION (controller.json, maps/, specs/). **No `recipes/`, no
+      instrument instances, no credentials** — those are site config set on the bench, held in
+      the external state (`STATE_ROOT/config` + DB) and untouched by a swap.
+    - `instrument_libs/` — a provenance copy of the drivers (imports use the copy already
+      bundled into `run.exe`, not this one).
     - `config/app.example.json` — promoted from the app-owned, non-secret `backend/config/
       app.release.json` (or `--app-config`); credentials are stripped. This is what `ensure_live`
       copies to the external live config on first boot, so the frozen app boots with the app's own
       branding + controller block, not the framework shell.
-  - plus `docs/` + `frontend/` (built SPA) + `station.py` + `keystation_core.dll` +
-    `RELEASE.json` (version + framework_version + pinned_fw_version + SHA-256 of every file +
-    `full_artifact_hash` + `app_payload_artifact`/`app_payload_artifact_hash` when a supplementary
-    app-payload-only zip was also produced).
+  - plus `docs/` + `frontend/` (built SPA) + `station.py` (Nuitka onefile — unaffected by this,
+    see ADR 0003) + `keystation_core.dll` + `RELEASE.json` (version + framework_version +
+    pinned_fw_version + SHA-256 of every file + `full_artifact_hash`).
   `--track framework` builds the backend-only shell (framework self-test).
 - **A frozen app runs its OWN test sequence**, not just the UI: the supervisor spawns
-  `run.exe --controller <config>`, which imports the app's step-type package by name (from disk by
-  default, or compiled in with `--compile-app-payload`) — verified by the app-build acceptance step
-  (a build-time gate; TEMPLATE.md §4).
-- **Patch-only releases** (app-owned code changed, framework didn't): `build_release.py` always
-  produces `package_app_payload_artifact`'s `<slug>-<ver>-app-payload.zip` alongside the full zip
-  when there's app payload to package; `cut-release.ps1 -Scope app-payload` (which sets
-  `sign_update.py`'s `KS_ARTIFACT_SCOPE=app-payload` and fails loudly if there's nothing app-owned
-  to patch) then signs and publishes that smaller artifact **instead of** the full one, as the
-  release's one `.zip` asset (§3's "exactly one" rule unchanged — a release ships one scope, not
-  both). The signed manifest carries no new field for this — the station detects scope from the
-  hash-verified content itself (a top-level `run.exe` means "full") and the launcher swaps only
-  `run.dist/app` + `run.dist/instrument_libs`, leaving `run.exe` untouched — see
-  [UPDATES.md §app-payload-scope](UPDATES.md) and ADR [0002](decisions/0002-nuitka-compile-scope.md)
-  (including why a signed `scope` field would have been a real signature-bypass gap).
-- The app repo's `release.yml` (a template ships in P-b2) runs: tests → Nuitka →
+  `run.exe --controller <config>`, which imports the app's step-type package by name (already
+  bundled into `run.exe`) — verified by the app-build acceptance step (a build-time gate;
+  TEMPLATE.md §4).
+- The app repo's `release.yml` (a template ships in P-b2) runs: tests → PyInstaller →
   zip+hash → sign the app `.ksupdate` → publish the app's GitHub Release.
 - Registration as a **signed** Keystation framework release (manifest + signed
   `build_timestamp` + SBOM) is issuer-side; private signing keys live in the issuer /
@@ -158,7 +147,7 @@ mints a dev lease — verified green on this workstation.
 > `deploy/install-station.ps1`, the `updates` config block, cutting a release, dev-untrusted vs
 > Keystation trust, the read-token security note) is in [DEPLOY_STATION.md](DEPLOY_STATION.md).
 
-Station side = **intake · trust · resolve · operator-gate**. A running Nuitka binary
+Station side = **intake · trust · resolve · operator-gate**. A running frozen binary
 can't replace its own file, so *applying* is a launcher/restart step; the app verifies,
 records intent, and stages. `core/services/updates.py` (`UpdateService`):
 
@@ -200,7 +189,7 @@ The **framework** ships source; the **app repo** ships the licensed build. Two l
 FRAMEWORK (this repo)                       APP repo (per customer, forks a tag)
   bump + CHANGELOG                            git checkout vX.Y.Z   (fork the tag)
   git tag vX.Y.Z && push       ──fork──►      + app.json / modules/<app>_* / branding
-  ci.yml = tests only                         its release.yml (on tag): test → Nuitka →
+  ci.yml = tests only                         its release.yml (on tag): test → PyInstaller →
   NO build, NO Release                         sign app .ksupdate → app GitHub Release
                                                       │
                                         station: Settings → Updates → "Check for updates"
@@ -249,7 +238,7 @@ gitignored; CI secrets hold tokens; the signing key lives in the issuer, not her
   `POST /license/activate` → `VALID/ACTIVE`; restart → 11/11 modules licensed via
   `ks.has()`; operational mode re-gates `/license/*` behind SYSTEM.SETTINGS.
   Backend suite green; adapter tests use a fake SDK (CI needs no DLL).
-- **P2**: `build_release.py` (Nuitka) + `ci.yml`/`release.yml` in place. Remaining
+- **P2**: `build_release.py` (PyInstaller) + `ci.yml`/`release.yml` in place. Remaining
   issuer-side: SBOM (cyclonedx) + `POST /releases` registration + Authenticode
   code-signing cert (ops; see Keystation runbook `windows-packaging.md`).
 - Deferred (explicit): secrets-at-rest (DPAPI), MQTT/web hardening, telemetry consent,

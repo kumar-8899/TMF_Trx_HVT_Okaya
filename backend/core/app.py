@@ -615,8 +615,8 @@ def create_app(
 
     @app.post("/update/scan-incoming", dependencies=_LIC)
     async def update_scan_incoming() -> dict:
-        """Air-gapped convenience: stage from the two FIXED incoming/{full,app-payload} slots
-        instead of typing two file paths — see UpdateService.scan_incoming. A delivery tool
+        """Air-gapped convenience: stage from the one FIXED incoming/ slot instead of typing two
+        file paths — see UpdateService.scan_incoming. A delivery tool
         (deploy/build-update-package.ps1's Inno .exe) drops files there; the operator just clicks
         this instead of hunting for where the update files landed."""
         from core.services.updates import StationModeBlocked

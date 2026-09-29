@@ -507,20 +507,7 @@ class Supervisor:
         log(f"launcher up ({'frozen' if self.frozen else 'source'}); state={self.state}")
         _shield_break()
         swap = SwapManager(self.live, self.state, db_files=_db_files(self.state))
-        # Scoped swap units for an "app-payload" update (build_release.py's
-        # package_app_payload_artifact): run.dist/app and run.dist/instrument_libs, each its OWN
-        # SwapManager (own journal/backups under state/app-payload-swap/<name>/) so a patch that
-        # only touches app-owned code (a step-type bugfix, a new driver, updated maps) swaps
-        # without touching run.exe. No DB snapshot here — app-payload never changes the DB.
-        # These are generic reuses of SwapManager (path-scoped, nothing run.dist-specific about
-        # it) — see docs/UPDATES.md §app-payload-scope / docs/decisions/0002-nuitka-compile-scope.md.
-        app_payload_swaps = {
-            name: SwapManager(self.live / name, self.state / "app-payload-swap" / name)
-            for name in ("app", "instrument_libs")
-        }
         swap.reconcile()                    # finish/undo any interrupted swap BEFORE booting
-        for aps in app_payload_swaps.values():
-            aps.reconcile()                 # same, for an interrupted app-payload-scope swap
 
         # CREATE_NEW_PROCESS_GROUP: send a graceful CTRL_BREAK to just the backend child
         # (request_stop) without hitting this process.
@@ -599,18 +586,6 @@ class Supervisor:
                 done = swap.revert_to(marker["rollback"])
                 self.marker.unlink(missing_ok=True)
                 log(f"rollback to {marker['rollback']} (done={done})")
-            elif marker.get("scope") == "app-payload":
-                # Two independent scoped swaps from ONE staged download (staged_dir/app,
-                # staged_dir/instrument_libs — package_app_payload_artifact's layout). Either
-                # may be absent (a patch can touch just one) — apply_staged no-ops cleanly on a
-                # missing staged_dir, same as the full-tree path.
-                staged_root = Path(marker["staged_dir"]) if marker.get("staged_dir") else None
-                swapped = False
-                for name, aps in app_payload_swaps.items():
-                    sub_marker = dict(marker, staged_dir=str(staged_root / name) if staged_root else None)
-                    swapped = aps.apply_staged(sub_marker) or swapped
-                self.marker.unlink(missing_ok=True)
-                log(f"relaunching for {marker.get('version', '?')} (app-payload scope, swapped={swapped})")
             else:
                 swapped = swap.apply_staged(marker)
                 self.marker.unlink(missing_ok=True)

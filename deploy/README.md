@@ -16,8 +16,8 @@ per station, bound to loopback.
 | `installer.iss.template` | Inno Setup template for the OFFLINE first-install `setup.exe` (rendered per fork). |
 | `build-installer.ps1` | Internal step (invoked by `cut-release.ps1`): renders `installer.iss` from the template + branding/VERSION and compiles it with ISCC. |
 | `install-station.ps1` | Scriptable/headless first-install fallback (needs Python + a broker service). |
-| `update-package.iss.template` | Inno Setup template for the OFFLINE **update delivery** tool `<AppShort>-Update-<ver>.exe` — drops an already-signed update (full and/or app-payload scope) into an EXISTING install's fixed incoming-update slots. It never applies/verifies anything itself — see the template's header. |
-| `build-update-package.ps1` | Optional step (invoked by `cut-release.ps1 -BuildUpdatePackage`): signs full + (when there's app-owned payload) app-payload scope from an existing `release-build/`, renders `update-package.iss` and compiles it. Air-gapped fleets only — a networked station never needs this. |
+| `update-package.iss.template` | Inno Setup template for the OFFLINE **update delivery** tool `<AppShort>-Update-<ver>.exe` — drops an already-signed update into an EXISTING install's fixed incoming-update slot. It never applies/verifies anything itself — see the template's header. |
+| `build-update-package.ps1` | Optional step (invoked by `cut-release.ps1 -BuildUpdatePackage`): signs the update from an existing `release-build/`, renders `update-package.iss` and compiles it. Air-gapped fleets only — a networked station never needs this. |
 
 ## Shipping the broker with the frozen station
 

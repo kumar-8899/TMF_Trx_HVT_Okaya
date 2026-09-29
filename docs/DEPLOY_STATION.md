@@ -137,8 +137,10 @@ hosted build.
    - `<slug>-<ver>.ksupdate` — the signed trust envelope;
    - `run_station.exe` — the frozen windowed launcher (no Python on the client);
    - `<AppShort>-Setup-<ver>.exe` — the **offline first-install** installer.
-   **Cost:** ~45 min ≈ 90 GitHub-Free minutes per release, and the Nuitka cache never warms across
-   runs (cache is ref-scoped — see the note atop the template). Prefer 2a on a Free plan.
+   **Cost:** the backend build itself is fast (PyInstaller, ~1.5 min); the remaining per-release
+   cost is `run_station.exe`'s Nuitka onefile compile + the WebView2/Inno steps, and that Nuitka
+   cache never really warms across runs on GitHub-hosted CI (cache is ref-scoped — see the note
+   atop the template). Prefer 2a on a Free plan.
 
 The `.zip` is a **complete** app: the UI, the in-app help, the app definition, the drivers, and the
 vendored broker all ride inside `run.dist`, so an update refreshes everything (including your
@@ -167,19 +169,18 @@ explanation. A networked station keeps the default `"online"`, which conversely 
 The online **Check/Download** talks to GitHub, so it can't run offline. Three ways to update
 instead — all preserve config + data exactly like the online path:
 
-1. **In-app, via the update-delivery tool (recommended, v1.26+).** `cut-release.ps1
+1. **In-app, via the update-delivery tool (recommended).** `cut-release.ps1
    -BuildUpdatePackage` (or `deploy/build-update-package.ps1` directly) produces
    `<AppShort>-Update-<ver>.exe` — a small Inno-based tool, published as a 5th GitHub Release
-   asset alongside the usual four, that carries an already-signed update (full and/or
-   app-payload scope, see below) and does exactly one thing when run on the bench: copies those
-   files into the station's **fixed** incoming-update slots
-   (`{app}\data\updates\incoming\{full,app-payload}\update.{ksupdate,zip}`) and exits — no
-   install, no registration, nothing else touched. Then in the app: Config → **Updates → Scan
-   for updates on this PC**. That single click runs the **same** signature + hash verification
-   and the same stage → Install → Relaunch (swap/rollback) pipeline as every other path here —
-   this tool's only job is answering "where do the update files go," never verification or
-   staging (deliberately: those stay in the one already-tested, already-signed pipeline —
-   `core/services/updates.py`'s `UpdateService.scan_incoming`, `docs/UPDATES.md` §3.2/§4.1a).
+   asset alongside the usual four, that carries an already-signed update and does exactly one
+   thing when run on the bench: copies those files into the station's **fixed** incoming-update
+   slot (`{app}\data\updates\incoming\update.{ksupdate,zip}`) and exits — no install, no
+   registration, nothing else touched. Then in the app: Config → **Updates → Scan for updates on
+   this PC**. That single click runs the **same** signature + hash verification and the same
+   stage → Install → Relaunch (swap/rollback) pipeline as every other path here — this tool's
+   only job is answering "where do the update files go," never verification or staging
+   (deliberately: those stay in the one already-tested, already-signed pipeline —
+   `core/services/updates.py`'s `UpdateService.scan_incoming`, `docs/UPDATES.md` §3.3).
 2. **In-app, from USB, manual paths (fallback).** Copy the release's `<slug>-<ver>.ksupdate` +
    `<slug>-<ver>.zip` to the bench yourself (any location) and, on Config → **Updates**, use the
    "advanced" `.ksupdate path` / artifact `.zip path` fields under **Install from file**. Same
@@ -189,32 +190,12 @@ instead — all preserve config + data exactly like the online path:
    `{app}\run.dist` in place; `{app}\config` + `{app}\data` (DB, live config, instruments) are
    external and preserved. Use this for a full refresh or when the launcher itself changed (below).
 
-**Patch-only updates (v1.26+, narrow compile surface — ADR
-[0002](decisions/0002-nuitka-compile-scope.md)).** When a release changed only app-owned code (a
-step-type bugfix, a new instrument driver, updated maps/specs — nothing in `core`/`modules`/
-`controller`), cut it with `deploy/cut-release.ps1 -Scope app-payload` instead of the default
-`-Scope full` — same version bump, same tag, same GitHub Release, just a `.zip` that is
-`package_app_payload_artifact`'s smaller archive instead of the full `run.dist` — it skips the
-compiled `run.exe`, the built frontend SPA, docs and the vendored broker. The manifest carries no
-"scope" flag at all; the station detects which kind it received from the hash-verified content
-itself (no `run.exe` at the top → app-payload) once staged, and the launcher swaps only
-`run.dist/app` + `run.dist/instrument_libs`, leaving `run.exe` untouched. `build-update-package.ps1`
-signs **both** scopes by default when there's app-owned payload to patch, so the ONE delivery
-`.exe` for a release can carry either or both — the operator doesn't need to know which scope
-applies; "Scan for updates on this PC" stages whichever slot(s) it finds. A single release still
-only ever signs ONE scope for the plain GitHub-Release `.ksupdate`/`.zip` pair (§3's "exactly one"
-rule, used by option 2 above) — the dual-scope bundling is specific to the delivery-tool path.
-
-**Rollback is unaffected by any of the above.** However an update got onto the station — GitHub
-Check/Download, the delivery tool, or manual paths — it lands as a staged offer through the exact
-same `UpdateService` pipeline, and **Roll back to last known good** / **Roll back** (Config →
-Updates, under "Installed builds") reverts to a **local backup already on the machine** — no file
-delivery needed for a rollback, ever. The safety net is automatic too: two consecutive failed
-boots after ANY update (full-scope or app-payload-scope) auto-revert to `last_known_good` and try
-once more before stopping with a clear message (`UPDATES.md` §6). This holds for an app-payload
-patch as much as a full update: `mark_last_known_good()` snapshots the WHOLE live `run.dist`,
-including whatever app payload a prior patch already put there, so reverting the full tree
-correctly undoes a bad patch too (`UPDATES.md` §4.1a).
+**Rollback.** However an update got onto the station — GitHub Check/Download, the delivery tool,
+or manual paths — it lands as a staged offer through the exact same `UpdateService` pipeline, and
+**Roll back to last known good** / **Roll back** (Config → Updates, under "Installed builds")
+reverts to a **local backup already on the machine** — no file delivery needed for a rollback,
+ever. The safety net is automatic too: two consecutive failed boots after an update auto-revert
+to `last_known_good` and try once more before stopping with a clear message (`UPDATES.md` §6).
 
 > **Launcher-swap caveat.** The in-app updater swaps only `run.dist`. `run_station.exe` is a sibling
 > in the station root, so an online/USB update does **not** refresh it. That's fine while the launcher
