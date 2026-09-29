@@ -3,22 +3,26 @@
 # signs, or publishes (a framework release is a git tag; RELEASE_HOWTO.md).
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────
-# COST NOTE — this GitHub-hosted build is EXPENSIVE and its Nuitka cache never warms.
-#   GitHub Actions cache access is scoped per-ref: a cache saved on tag A is unreachable
-#   from tag B (tags have no hierarchy), and the only fallback scope — the default branch —
-#   never gets a Nuitka-cache entry either, because nothing runs the Nuitka build on `main`.
-#   So EVERY tagged release build is cold, unconditionally (and GitHub Free's ~500 MB
-#   combined cache+artifact budget can't hold a full `.nuitka-cache` anyway). A real fork
-#   measured ~45 min on `windows-latest` = 90 of the 2000 free minutes/month PER RELEASE
-#   (Windows bills 2×).
+# COST NOTE — the backend itself is PyInstaller-frozen now (ADR 0003 in the framework repo),
+#   not Nuitka-compiled: that step alone measures ~1.5 min. The remaining per-release cost on
+#   this GitHub-hosted runner is run_station.exe's Nuitka onefile compile (still Nuitka —
+#   unaffected by ADR 0003), plus the WebView2 fetch and Inno Setup compile. Its Nuitka cache
+#   never really warms here either: GitHub Actions cache access is scoped per-ref, a cache
+#   saved on tag A is unreachable from tag B (tags have no hierarchy), and the only fallback
+#   scope — the default branch — never gets a cache entry because nothing runs the
+#   run_station.exe build on `main`. So every tagged release build's Nuitka step is cold,
+#   unconditionally. Now that the dominant historical cost (the backend compile) is gone,
+#   whether this residual cost still justifies the alternative below is worth revisiting —
+#   left as a follow-up, not resolved here.
 #
 #   Cost-conscious alternative: `deploy/cut-release.ps1` (rendered from
 #   deploy/cut-release.ps1.template by new-test-app). It runs the SAME steps on a
-#   developer's machine with a PERSISTENT local Nuitka cache and publishes the same
-#   Release + 4 assets. A fork that adopts it MUST retarget the trigger below from
-#   `on: push: tags` to `on: workflow_dispatch:` — otherwise the local script's tag push
-#   ALSO fires this workflow and you pay for both. That retarget is an app-owned edit to
-#   this file; keep whichever trigger matches how the fork actually cuts releases.
+#   developer's machine with a PERSISTENT local Nuitka cache (still useful for
+#   run_station.exe) and publishes the same Release + 4 assets. A fork that adopts it MUST
+#   retarget the trigger below from `on: push: tags` to `on: workflow_dispatch:` —
+#   otherwise the local script's tag push ALSO fires this workflow and you pay for both.
+#   That retarget is an app-owned edit to this file; keep whichever trigger matches how the
+#   fork actually cuts releases.
 # ─────────────────────────────────────────────────────────────────────────────────────────
 #
 # Tag with the APP-track prefix `app-v<version>` (e.g. app-v1.2.0) and push ONLY that tag:
@@ -30,10 +34,10 @@
 # plain `<slug>-<ver>.zip` / `.ksupdate`, and the in-app updater reads the version from the
 # .ksupdate manifest (never the tag), so the prefix is invisible downstream.
 #
-# On an `app-v*` tag: guard tag==version → test → vendor Mosquitto → Nuitka build (backend
-# run.exe + frozen run_station.exe, + artifact zip + hash) → sign the .ksupdate → build the
-# OFFLINE setup.exe (Inno Setup + bundled WebView2) → publish a GitHub Release whose body is that
-# version's CHANGELOG section, carrying up to FOUR assets:
+# On an `app-v*` tag: guard tag==version → test → vendor Mosquitto → build (PyInstaller-frozen
+# backend run.exe + Nuitka-compiled run_station.exe, + artifact zip + hash) → sign the
+# .ksupdate → build the OFFLINE setup.exe (Inno Setup + bundled WebView2) → publish a GitHub
+# Release whose body is that version's CHANGELOG section, carrying up to FOUR assets:
 #   * <slug>-<ver>.ksupdate   trust envelope (in-app updater verifies this)          — always
 #   * <slug>-<ver>.zip        the artifact the station verifies + swaps (in-app updates) — always
 #   * run_station.exe         frozen windowed launcher (no Python on the client)     — if it built
@@ -65,7 +69,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest   # Nuitka builds the Windows station binary
+    runs-on: windows-latest   # run_station.exe is a Nuitka-compiled Windows binary
     steps:
       - uses: actions/checkout@v4
 
@@ -106,10 +110,11 @@ jobs:
           (cd backend && python -m pytest -q)
           (cd frontend && npx vitest run && npm run build)
 
-      # Warm the Nuitka/clcache object cache across runs. The key carries the framework
+      # Warm run_station.exe's Nuitka/clcache object cache across runs (the backend itself is
+      # PyInstaller-frozen and needs no C-compiler cache). The key carries the framework
       # version, so a framework bump recompiles clean while an app-only change hits the
       # cache and only the changed C files rebuild. First run after adding this is cold.
-      - name: Cache Nuitka build
+      - name: Cache Nuitka build (run_station.exe)
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.nuitka-cache
@@ -121,7 +126,7 @@ jobs:
         shell: pwsh
         run: ./deploy/fetch-mosquitto.ps1
 
-      - name: Build (Nuitka) + package artifact + hash
+      - name: Build (PyInstaller backend + Nuitka run_station.exe) + package artifact + hash
         id: build
         shell: bash
         env:

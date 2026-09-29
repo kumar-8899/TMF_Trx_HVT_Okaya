@@ -6,7 +6,7 @@ MAJOR = a module contract_version or locked-contract breaking change;
 MINOR = new modules/features; PATCH = fixes.
 """
 
-__version__ = "1.26.1"
+__version__ = "1.27.0"
 
 
 def app_version() -> str | None:

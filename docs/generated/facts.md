@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.26.1**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.27.0**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.27.0** (2026-09-29, MINOR) — Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).
 - **v1.26.1** (2026-09-29, PATCH) — `cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).
 - **v1.26.0** (2026-09-29, MINOR) — Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).
 - **v1.25.0** (2026-09-28, MINOR) — Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).
@@ -13,7 +14,6 @@ Super_Test_App **v1.26.1**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.23.0** (2026-09-21, MINOR) — Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).
 - **v1.22.1** (2026-09-16, PATCH) — Fix: `run_station.exe` could compile but never open a window (PATCH).
 - **v1.22.0** (2026-09-15, MINOR) — Frontend: forks can add a brand-new page, not just replace one of the 5 fixed screens (MINOR).
-- **v1.21.0** (2026-09-15, MINOR) — Python controller: hardware ops no longer block command dispatch (MINOR).
 
 ## Modules
 

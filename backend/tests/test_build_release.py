@@ -19,6 +19,7 @@ these tests lock in the bugs found running that pipeline against live app forks:
      for real: an exe with no run.dist exited in <1s, an unrelated already-running station on :8000
      answered the probe instead, and the smoke test returned True)."""
 
+import importlib.util
 import json
 
 import pytest
@@ -284,12 +285,12 @@ def test_copy_app_payload_ships_the_apps_portal_folder_but_never_recipes(monkeyp
     assert not (out / "recipes").exists()
 
 
-# --- narrow compile surface: app-owned packages ship as plain .py, not compiled in ------------
+# --- build_backend: PyInstaller command construction (app packages always bundled) ------------
 
 def _fake_app_with_step_package(repo, product="acme"):
     """A minimal app: one step-type package (`acme_steps`) + instrument_libs, named in
     controller.json's step_type_packages/library_packages — the two dynamically-loaded package
-    kinds build_release.py must be able to either compile in or copy as source."""
+    kinds build_backend() bundles by name via --collect-submodules."""
     app = repo / "app" / product
     app.mkdir(parents=True)
     (app / "controller.json").write_text(json.dumps({
@@ -300,142 +301,111 @@ def _fake_app_with_step_package(repo, product="acme"):
     steps_pkg = app / "acme_steps"
     steps_pkg.mkdir()
     (steps_pkg / "__init__.py").write_text("# acme step types")
-    (steps_pkg / "__pycache__").mkdir()
-    (steps_pkg / "__pycache__" / "x.pyc").write_bytes(b"junk")
     il = repo / "instrument_libs"
     il.mkdir()
     (il / "__init__.py").write_text("# drivers")
     return app, steps_pkg, il
 
 
-def test_resolve_package_dir_finds_app_and_repo_root_packages(monkeypatch, tmp_path):
+def _stub_build_backend(monkeypatch, tmp_path, *, find_spec=None):
+    """Common scaffolding for build_backend() tests: fake REPO/BACKEND/OUT/DIST, a stubbed
+    `_run` that creates OUT/run (what a real PyInstaller invocation would produce) and captures
+    the command, and a stubbed `importlib.util.find_spec` (default: nothing optional installed,
+    so tests don't depend on what's actually installed on the machine running them)."""
     repo = tmp_path / "repo"
-    app, steps_pkg, il = _fake_app_with_step_package(repo)
-    monkeypatch.setattr(br, "REPO", repo)
-    assert br._resolve_package_dir("acme_steps", "acme") == steps_pkg
-    assert br._resolve_package_dir("instrument_libs", "acme") == il
-    assert br._resolve_package_dir("no_such_package", "acme") is None
-
-
-def test_copy_app_code_packages_ships_source_and_skips_pycache(monkeypatch, tmp_path):
-    repo, dist = tmp_path / "repo", tmp_path / "dist"
-    _fake_app_with_step_package(repo)
-    dist.mkdir()
-    monkeypatch.setattr(br, "REPO", repo)
-    monkeypatch.setattr(br, "DIST", dist)
-    n = br.copy_app_code_packages("acme", compile_app_payload=False)
-    assert n == 1                                    # instrument_libs is excluded here (handled by copy_app_payload)
-    out = dist / "app" / "acme" / "acme_steps"
-    assert (out / "__init__.py").is_file()
-    assert not (out / "__pycache__").exists()
-
-
-def test_copy_app_code_packages_warns_but_does_not_crash_on_missing_package(monkeypatch, tmp_path, capsys):
-    repo, dist = tmp_path / "repo", tmp_path / "dist"
-    app = repo / "app" / "acme"
-    app.mkdir(parents=True)
-    (app / "controller.json").write_text(json.dumps({
-        "schema_version": 1, "step_type_packages": ["ghost_steps"]}))
-    dist.mkdir()
-    monkeypatch.setattr(br, "REPO", repo)
-    monkeypatch.setattr(br, "DIST", dist)
-    n = br.copy_app_code_packages("acme", compile_app_payload=False)
-    assert n == 0
-    assert "ghost_steps" in capsys.readouterr().out
-
-
-def test_copy_app_payload_copies_step_type_packages_by_default(monkeypatch, tmp_path):
-    repo, dist = tmp_path / "repo", tmp_path / "dist"
-    _fake_app_with_step_package(repo)
-    dist.mkdir()
-    monkeypatch.setattr(br, "REPO", repo)
-    monkeypatch.setattr(br, "DIST", dist)
-    br.copy_app_payload("acme")                      # compile_app_payload defaults False
-    assert (dist / "app" / "acme" / "acme_steps" / "__init__.py").is_file()
-    assert (dist / "instrument_libs" / "__init__.py").is_file()      # unconditional, as before
-
-
-def test_build_backend_omits_app_packages_by_default_but_includes_controller(monkeypatch, tmp_path):
-    """The narrow-compile-surface default: controller is still force-compiled (the recipe
-    catalog imports it), but the app's OWN step-type/library packages are NOT — they ship as
-    plain .py instead (copy_app_code_packages), which is what makes them independently
-    patchable without a full run.exe recompile."""
-    repo = tmp_path / "repo"
-    _fake_app_with_step_package(repo)
     backend = tmp_path / "backend"
     backend.mkdir()
+    out = tmp_path / "release-build"
     monkeypatch.setattr(br, "REPO", repo)
     monkeypatch.setattr(br, "BACKEND", backend)
-    monkeypatch.setattr(br, "OUT", tmp_path / "release-build")
+    monkeypatch.setattr(br, "OUT", out)
+    monkeypatch.setattr(br, "DIST", out / "run.dist")
+    monkeypatch.setattr(importlib.util, "find_spec", find_spec or (lambda name: None))
     captured = {}
 
     def _fake_run(cmd, cwd, env=None):
         captured["cmd"] = cmd
+        (out / "run").mkdir(parents=True)
     monkeypatch.setattr(br, "_run", _fake_run)
-
-    br.build_backend(jobs=1, track="app", product="acme", compile_app_payload=False)
-    cmd = captured["cmd"]
-    assert "--include-package=controller" in cmd
-    assert "--include-package=acme_steps" not in cmd
-    assert "--include-package=instrument_libs" not in cmd
+    return repo, out, captured
 
 
-def test_build_backend_compiles_app_packages_in_with_the_opt_in_flag(monkeypatch, tmp_path):
-    repo = tmp_path / "repo"
+def test_build_backend_bundles_app_packages_and_controller_always(monkeypatch, tmp_path):
+    """No narrow/opt-in toggle: the app's own step-type/library packages plus `controller` are
+    always bundled by name (PyInstaller --collect-submodules) — this is the fix for the pyvisa
+    regression (narrow-compile-surface silently dropped instrument_libs from the graph)."""
+    repo, _out, captured = _stub_build_backend(monkeypatch, tmp_path)
     _fake_app_with_step_package(repo)
-    backend = tmp_path / "backend"
-    backend.mkdir()
-    monkeypatch.setattr(br, "REPO", repo)
-    monkeypatch.setattr(br, "BACKEND", backend)
-    monkeypatch.setattr(br, "OUT", tmp_path / "release-build")
-    captured = {}
 
-    def _fake_run(cmd, cwd, env=None):
-        captured["cmd"] = cmd
-    monkeypatch.setattr(br, "_run", _fake_run)
-
-    br.build_backend(jobs=1, track="app", product="acme", compile_app_payload=True)
+    br.build_backend(track="app", product="acme")
     cmd = captured["cmd"]
-    assert "--include-package=acme_steps" in cmd
-    assert "--include-package=instrument_libs" in cmd
+    assert "--collect-submodules=controller" in cmd
+    assert "--collect-submodules=acme_steps" in cmd
+    assert "--collect-submodules=instrument_libs" in cmd
 
 
-def test_package_app_payload_artifact_zips_app_and_instrument_libs_with_run_dist_layout(monkeypatch, tmp_path):
-    out = tmp_path / "release-build"
-    dist = out / "run.dist"
-    (dist / "app" / "acme").mkdir(parents=True)
-    (dist / "app" / "acme" / "acme_steps").mkdir()
-    (dist / "app" / "acme" / "acme_steps" / "__init__.py").write_text("# steps")
-    (dist / "instrument_libs").mkdir()
-    (dist / "instrument_libs" / "__init__.py").write_text("# drivers")
-    out.mkdir(exist_ok=True)
-    (out / "RELEASE.json").write_text(json.dumps({"version": "1.2.3"}))
-    monkeypatch.setattr(br, "OUT", out)
-    monkeypatch.setattr(br, "DIST", dist)
+def test_build_backend_renames_pyinstaller_output_to_dist(monkeypatch, tmp_path):
+    """PyInstaller's --name ties both the output folder and the exe stem together, producing
+    OUT/run — build_backend must rename it to DIST (OUT/run.dist), the one constant every other
+    function reads."""
+    _repo, out, _captured = _stub_build_backend(monkeypatch, tmp_path)
 
-    br.package_app_payload_artifact("acme")
-
-    archive = out / "acme-1.2.3-app-payload.zip"
-    assert archive.is_file()
-    import zipfile
-    with zipfile.ZipFile(archive) as zf:
-        names = set(zf.namelist())
-    assert "app/acme/acme_steps/__init__.py" in names
-    assert "instrument_libs/__init__.py" in names
-    rel = json.loads((out / "RELEASE.json").read_text())
-    assert rel["app_payload_artifact"] == "acme-1.2.3-app-payload.zip"
-    assert len(rel["app_payload_artifact_hash"]) == 64        # sha256 hex
+    br.build_backend()
+    assert br.DIST.is_dir()
+    assert not (out / "run").exists()
 
 
-def test_package_app_payload_artifact_skips_when_nothing_to_package(monkeypatch, tmp_path, capsys):
-    out = tmp_path / "release-build"
-    dist = out / "run.dist"
-    dist.mkdir(parents=True)                          # no app/ or instrument_libs/ subdirs
-    (out / "RELEASE.json").write_text(json.dumps({"version": "1.0.0"}))
-    monkeypatch.setattr(br, "OUT", out)
-    monkeypatch.setattr(br, "DIST", dist)
+def test_build_backend_adds_vcruntime_dlls_when_present(monkeypatch, tmp_path):
+    """mosquitto.exe (copy_vendor_broker) and the frozen runtime need vcruntime140(.dll/_1.dll)
+    beside run.exe — sourced explicitly from the build Python's own install rather than hoping
+    PyInstaller's dependency walker finds them."""
+    _repo, _out, captured = _stub_build_backend(monkeypatch, tmp_path)
+    base_prefix = tmp_path / "pyroot"
+    base_prefix.mkdir()
+    (base_prefix / "vcruntime140.dll").write_text("rt")
+    (base_prefix / "vcruntime140_1.dll").write_text("rt1")
+    monkeypatch.setattr(br.sys, "base_prefix", str(base_prefix))
 
-    br.package_app_payload_artifact("acme")
+    br.build_backend()
+    cmd = captured["cmd"]
+    assert f"--add-binary={base_prefix / 'vcruntime140.dll'};." in cmd
+    assert f"--add-binary={base_prefix / 'vcruntime140_1.dll'};." in cmd
 
-    assert not (out / "acme-1.0.0-app-payload.zip").exists()
-    assert "skipped" in capsys.readouterr().out
+
+def test_build_backend_pyvisa_defaults_bundled_only_when_installed(monkeypatch, tmp_path):
+    """pyvisa's own backend discovery goes through importlib.metadata entry points — invisible
+    to any import-graph follower — so it needs an explicit --copy-metadata/--collect-all pair,
+    added only when the packages are actually installed."""
+    repo, _out, captured = _stub_build_backend(
+        monkeypatch, tmp_path,
+        find_spec=lambda name: object() if name in ("pyvisa", "pyvisa_py") else None)
+    _fake_app_with_step_package(repo)
+
+    br.build_backend(track="app", product="acme")
+    cmd = captured["cmd"]
+    assert "--copy-metadata=pyvisa" in cmd
+    assert "--collect-all=pyvisa_py" in cmd
+
+
+def test_build_backend_pyvisa_defaults_skipped_when_absent(monkeypatch, tmp_path):
+    repo, _out, captured = _stub_build_backend(monkeypatch, tmp_path)
+    _fake_app_with_step_package(repo)
+
+    br.build_backend(track="app", product="acme")
+    cmd = captured["cmd"]
+    assert not any(a.startswith("--copy-metadata=pyvisa") or a.startswith("--collect-all=pyvisa")
+                    for a in cmd)
+
+
+def test_build_backend_does_not_force_sqlalchemy_or_uvicorn_submodules(monkeypatch, tmp_path):
+    """Both already ship their own PyInstaller hooks that fire automatically from normal
+    import-following — sqlalchemy's hook deliberately excludes sqlalchemy.testing, which a
+    forced --collect-submodules would override. Forcing both (plus --clean) measured ~14 extra
+    minutes on a real build (944s -> 115s once removed) for no behavioral benefit."""
+    _repo, _out, captured = _stub_build_backend(monkeypatch, tmp_path)
+
+    br.build_backend()
+    cmd = captured["cmd"]
+    assert "--collect-submodules=sqlalchemy" not in cmd
+    assert "--collect-submodules=uvicorn" not in cmd
+    assert "--clean" not in cmd

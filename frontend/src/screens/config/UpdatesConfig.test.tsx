@@ -77,17 +77,14 @@ describe("UpdatesConfig", () => {
       },
       "GET /update/status": { body: { backups: [], last_known_good: null } },
       "POST /update/scan-incoming": {
-        body: { found: [
-          { track: "app", version: "2.0.0", scope: "full" },
-          { track: "app", version: "2.0.1", scope: "app-payload" },
-        ] },
+        body: { found: [{ track: "app", version: "2.0.0" }] },
       },
     });
     render(<UpdatesConfig />);
     const btn = await screen.findByText("Scan for updates on this PC");
     fireEvent.click(btn.closest("button")!);
     await waitFor(() => expect(screen.getByText(
-      /Staged from local files: app 2\.0\.0 \(full\), app 2\.0\.1 \(app-payload\)/)).toBeInTheDocument());
+      /Staged from local files: app 2\.0\.0/)).toBeInTheDocument());
   });
 
   it("air_gapped: Scan for updates reports nothing found without erroring", async () => {
@@ -104,7 +101,7 @@ describe("UpdatesConfig", () => {
     await waitFor(() => expect(screen.getByText(/No update files found/)).toBeInTheDocument());
   });
 
-  it("air_gapped: Scan for updates surfaces a per-slot error without hiding a good slot", async () => {
+  it("air_gapped: Scan for updates surfaces an error when staging fails", async () => {
     mockFetch({
       "GET /update/offers": {
         body: { current: { version: "1.16.0" }, offers: [], source: null, station_mode: "air_gapped" },
@@ -112,16 +109,15 @@ describe("UpdatesConfig", () => {
       "GET /update/status": { body: { backups: [], last_known_good: null } },
       "POST /update/scan-incoming": {
         body: { found: [
-          { track: "app", version: "2.0.0", scope: "full" },
-          { slot: "app-payload", error: "artifact hash mismatch: got deadbe… want abc123…" },
+          { error: "artifact hash mismatch: got deadbe… want abc123…" },
         ] },
       },
     });
     render(<UpdatesConfig />);
     const btn = await screen.findByText("Scan for updates on this PC");
     fireEvent.click(btn.closest("button")!);
-    await waitFor(() => expect(screen.getByText(/Staged from local files: app 2\.0\.0 \(full\)/)).toBeInTheDocument());
-    expect(screen.getByText(/app-payload: artifact hash mismatch/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Found update files, but none could be staged/)).toBeInTheDocument());
+    expect(screen.getByText(/artifact hash mismatch/)).toBeInTheDocument();
   });
 
   it("relaunch waits for the backend to return, then re-fetches (not a static message)", async () => {

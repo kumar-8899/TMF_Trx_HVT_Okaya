@@ -1,6 +1,6 @@
 # ADR 0002 — Narrow the Nuitka compile surface for app-track builds
 
-**Status:** Accepted · **Date:** 2026-09-29 · **Area:** build / release / updates
+**Status:** Superseded by [0003](0003-pyinstaller-and-bundle-packages.md) · **Date:** 2026-09-29 · **Area:** build / release / updates
 
 ## Context
 

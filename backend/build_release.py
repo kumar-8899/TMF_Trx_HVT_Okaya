@@ -1,14 +1,17 @@
-"""Release build — Nuitka-compiled backend (secure distribution P2).
+"""Release build — PyInstaller-frozen backend.
 
-Compiles the Python backend to native code (Python -> C -> machine code): real IP
-protection for the framework + instrument logic, and exactly the artifact shape
-Keystation's `python_framework` FRAMEWORK track distributes. PyInstaller
-(`tmf-sidecar.spec`) remains for quick dev bundles only.
+Freezes the Python backend into a standalone `run.dist/run.exe` (no system Python/pip
+needed on the client). No IP protection — PyInstaller ships plain bytecode, trivially
+decompilable, same as `tmf-sidecar.spec` (now retired) always was. That's a deliberate,
+explicit tradeoff for build time: freezing has no compile step, so a full app-track
+build is minutes, not the 15-45 min a real C compile (Nuitka, the prior approach) cost.
+Re-introduce IP protection later as its own decision if it's ever needed again — see
+docs/decisions/0003-pyinstaller-and-bundle-packages.md.
 
 Output layout (SECURE_DISTRIBUTION.md §5):
 
     release-build/
-      run.dist/            compiled backend (run.exe + native libs) = the swap unit + the .zip
+      run.dist/            frozen backend (run.exe + native libs) = the swap unit + the .zip
         launcher.py        update supervisor (catches exit-42, applies the staged run.dist)
         modules/**         manifest.json / schemas / step_types / known_issues (data)
         core/schemas/*     app/license schema JSON (data)
@@ -19,7 +22,7 @@ Output layout (SECURE_DISTRIBUTION.md §5):
         --- app track (--track app): run.exe ALSO runs the controller (run.exe --controller),
             and these bundle INSIDE run.dist so a swap carries it all: ---
         app/<product>/     app DEFINITION: controller.json, maps/, specs/ (NO recipes/creds)
-        instrument_libs/   copied drivers (provenance; imports use the compiled-in copy)
+        instrument_libs/   copied drivers (provenance; imports use the bundled copy)
         vendor/mosquitto/  vendored broker (win64: mosquitto.exe + DLLs + loopback conf) — the
                            frozen station starts its OWN broker: no Mosquitto install/service/admin
       run_station.exe      frozen windowed launcher (deploy root, BESIDE run.dist) — the ONE
@@ -35,20 +38,21 @@ Output layout (SECURE_DISTRIBUTION.md §5):
     published <slug>-<ver>.zip is a complete app AND an in-app update refreshes all of it.
 
 Usage:  python build_release.py [--track framework|app] [--product <name>]
-                                 [--app-config <path>] [--skip-frontend] [--jobs N] [--mingw64]
-App track compiles ONE exe: run.exe also runs the controller (`run.exe --controller`) with the
-app's step-type packages + instrument_libs registered by NAME (import-by-name), so a frozen app
-runs its OWN test sequence — not just the shell. (One exe, because a lean separately-compiled
-controller.exe fails to bundle the stdlib on Nuitka's zig backend; run.exe's large graph always
-pulls it in.) By DEFAULT those app-owned packages are left OUT of the Nuitka compile — narrow
-compile surface — and shipped as plain .py under run.dist/app/<product>/ instead, loaded via
-step_type_paths/library_paths at runtime (controller_supervisor.py); pass --compile-app-payload
-for the old fully-compiled behavior. Narrowing is faster to build AND lets a bugfix to app-owned
-code ship as a small app-payload-only patch (package_app_payload_artifact) instead of a full
-run.dist swap — see docs/decisions/0002-nuitka-compile-scope.md.
-Compiler backend defaults to MSVC (`cl`) + clcache — an object cache, so a WARM rebuild is fast
-(unchanged objects are cache hits). `--mingw64` opts into gcc + ccache (needs a working MinGW,
-unavailable on Python 3.13+).
+                                 [--app-config <path>] [--skip-frontend]
+App track freezes ONE exe: run.exe also runs the controller (`run.exe --controller`), with the
+app's step-type packages + library packages + instrument_libs bundled in by NAME (PyInstaller
+`--collect-submodules`, resolved from `app/<product>/controller.json` — the same mechanism used
+for `core`/`modules`, since dynamic discovery is invisible to static analysis either way), so a
+frozen app runs its OWN test sequence, not just the shell. There is only one mode — everything
+app-owned is always bundled; no narrow/compiled-in toggle (that distinction only ever meant
+something under a real machine-code compiler, which PyInstaller isn't).
+Two framework-owned defaults are bundled automatically when installed, because their real
+dependency (a driver's `import pyvisa`) is normally caught by ordinary import-following once
+`instrument_libs` is in the graph, but PYVISA'S OWN backend discovery goes through
+`importlib.metadata` entry points — invisible to ANY import-graph follower: `pyvisa`
+(`--copy-metadata`, so its entry-point lookup succeeds) and `pyvisa_py` (`--collect-all`, since
+nothing statically imports it). Silently skipped if not installed — see
+docs/decisions/0003-pyinstaller-and-bundle-packages.md.
 The signed Keystation framework-release registration (manifest + build_timestamp)
 happens in CI / on the issuer, not here — this script only produces + hashes.
 """
@@ -86,27 +90,10 @@ def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
     subprocess.run(cmd, cwd=cwd, check=True, env=env)
 
 
-def _compiler_args(mingw: bool) -> list[str]:
-    """Compiler backend for Nuitka. Default (empty) lets Nuitka pick **MSVC (`cl`)** on Windows,
-    which it drives through **clcache** — an object cache, so a WARM rebuild is fast (unchanged
-    `.obj` are cache hits; only your changed app packages recompile). `--mingw64` opts into
-    **gcc + ccache** instead, which needs a WORKING MinGW: Nuitka's auto-downloaded gcc 15.2.0 ships
-    a broken Windows SDK header (`psdk_inc/intrin-impl.h`) on some setups and fails the C compile —
-    install a known-good MinGW (e.g. winlibs gcc 13.x) and put it on PATH, or stay on the MSVC
-    default. Both back ends cache objects; the default just works out of the box here."""
-    if mingw:
-        if sys.version_info >= (3, 13):
-            raise SystemExit(
-                "--mingw64 is unsupported on Python 3.13+ (Nuitka rejects it, and refuses an "
-                "external winlibs gcc). Use the default MSVC backend, or build on Python <=3.12.")
-        return ["--mingw64"]
-    return []
-
-
 def _app_build_env(product: str) -> dict:
-    """Nuitka resolves `--include-package` against sys.path, so put the app's package roots on
-    PYTHONPATH: the repo root (for `instrument_libs`), `app/<product>` (for `<name>_steps`), and
-    `controller/` (the `controller` package the recipe catalog imports)."""
+    """PyInstaller resolves `--collect-submodules` against sys.path, so put the app's package
+    roots on PYTHONPATH: the repo root (for `instrument_libs`), `app/<product>` (for
+    `<name>_steps`), and `controller/` (the `controller` package the recipe catalog imports)."""
     import os
     roots = os.pathsep.join([str(REPO), str(REPO / "app" / product), str(REPO / "controller")])
     env = dict(os.environ)
@@ -117,10 +104,9 @@ def _app_build_env(product: str) -> dict:
 def _app_include_packages(product: str) -> list[str]:
     """The app's dynamically-named packages — read from `app/<product>/controller.json`
     (`step_type_packages` + `library_packages`) plus the repo-root `instrument_libs/` (copied
-    drivers). They load by NAME at runtime (import_module), invisible to static analysis. With
-    `--compile-app-payload` each is force-compiled into the exe; otherwise (default) they ship as
-    plain `.py` under run.dist and load from disk (see copy_app_code_packages / narrow compile
-    surface, docs/decisions/0002-nuitka-compile-scope.md)."""
+    drivers). They load by NAME at runtime (import_module), invisible to static analysis, so each
+    is force-bundled (`--collect-submodules`) exactly like `core`/`modules` are — there is only
+    one mode, always bundled; see docs/decisions/0003-pyinstaller-and-bundle-packages.md."""
     pkgs: list[str] = []
     if (REPO / "instrument_libs" / "__init__.py").is_file():
         pkgs.append("instrument_libs")
@@ -137,61 +123,91 @@ def _app_include_packages(product: str) -> list[str]:
     return pkgs
 
 
-def _resolve_package_dir(pkg: str, product: str) -> Path | None:
-    """Where a dynamically-named app package's SOURCE lives, for copying (not compiling) it into
-    run.dist. Checked in the same order Nuitka would resolve it on `_app_build_env`'s PYTHONPATH:
-    the app's own root first (`<name>_steps`), then the repo root (`instrument_libs`)."""
-    for root in (REPO / "app" / product, REPO):
-        cand = root / pkg
-        if (cand / "__init__.py").is_file():
-            return cand
-    return None
+# Third-party packages a driver's `import pyvisa` normally pulls in for free once
+# `instrument_libs` is in the bundle (ordinary import-graph following) — EXCEPT pyvisa's own
+# backend discovery, which goes through `importlib.metadata` entry points and is invisible to
+# ANY static import-follower, PyInstaller or otherwise. Bundled only when installed (mirrors the
+# `keystation` opt-in check below) — never a hard requirement, never a config surface; add here
+# only if another package turns out to need the same entry-point treatment.
+_PYVISA_METADATA_PACKAGES = ("pyvisa",)      # --copy-metadata: fixes entry_points() lookup
+_PYVISA_BACKEND_PACKAGES = ("pyvisa_py",)    # --collect-all: nothing statically imports it
 
 
-def build_backend(jobs: int, track: str = "framework", product: str = "super_test_app",
-                  mingw: bool = False, compile_app_payload: bool = False) -> None:
+def build_backend(track: str = "framework", product: str = "super_test_app") -> None:
+    """Freeze the backend with PyInstaller (onedir, flat layout) into DIST = OUT/"run.dist".
+    PyInstaller ties --name to both the output folder AND the exe stem, so this always produces
+    OUT/run/run.exe first, then does one explicit rename to DIST — the like-for-like replacement
+    of what Nuitka's automatic `.dist`-suffixed --output-dir already did; nothing downstream
+    needs to know PyInstaller was involved, DIST is still the one constant everything else reads.
+    """
     import importlib.util
+    workpath = OUT / "build"
     cmd = [
-        sys.executable, "-m", "nuitka",
-        "--standalone",
-        "--assume-yes-for-downloads",
-        *_compiler_args(mingw),
-        f"--jobs={jobs}",
-        "--output-dir=" + str(OUT),
+        sys.executable, "-m", "PyInstaller",
+        str(BACKEND / "run.py"),
+        "--onedir",
+        "--contents-directory=.",     # flat layout: run.exe + everything sit as siblings, no
+                                       # _internal/ subfolder — matches every sys.executable-parent
+                                       # path resolution in core/services/{spa,docs_paths,config}.py
+        "--name=run",
+        f"--distpath={OUT}",
+        f"--workpath={workpath}",
+        f"--specpath={workpath}",
+        "--noconfirm",
+        "--console",
         # dynamic discovery (core.framework.registry.discover) is invisible to
-        # static analysis - force-compile the whole tree:
-        "--include-package=core",
-        "--include-package=modules",
+        # static analysis - force-bundle the whole tree:
+        "--collect-submodules=core",
+        "--collect-submodules=modules",
         # C-extension / runtime deps that static analysis can miss:
-        "--include-package=argon2",
-        "--include-package=uvicorn",
-        "--include-package=aiosqlite",
-        "--include-package=sqlalchemy",
-        "--include-package=pypdf",             # portal library text extraction (optional import)
+        "--collect-all=argon2",
+        "--collect-submodules=aiosqlite",
+        "--collect-submodules=pypdf",   # portal library text extraction (optional import)
+        # uvicorn and sqlalchemy are deliberately NOT forced here: both already ship their own
+        # PyInstaller hooks (hook-uvicorn.py, hook-sqlalchemy.py) that fire automatically once
+        # they're reached via normal import-following. sqlalchemy's own hook is actually SMARTER
+        # than a blanket --collect-submodules — it explicitly excludes sqlalchemy.testing, which
+        # a forced flag would override. Forcing both here was measured to add ~14 minutes to the
+        # build (944s -> 115s once removed) for no behavioral benefit.
     ]
     # keystation SDK is optional + deployment-specific (external repo, ships with the
     # SDK+DLL). Bundle it only when installed; the provider lazy-imports it otherwise.
     for opt in ("keystation",):
         if importlib.util.find_spec(opt) is not None:
-            cmd.append(f"--include-package={opt}")
+            cmd.append(f"--collect-all={opt}")
         else:
             print(f"note: '{opt}' not installed - not bundled (added at deployment)")
+    # vcruntime140(.dll/_1.dll): mosquitto.exe (copy_vendor_broker) and the broader frozen
+    # runtime need these beside run.exe. PyInstaller's own dependency walker usually finds them,
+    # but don't wait to find out — source them explicitly from the build Python's own install.
+    for name in ("vcruntime140.dll", "vcruntime140_1.dll"):
+        src_dll = Path(sys.base_prefix) / name
+        if src_dll.is_file():
+            cmd.append(f"--add-binary={src_dll};.")
     env = None
     if track == "app":
         # The recipe module builds its catalog via `from controller.packages import …`
-        # (modules/recipe/catalog.py), so the CONTROLLER package must be compiled into the
-        # backend too. The app's OWN step-type packages + drivers are force-compiled only with
-        # --compile-app-payload; by default (narrow compile surface) they are left OUT of the
-        # Nuitka graph entirely and shipped as plain .py instead (copy_app_code_packages) — they
-        # are app-owned code, not framework IP, and leaving them uncompiled is what makes a
-        # small app-payload-only patch possible (docs/decisions/0002-nuitka-compile-scope.md).
-        cmd.append("--include-package=controller")
-        if compile_app_payload:
-            for pkg in _app_include_packages(product):
-                cmd += [f"--include-package={pkg}", f"--include-package-data={pkg}"]
+        # (modules/recipe/catalog.py), so the CONTROLLER package must be bundled too. The app's
+        # OWN step-type/library packages + instrument_libs are ALWAYS bundled by name — there is
+        # no narrow/compiled-in toggle; that distinction only ever meant something under a real
+        # machine-code compiler (Nuitka), which PyInstaller isn't.
+        cmd.append("--collect-submodules=controller")
+        for pkg in _app_include_packages(product):
+            cmd.append(f"--collect-submodules={pkg}")
+        for pkg in _PYVISA_METADATA_PACKAGES:
+            if importlib.util.find_spec(pkg) is not None:
+                cmd.append(f"--copy-metadata={pkg}")
+        for pkg in _PYVISA_BACKEND_PACKAGES:
+            if importlib.util.find_spec(pkg) is not None:
+                cmd.append(f"--collect-all={pkg}")
         env = _app_build_env(product)
-    cmd.append("run.py")
     _run(cmd, cwd=BACKEND, env=env)
+    produced = OUT / "run"
+    if not produced.is_dir():
+        raise SystemExit(f"PyInstaller reported success but {produced} was not produced")
+    if DIST.exists():
+        shutil.rmtree(DIST)
+    produced.rename(DIST)
 
 
 def _verify_frozen_controller(product: str) -> None:
@@ -203,17 +219,14 @@ def _verify_frozen_controller(product: str) -> None:
     build if the controller can't start — a frozen app that boots the UI but can't run the controller
     is a FAIL. Runs for --track app right after the backend compile (fail fast, one exe)."""
     import tempfile
-    exe = DIST / ("run.exe" if sys.platform == "win32" else "run.bin")
-    if not exe.exists():
-        exe = DIST / "run"
+    exe = DIST / ("run.exe" if sys.platform == "win32" else "run")
     steps = [p for p in _app_include_packages(product) if p != "instrument_libs"]
-    # step_type_paths/library_paths: harmless when --compile-app-payload compiled everything in
-    # (nothing new lives on disk to find there); required for the default narrow-compile-surface
-    # build, where these packages are plain .py under run.dist and only load via sys.path.
+    # No step_type_paths/library_paths needed: every package here is bundled into run.exe by
+    # name (build_backend's --collect-submodules), so plain import_module(pkg) finds it —
+    # no sys.path injection required.
     cfg = {"schema_version": 1, "broker": {"host": "127.0.0.1", "port": 9},   # port 9 = discard
-           "step_type_packages": steps, "step_type_paths": [str(DIST / "app" / product)],
+           "step_type_packages": steps,
            "library_packages": [p for p in _app_include_packages(product) if p == "instrument_libs"],
-           "library_paths": [str(DIST)],
            "stations": [{"station": "st1"}], "simulation": False}
     tmpdir = Path(tempfile.mkdtemp())
     (tmpdir / "verify.json").write_text(json.dumps(cfg), encoding="utf-8")
@@ -238,9 +251,10 @@ def _verify_frozen_controller(product: str) -> None:
             "BUILD FAILED: `run.exe --controller` cannot complete startup "
             f"(crash={crash}, reached_startup={reached}).\n"
             f"  output tail: {combined[-700:]!r}\n"
-            "  A frozen app that boots the UI but can't run the controller is a FAIL. On an "
-            "MSVC-less builder Nuitka may mis-bundle the stdlib for lean graphs — installing VS "
-            "'Desktop development with C++' (or standalone Build Tools) gives the tested backend.")
+            "  A frozen app that boots the UI but can't run the controller is a FAIL — check that "
+            "every step-type/library package + instrument_libs is actually being bundled "
+            "(_app_include_packages / --collect-submodules) and that PYTHONPATH resolves them at "
+            "build time (_app_build_env).")
 
 
 def copy_data() -> None:
@@ -343,9 +357,9 @@ def copy_vendor_broker() -> None:
     # mosquittopp.dll). The official Windows build assumes the system-wide VC++ redistributable is
     # present; a genuinely clean client PC doesn't have it, so mosquitto.exe fails to launch with a
     # missing-DLL error, the broker never binds :1883, and it surfaces three layers away as a bare
-    # connection-refused. Nuitka already dropped its own private copies next to run.exe (DIST/), but
-    # Windows' DLL search checks an exe's OWN directory first, never a sibling — so copy them into the
-    # broker's dir too. No new download (Issue 5).
+    # connection-refused. build_backend() already places copies next to run.exe (DIST/, via
+    # --add-binary), but Windows' DLL search checks an exe's OWN directory first, never a sibling —
+    # so copy them into the broker's dir too. No new download (Issue 5).
     for name in ("vcruntime140.dll", "vcruntime140_1.dll"):
         src_dll = DIST / name
         if src_dll.is_file():
@@ -355,9 +369,10 @@ def copy_vendor_broker() -> None:
     # on the builder, instead of on a customer bench.
     if not (dest / "vcruntime140.dll").is_file():
         raise SystemExit(
-            "vendored broker is missing vcruntime140.dll beside mosquitto.exe — Nuitka did not place "
-            f"one in {DIST} to copy. mosquitto.exe would fail to start on a clean client PC. Ensure "
-            "the backend build ran first (it drops vcruntime140.dll next to run.exe).")
+            "vendored broker is missing vcruntime140.dll beside mosquitto.exe — build_backend() did "
+            f"not place one in {DIST} to copy. mosquitto.exe would fail to start on a clean client "
+            "PC. Ensure the backend build ran first, and that vcruntime140.dll actually exists "
+            "beside the build Python's own executable (Path(sys.base_prefix)).")
     n = sum(1 for _ in dest.iterdir())
     print(f"vendored broker: deploy/vendor/mosquitto/win64 -> run.dist/vendor/mosquitto/win64 ({n} files, "
           "+ vcruntime140 beside mosquitto.exe)")
@@ -604,10 +619,10 @@ def build_run_station_exe(jobs: int) -> bool | None:
     return True
 
 
-def copy_app_payload(product: str, compile_app_payload: bool = False) -> None:
+def copy_app_payload(product: str) -> None:
     """Bundle the app DEFINITION into run.dist — controller.json (template), variable maps, specs,
-    VERSION — plus the repo-root `instrument_libs/` (source copy; provenance-only when
-    --compile-app-payload, the LOADED copy when narrow-compiled — see below).
+    VERSION — plus the repo-root `instrument_libs/` (source copy; provenance only — imports use
+    the copy build_backend() already bundled into run.exe via --collect-submodules).
     NEVER bundles site-specific config: no `recipes/` (site data), no instrument instances (DB
     records set on the Instruments page), no report/DB credentials (external live config)."""
     app_src = REPO / "app" / product
@@ -629,37 +644,8 @@ def copy_app_payload(product: str, compile_app_payload: bool = False) -> None:
     if (il / "__init__.py").is_file():
         shutil.copytree(il, DIST / "instrument_libs", dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    n_pkgs = copy_app_code_packages(product, compile_app_payload)
-    note = " (compiled-in; source copy is provenance only)" if compile_app_payload else " (loaded from here at runtime)"
     print(f"app payload: app/{product}/ (controller.json + maps + specs; NO recipes/creds) "
-          f"+ instrument_libs/ + {n_pkgs} step-type/library package(s){note}")
-
-
-def copy_app_code_packages(product: str, compile_app_payload: bool) -> int:
-    """Copy the app's dynamically-named packages (`step_type_packages` + `library_packages` from
-    controller.json, minus `instrument_libs` which copy_app_payload already handles) as plain
-    SOURCE into `run.dist/app/<product>/<pkg>/`.
-
-    With --compile-app-payload this is provenance only (imports use Nuitka's compiled-in copy,
-    same as instrument_libs today). By DEFAULT (narrow compile surface) this copy is the only
-    copy that exists — these packages are no longer in the Nuitka graph at all — and it is what
-    `load_step_type_packages`/`load_libraries` import at runtime via `step_type_paths`/
-    `library_paths` (controller_supervisor._write_config appends run.dist/app/<product> and
-    run.dist for exactly this). See docs/decisions/0002-nuitka-compile-scope.md."""
-    dest_root = DIST / "app" / product
-    n = 0
-    for pkg in _app_include_packages(product):
-        if pkg == "instrument_libs":
-            continue          # already copied whole by copy_app_payload
-        src = _resolve_package_dir(pkg, product)
-        if src is None:
-            print(f"WARNING: package '{pkg}' (from controller.json) not found under app/{product}/ "
-                  "or the repo root - not bundled, the controller will fail to import it")
-            continue
-        shutil.copytree(src, dest_root / pkg, dirs_exist_ok=True,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        n += 1
-    return n
+          "+ instrument_libs/ (provenance copy — imports use the bundled copy in run.exe)")
 
 
 def _sanitize_config(obj, _dropped: list):
@@ -763,42 +749,6 @@ def package_artifact(product: str) -> None:
     print(f"artifact: {archive.name} ({archive.stat().st_size // 1024} KB, sha {sha[:12]}…)")
 
 
-def package_app_payload_artifact(product: str) -> None:
-    """A SECOND, smaller zip alongside the full artifact: `run.dist/app/<product>/` (the copied
-    step-type/library packages, maps, specs, controller.json — see copy_app_code_packages) PLUS
-    `run.dist/instrument_libs/` — together, the whole part of a narrow-compiled build that can
-    change without touching run.exe. Zipped with the SAME relative layout as run.dist itself
-    (`app/<product>/...`, `instrument_libs/...`) so the station can extract it straight onto two
-    swap units. A release whose diff is entirely app-owned (a step-type bugfix, a new instrument
-    driver, updated maps/specs) can publish THIS artifact instead of the full one; the station
-    stages it with `scope: "app-payload"` and the launcher swaps only those two directories,
-    leaving run.exe untouched (core/services/updates.py, backend/launcher.py — docs/UPDATES.md
-    §app-payload-scope). No-ops (with a note) if there is nothing to package, e.g. --track
-    framework or --compile-app-payload with nothing left uncompiled."""
-    import zipfile
-    app_src = DIST / "app" / product
-    il_src = DIST / "instrument_libs"
-    roots = [(app_src, f"app/{product}"), (il_src, "instrument_libs")]
-    roots = [(src, arc) for src, arc in roots if src.is_dir() and any(src.iterdir())]
-    if not roots:
-        print("app-payload artifact: skipped (no app/<product> or instrument_libs payload in this build)")
-        return
-    rel_path = OUT / "RELEASE.json"
-    rel = json.loads(rel_path.read_text(encoding="utf-8"))
-    archive = OUT / f"{product}-{rel['version']}-app-payload.zip"
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-        for src, arcbase in roots:
-            for f in sorted(src.rglob("*")):
-                if f.is_file():
-                    zf.write(f, arcname=f"{arcbase}/{f.relative_to(src).as_posix()}")
-    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
-    rel["app_payload_artifact"] = archive.name
-    rel["app_payload_artifact_hash"] = sha
-    rel_path.write_text(json.dumps(rel, indent=2), encoding="utf-8")
-    print(f"app-payload artifact: {archive.name} ({archive.stat().st_size // 1024} KB, "
-          f"sha {sha[:12]}…) — patch-only releases can publish this instead of the full zip")
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-frontend", action="store_true")
@@ -817,17 +767,6 @@ def main() -> int:
                          "defaults to backend/config/app.release.json)")
     ap.add_argument("--manifest-only", action="store_true",
                     help="re-hash an existing release-build (no recompile)")
-    ap.add_argument("--mingw64", action="store_true",
-                    help="use the MinGW64 + ccache backend instead of the default MSVC + clcache "
-                         "(needs a working MinGW on PATH — see _compiler_args)")
-    ap.add_argument("--compile-app-payload", action="store_true",
-                    help="force-compile the app's step_type_packages/library_packages/"
-                         "instrument_libs into run.exe (old behavior). Default: narrow compile "
-                         "surface — ship them as plain .py under run.dist instead, which is "
-                         "faster to build and lets a bugfix to them ship as an app-payload-only "
-                         "patch (package_app_payload_artifact) instead of a full run.dist swap. "
-                         "Opt in only if this app's OWN step types/drivers need Nuitka's IP "
-                         "protection too (see docs/decisions/0002-nuitka-compile-scope.md).")
     args = ap.parse_args()
 
     app_ver = _app_version(args.product, args.app_version) if args.track == "app" else None
@@ -841,7 +780,7 @@ def main() -> int:
 
     if OUT.exists():
         shutil.rmtree(OUT)
-    build_backend(args.jobs, args.track, args.product, args.mingw64, args.compile_app_payload)
+    build_backend(args.track, args.product)
     if args.track == "app":
         # run.exe doubles as the controller (`run.exe --controller`). Verify it can start as one
         # BEFORE spending time on data/payload/zip — fail fast on a mis-bundled toolchain.
@@ -852,7 +791,7 @@ def main() -> int:
     if args.track == "app":
         # A runnable app = the backend exe (which also runs the controller) + the app definition +
         # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
-        copy_app_payload(args.product, args.compile_app_payload)
+        copy_app_payload(args.product)
         promote_app_config(args.app_config)
         copy_vendor_broker()            # vendored Mosquitto INSIDE run.dist (no service, no admin)
         # FAIL-SOFT (see build_run_station_exe docstring): run.dist + the .zip/.ksupdate are still
@@ -866,8 +805,6 @@ def main() -> int:
     # BEFORE package_artifact() (so the zipped swap unit carries it).
     shutil.copy2(OUT / "RELEASE.json", DIST / "RELEASE.json")
     package_artifact(args.product)
-    if args.track == "app":
-        package_app_payload_artifact(args.product)
     print("\nrelease at:", OUT)
     if run_station_ok is False:
         RUN_STATION_EXE_FAILED = 3   # distinct from a hard build failure (which raises/exits nonzero earlier)

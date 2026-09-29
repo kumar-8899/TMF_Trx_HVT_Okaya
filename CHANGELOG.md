@@ -5,6 +5,48 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.27.0 — 2026-09-29
+
+**Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).**
+
+Nuitka's 15–45 min app-track build was unworkable for iteration — measured well over
+a 10-minute hard gate. IP protection is deliberately deferred (re-introduce it later as its own
+decision if ever needed). See ADR [0003](docs/decisions/0003-pyinstaller-and-bundle-packages.md)
+for the full reasoning; summary:
+
+- **`build_backend()` now runs PyInstaller**, not Nuitka: onedir, `--contents-directory=.` (flat
+  layout, matching the old Nuitka output shape — no code elsewhere needed to change). A real,
+  clean, uncontended build measures **~82–84s**, about 7x under the gate.
+- **This reverts v1.26.0/v1.26.1 almost entirely** — narrow-compile-surface and the dual-scope
+  update system existed only to work around Nuitka's slow rebuilds; PyInstaller removes the
+  problem they were working around. The app's own `step_type_packages` / `library_packages` /
+  `instrument_libs` are now **always** bundled by name (`--collect-submodules`), the same as
+  `core`/`modules` — there is no narrow/compiled-in toggle anymore, since that distinction only
+  ever meant something under a real machine-code compiler.
+- **Fixes a real bug**: v1.26.0's narrow-compile-surface silently broke `pyvisa` bundling
+  (excluding `instrument_libs` from the compile graph also excluded the `import pyvisa` inside
+  fork-owned driver code that Nuitka used to discover transitively). Restoring always-bundled
+  `instrument_libs` fixes the transitive path; two new framework-owned constants
+  (`_PYVISA_METADATA_PACKAGES`, `_PYVISA_BACKEND_PACKAGES`) cover the one residual gap no import
+  analyzer can see — pyvisa's own `importlib.metadata`-based backend discovery.
+- **Removed**: `copy_app_code_packages()`, `_resolve_package_dir()`,
+  `package_app_payload_artifact()`, the `--compile-app-payload`/`--mingw64` CLI flags, the
+  `step_type_paths`/`library_paths` auto-append in `controller_supervisor.py`, the dual-scope
+  update system (`KS_ARTIFACT_SCOPE`, scope detection in `_stage_zip_bytes`, the
+  `app_payload_swaps` dual-`SwapManager` branch in `launcher.py`, `cut-release.ps1 -Scope`).
+- **Kept, simplified to one slot**: `UpdateService.scan_incoming()` / "Scan for updates on this
+  PC" — one `<data_dir>/updates/incoming/{update.ksupdate,update.zip}` slot instead of two.
+- **Unaffected**: `run_station.exe` stays on Nuitka onefile (fast, separate, no app-payload
+  bundling of its own) — nothing here touches `build_run_station_exe()`,
+  `_verify_run_station_exe()`, or `station.py`'s `__compiled__` detection.
+- Also fixed: a naive PyInstaller flag set (`--clean`, forced `--collect-submodules` for
+  `sqlalchemy`/`uvicorn`) measured ~944s on its own — both packages already ship smarter
+  PyInstaller hooks that fire automatically; forcing them (and wiping the analysis cache every
+  run via `--clean`) added ~14 minutes for no behavioral benefit.
+
+See `docs/UPDATES.md`, `docs/SECURE_DISTRIBUTION.md` §5, `docs/DEPLOY_STATION.md`. ADR
+[0002](docs/decisions/0002-nuitka-compile-scope.md) is now superseded by 0003.
+
 ## v1.26.1 — 2026-09-29
 
 **`cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).**

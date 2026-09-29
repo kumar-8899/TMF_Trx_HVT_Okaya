@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.26.1"
+version = "1.27.0"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,9 +21,10 @@ report-db = [
     "PyMySQL>=1.1",        # MySQL  (mysql+pymysql)
     "pyodbc>=5.0",         # SQL Server (mssql+pyodbc)
 ]
-# Obfuscated release build (SECURE_DISTRIBUTION.md §5): python build_release.py
+# Frozen release build (SECURE_DISTRIBUTION.md §5, ADR 0003): python build_release.py
 release = [
-    "nuitka>=4.1",
+    "pyinstaller>=6.6",    # freezes the backend (run.exe) — no compile step, no IP protection
+    "nuitka>=4.1",         # run_station.exe onefile only (unaffected by ADR 0003)
     "zstandard",           # onefile run_station.exe compression (Nuitka --onefile); silently
                             # ships uncompressed without it, so pull it explicitly here.
     "pywebview>=5.0",       # bundled into the frozen run_station.exe (build_run_station_exe)
@@ -37,7 +38,6 @@ dev = [
     "pytest-asyncio>=0.23",
     "httpx>=0.27",         # FastAPI test client
     "ruff>=0.4",
-    "pyinstaller>=6.6",
     "cryptography>=42",    # test_release_signer verifies Ed25519 signatures
     "openpyxl>=3.1",       # System Blueprint authoring tool (tools/blueprint) — read/write .xlsx
 ]

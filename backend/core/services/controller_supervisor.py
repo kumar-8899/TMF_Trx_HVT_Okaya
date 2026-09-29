@@ -164,19 +164,6 @@ class ControllerSupervisor:
                     vm = st.get("variable_map")
                     if vm and not Path(vm).is_absolute():
                         st["variable_map"] = str((cfg_dir / vm).resolve())
-                # Narrow-compiled build (build_release.py default): the app's step-type packages
-                # live as plain .py beside controller.json (cfg_dir = run.dist/app/<product>/),
-                # and instrument_libs lives one level up (run.dist itself). Append both so
-                # load_step_type_packages/load_libraries find them via sys.path — harmless when
-                # --compile-app-payload compiled everything in (nothing new to find there), and
-                # equally harmless in dev where cfg_dir already IS the packages' natural home.
-                dist_root = (Path(sys.executable).resolve().parent if _is_frozen()
-                            else self._repo_root)
-                for key, extra in (("step_type_paths", str(cfg_dir)), ("library_paths", str(dist_root))):
-                    paths = list(cfg.get(key) or [])
-                    if extra not in paths:
-                        paths.append(extra)
-                    cfg[key] = paths
             except Exception as exc:  # noqa: BLE001 — bad app config must not crash the app
                 self._diag.warning("controller", f"controller config_file unusable: {exc}")
                 cfg = {}
