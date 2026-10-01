@@ -65,3 +65,6 @@ nuitka-crash-report.xml
 # generator script is the source of truth, a filled workbook belongs to the app.
 SystemBlueprint*.xlsx
 blueprint-report.md
+
+# Developer onboarding deck generator — local only, never committed, so never in a release tag or a fork
+/tools/devdeck/
