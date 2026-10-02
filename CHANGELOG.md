@@ -5,6 +5,26 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.27.3 — 2026-10-03
+
+**new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).**
+
+Found in three rehearsals of a from-scratch demo app: the skill said "write an in-process
+`run_sim.py`" without showing how, so the model re-invented it each time and each time its first
+run printed nothing. Cause: the instruments were never **connected** (`reg.connect_all()`), so every
+read failed inside the step and no measurement was emitted. It looked like a broken recipe; it cost
+a debug cycle on every build.
+
+- New `docs/templates/run_sim.py`: the verified harness (build the registry, connect, patch a sim
+  answer for a negative case, drive the `Sequencer`, print each measurement + verdict). A developer
+  or the skill edits only `INSTRUMENTS` and `NEGATIVE_CASES`. It refuses to report success without
+  instruments or a negative case. Run for real against a 4-test app: PASS, and the patched case FAILs.
+- `new-test-app` (Phase 4) and `add-bench-test` (Layer 5) now say to copy the template and why
+  connecting matters, and that `tests/test_sequence_sim.py` imports the harness instead of
+  duplicating it. Both skill copies (`.claude/skills`, `plugins/tmf-tools`) stay in sync.
+- `tests/test_run_sim_template.py` guards the template (valid Python, connects before it runs,
+  keeps its two edit blocks).
+
 ## v1.27.2 — 2026-10-03
 
 **A fresh install no longer boots with the station offline (PATCH).**

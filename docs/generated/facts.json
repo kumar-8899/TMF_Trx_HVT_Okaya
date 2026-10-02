@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.27.2"
+    "version": "1.27.3"
   },
   "releases": [
+    {
+      "version": "1.27.3",
+      "date": "2026-10-03",
+      "bump": "PATCH",
+      "summary": "new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).",
+      "body": "**new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).**\n\nFound in three rehearsals of a from-scratch demo app: the skill said \"write an in-process\n`run_sim.py`\" without showing how, so the model re-invented it each time and each time its first\nrun printed nothing. Cause: the instruments were never **connected** (`reg.connect_all()`), so every\nread failed inside the step and no measurement was emitted. It looked like a broken recipe; it cost\na debug cycle on every build.\n\n- New `docs/templates/run_sim.py`: the verified harness (build the registry, connect, patch a sim\n  answer for a negative case, drive the `Sequencer`, print each measurement + verdict). A developer\n  or the skill edits only `INSTRUMENTS` and `NEGATIVE_CASES`. It refuses to report success without\n  instruments or a negative case. Run for real against a 4-test app: PASS, and the patched case FAILs.\n- `new-test-app` (Phase 4) and `add-bench-test` (Layer 5) now say to copy the template and why\n  connecting matters, and that `tests/test_sequence_sim.py` imports the harness instead of\n  duplicating it. Both skill copies (`.claude/skills`, `plugins/tmf-tools`) stay in sync.\n- `tests/test_run_sim_template.py` guards the template (valid Python, connects before it runs,\n  keeps its two edit blocks)."
+    },
     {
       "version": "1.27.2",
       "date": "2026-10-03",
