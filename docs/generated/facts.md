@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.27.1**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.27.2**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.27.2** (2026-10-03, PATCH) — A fresh install no longer boots with the station offline (PATCH).
 - **v1.27.1** (2026-09-29, PATCH) — run_station.exe: also replace Nuitka with PyInstaller (PATCH).
 - **v1.27.0** (2026-09-29, MINOR) — Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).
 - **v1.26.1** (2026-09-29, PATCH) — `cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).
@@ -13,7 +14,6 @@ Super_Test_App **v1.27.1**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.24.1** (2026-09-27, PATCH) — Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).
 - **v1.24.0** (2026-09-21, MINOR) — User Portal: a built-in replacement for the printed software manual, with a searchable PDF library (MINOR).
 - **v1.23.0** (2026-09-21, MINOR) — Developer Hub: an interactive, self-updating developer guide in Help — and developer docs never ship to a client station (MINOR).
-- **v1.22.1** (2026-09-16, PATCH) — Fix: `run_station.exe` could compile but never open a window (PATCH).
 
 ## Modules
 

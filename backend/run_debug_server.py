@@ -14,8 +14,7 @@ import contextlib
 import sys
 from pathlib import Path
 
-import uvicorn
-
+from core.serve import serve
 from debug_server.app import build_app
 from debug_server.auth import TokenChecker
 from debug_server.config import DebugConfig, _load_app_json
@@ -78,7 +77,7 @@ def main() -> None:
     print(f"Debug Server: broker {config.broker_host}:{config.broker_port} "
           f"station={config.station} -> http://{config.bind_host}:{config.port}  "
           f"({reach}, auth={'on' if config.require_auth else 'OFF'})")
-    uvicorn.run(app, host=config.bind_host, port=config.port, log_level="info", loop="asyncio")
+    serve(app, host=config.bind_host, port=config.port)   # explicit selector loop: see core/serve.py
 
 
 if __name__ == "__main__":

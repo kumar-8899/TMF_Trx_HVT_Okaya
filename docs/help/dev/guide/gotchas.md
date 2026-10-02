@@ -14,6 +14,12 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
   `taskkill`.
 - **A stray process on `:8000` or `:1883` looks like your app.** Check what's listening before trusting a
   health check.
+- **The station is `offline` and the log says `NotImplementedError` from `add_reader`.** The MQTT client needs
+  a selector event loop, and newer uvicorn builds its own (Proactor on Windows), ignoring the loop policy.
+  Start the backend through `run.py` / `station.py` (they use `core.serve`), never `uvicorn.run` or
+  `python -m uvicorn` directly. A fresh virtualenv gets the newest uvicorn, so this only bites new installs.
+- **Never stop processes by name** (`Stop-Process -Name python`). It kills every Python on the PC, including
+  your other apps. Stop the one you started, by PID or by the port it listens on.
 
 ## Forks & releases
 

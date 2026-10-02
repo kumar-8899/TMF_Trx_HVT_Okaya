@@ -5,6 +5,27 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.27.2 — 2026-10-03
+
+**A fresh install no longer boots with the station offline (PATCH).**
+
+Found while rehearsing a from-scratch demo app in a brand-new virtualenv. `pip install -e .[dev]`
+resolves the newest `uvicorn` (0.54), and on Windows that version builds its own event loop through
+a loop factory and returns a **ProactorEventLoop**, ignoring the `WindowsSelectorEventLoopPolicy`
+that `run.py` sets. `aiomqtt`/paho register sockets with `loop.add_reader`, which only a selector
+loop supports, so the MQTT bridge failed on every connect (`NotImplementedError`), the controller
+was unreachable and the station stayed `offline`. Machines whose uvicorn was installed earlier
+(0.34) were unaffected, which is why it was not seen before: only new installs hit it.
+
+- New `core/serve.py` `serve(app, host, port)`: runs uvicorn with `loop="none"` (uvicorn does not
+  touch the loop) inside an `asyncio.Runner(loop_factory=asyncio.SelectorEventLoop)`. Works on
+  uvicorn 0.34 and 0.54, on Python 3.11 and up.
+- `run.py` and `run_debug_server.py` (which also uses aiomqtt) call it instead of `uvicorn.run`.
+- Regression test `tests/test_serve_selector.py`: the loop is a selector loop and `add_reader`
+  works, checked on uvicorn 0.34 and 0.54. Booted for real on uvicorn 0.54: `/readyz` ready,
+  bridge connected, `st1` online.
+- Not pinned: no `uvicorn` upper bound was added; the fix is in the code, so newer uvicorn keeps working.
+
 ## v1.27.1 — 2026-09-29
 
 **run_station.exe: also replace Nuitka with PyInstaller (PATCH).**
