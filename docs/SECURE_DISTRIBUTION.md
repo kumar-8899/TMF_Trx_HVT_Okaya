@@ -127,8 +127,8 @@ mints a dev lease — verified green on this workstation.
       app.release.json` (or `--app-config`); credentials are stripped. This is what `ensure_live`
       copies to the external live config on first boot, so the frozen app boots with the app's own
       branding + controller block, not the framework shell.
-  - plus `docs/` + `frontend/` (built SPA) + `station.py` (Nuitka onefile — unaffected by this,
-    see ADR 0003) + `keystation_core.dll` + `RELEASE.json` (version + framework_version +
+  - plus `docs/` + `frontend/` (built SPA) + `station.py` (PyInstaller onefile, see ADR
+    0003) + `keystation_core.dll` + `RELEASE.json` (version + framework_version +
     pinned_fw_version + SHA-256 of every file + `full_artifact_hash`).
   `--track framework` builds the backend-only shell (framework self-test).
 - **A frozen app runs its OWN test sequence**, not just the UI: the supervisor spawns

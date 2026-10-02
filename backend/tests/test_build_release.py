@@ -1,21 +1,14 @@
 """build_release.py's run_station.exe machinery — the parts testable WITHOUT a real (multi-minute)
-Nuitka compile. The actual compile is exercised for real by release.yml on every app-track release;
-these tests lock in the bugs found running that pipeline against live app forks:
+PyInstaller build. The actual build is exercised for real by release.yml on every app-track release;
+these tests lock in:
 
-  1. Nuitka's bundled `PywebViewPlugin` arbitrates every `webview.platforms.*` import with its OWN
-     Windows allow-list — which is missing `win32` even though `winforms.py` (the only Windows GUI
-     backend pywebview has) imports it as a required helper, not an optional platform variant.
-     Disagreeing with the plugin about ANY platforms submodule, in EITHER direction, hard-fails the
-     compile ("Conflict between user and plugin decision"). An earlier fix retried adaptively,
-     agreeing to exclude `win32` from the FATAL line — the compile then succeeded, but `winforms.py`
-     could never import `win32` at RUNTIME, so the exe booted its backend but could never open a
-     window (reproduced for real on a live app fork). The fix instead disables the plugin entirely
-     (`--disable-plugin=pywebview`) and excludes only a FIXED set of genuinely-irrelevant platforms —
-     `win32` is deliberately left out so Nuitka's ordinary static import-following includes it, since
-     nothing is left to veto it. No adaptive retry needed: `winforms.py`'s import graph doesn't vary
-     by Nuitka/pywebview version the way the plugin's own allow-list apparently does.
+  1. pywebview's platform selection (webview/guilib.py) tries importing EVERY backend in turn inside
+     a try/except ImportError — android, cocoa, gtk, qt, winforms — so ordinary static analysis finds
+     all of them regardless of which OS actually needs which. On Windows only `winforms` (+ its own
+     `win32.py` helper module, not pywin32) and `edgechromium` are ever reached; the rest are
+     excluded explicitly via --exclude-module (win32/winforms/edgechromium must NOT be excluded).
   2. `_verify_run_station_exe`'s /healthz probe must refuse to "pass" against a port a stray process
-     already occupies — otherwise it can report a compiled-but-non-booting exe as verified (reproduced
+     already occupies — otherwise it can report a built-but-non-booting exe as verified (reproduced
      for real: an exe with no run.dist exited in <1s, an unrelated already-running station on :8000
      answered the probe instead, and the smoke test returned True)."""
 
@@ -39,9 +32,9 @@ def test_webview_nofollow_excludes_only_genuinely_irrelevant_platforms():
     assert "edgechromium" not in br._WEBVIEW_NOFOLLOW
 
 
-# --- build_run_station_exe: disable the plugin, no adaptive retry ---------
+# --- build_run_station_exe: PyInstaller onefile, correct platform excludes ---------
 
-class _FakeCompileResult:
+class _FakeBuildResult:
     def __init__(self, returncode, stderr=""):
         self.returncode = returncode
         self.stdout = ""
@@ -50,8 +43,8 @@ class _FakeCompileResult:
 
 def _stub_station(monkeypatch, tmp_path):
     """A minimal REPO layout so build_run_station_exe gets past its pre-flight checks and reaches
-    the Nuitka command it would run — win32-only code path, so force the platform for CI hosts
-    that run this suite on a non-Windows box."""
+    the PyInstaller command it would run — win32-only code path, so force the platform for CI
+    hosts that run this suite on a non-Windows box."""
     monkeypatch.setattr(br.sys, "platform", "win32")
     (tmp_path / "station.py").write_text("# stub")
     monkeypatch.setattr(br, "REPO", tmp_path)
@@ -59,41 +52,24 @@ def _stub_station(monkeypatch, tmp_path):
     monkeypatch.setattr(br, "OUT", tmp_path / "release-build")
 
 
-def test_build_cmd_disables_the_pywebview_plugin_and_omits_win32_from_nofollow(monkeypatch, tmp_path):
+def test_build_cmd_excludes_irrelevant_webview_platforms_but_not_win32(monkeypatch, tmp_path):
     _stub_station(monkeypatch, tmp_path)
     captured = {}
 
     def _fake_run(cmd, **kw):
         captured["cmd"] = cmd
-        return _FakeCompileResult(returncode=1, stderr="boom")
+        return _FakeBuildResult(returncode=1, stderr="boom")
     monkeypatch.setattr(br.subprocess, "run", _fake_run)
 
-    assert br.build_run_station_exe(jobs=1) is False
+    assert br.build_run_station_exe() is False
     cmd = captured["cmd"]
-    assert "--disable-plugin=pywebview" in cmd
-    nofollow = next(a for a in cmd if a.startswith("--nofollow-import-to="))
-    excluded = {m.removeprefix("webview.platforms.") for m in nofollow.split("=", 1)[1].split(",")}
+    assert "--onefile" in cmd
+    excluded = {a.removeprefix("--exclude-module=webview.platforms.")
+                for a in cmd if a.startswith("--exclude-module=webview.platforms.")}
     assert excluded == set(br._WEBVIEW_NOFOLLOW)
     assert "win32" not in excluded
-
-
-def test_build_does_not_retry_on_a_webview_conflict_message(monkeypatch, tmp_path):
-    """The adaptive retry is gone: even a Nuitka output that LOOKS like the old plugin-conflict
-    FATAL must not trigger a second compile attempt — the plugin is disabled, so that failure mode
-    can no longer occur, and there's nothing left in the code to react to the message."""
-    _stub_station(monkeypatch, tmp_path)
-    calls = []
-
-    def _fake_run(cmd, **kw):
-        calls.append(cmd)
-        return _FakeCompileResult(
-            returncode=1,
-            stderr="FATAL: pywebview: Conflict between user and plugin decision for module "
-                   "'webview.platforms.win32'.")
-    monkeypatch.setattr(br.subprocess, "run", _fake_run)
-
-    assert br.build_run_station_exe(jobs=1) is False
-    assert len(calls) == 1
+    assert "winforms" not in excluded
+    assert "edgechromium" not in excluded
 
 
 # --- _verify_run_station_exe: refuse to "pass" against a stray listener ---

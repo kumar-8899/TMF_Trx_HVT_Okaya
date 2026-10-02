@@ -18,10 +18,9 @@ framework builds no binary. This script builds the APP-track binary artifacts.)
 
 The output matches docs/templates/release.yml's GitHub-hosted job - a GitHub Release carrying
 the same FOUR assets (<slug>-<ver>.ksupdate, <slug>-<ver>.zip, run_station.exe,
-<AppShort>-Setup-<ver>.exe) - but built with a PERSISTENT LOCAL Nuitka cache (still used by
-run_station.exe's Nuitka onefile compile even though the backend itself is now PyInstaller-
-frozen). `-BuildOnly` stops after producing those artifacts locally (no commit/tag/push, no gh
-release), for a quick local build or a dry build check.
+<AppShort>-Setup-<ver>.exe). Both binaries (run.exe and run_station.exe) are PyInstaller-frozen -
+no compiler, no cache to warm (ADR 0003/0004). `-BuildOnly` stops after producing those artifacts
+locally (no commit/tag/push, no gh release), for a quick local build or a dry build check.
 
 Slug is auto-detected as the sole directory under app/ (pass -Slug to override / disambiguate),
 so a fork runs it with no args. Every fork inherits this file unchanged - it is no longer a
@@ -40,7 +39,6 @@ GitHub-hosted build and you pay for both. That edit is app-owned (the fork's rel
 param(
   [string]$Slug,
   [switch]$BuildOnly,
-  [string]$CacheDir,
   [string]$Iscc,
   [switch]$SkipTests,
   [switch]$AllowDirty,
@@ -143,12 +141,8 @@ if (-not $BuildOnly) {
   Step "4/10  commit + push + tag  (skipped: -BuildOnly)"
 }
 
-# --- 5. Nuitka build with a PERSISTENT local cache (internal step) ----------------------------
-Step "5/10  build (Nuitka, warm local cache)"
-if (-not $CacheDir) { $CacheDir = Join-Path $env:LOCALAPPDATA "tmf-nuitka-cache" }
-New-Item -ItemType Directory -Force $CacheDir | Out-Null
-$env:NUITKA_CACHE_DIR = $CacheDir
-Info "NUITKA_CACHE_DIR = $CacheDir  (warm after the first build on this machine)"
+# --- 5. Build (internal step) ------------------------------------------------------------------
+Step "5/10  build (PyInstaller)"
 python backend/build_release.py --track app --product $Slug
 $rc = $LASTEXITCODE
 $runStationOk = $true

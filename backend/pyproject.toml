@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.27.0"
+version = "1.27.1"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,10 +23,8 @@ report-db = [
 ]
 # Frozen release build (SECURE_DISTRIBUTION.md §5, ADR 0003): python build_release.py
 release = [
-    "pyinstaller>=6.6",    # freezes the backend (run.exe) — no compile step, no IP protection
-    "nuitka>=4.1",         # run_station.exe onefile only (unaffected by ADR 0003)
-    "zstandard",           # onefile run_station.exe compression (Nuitka --onefile); silently
-                            # ships uncompressed without it, so pull it explicitly here.
+    "pyinstaller>=6.6",    # freezes both run.exe and run_station.exe (onefile) — no compile
+                            # step, no IP protection
     "pywebview>=5.0",       # bundled into the frozen run_station.exe (build_run_station_exe)
 ]
 # Native desktop window for the one-click launcher (station.py). WebView2 on Win11.

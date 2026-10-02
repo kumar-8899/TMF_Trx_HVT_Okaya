@@ -51,22 +51,21 @@ deploy\cut-release.ps1 -BuildOnly         # run.dist + run_station.exe + setup.e
                                           # (needs Inno Setup 6: winget install JRSoftware.InnoSetup)
 ```
 
-**MSVC caveat — `run_station.exe` needs the tested C toolchain.** The build also
-Nuitka-**onefile**-compiles the frozen windowed launcher (`run_station.exe`, the one `station.py`
-entrypoint bundling pywebview + the `launcher` supervision module — no Python/pip on the client). On
-a builder **without MSVC**, Nuitka falls back to its bundled zig/clang C backend, which has
-historically produced a *standalone* dist that COMPILES but fails to boot for lean import graphs (the
-same class of bug as the old `controller.exe "Failed to import encodings"` failure). Worse, a
-compile can succeed yet produce an exe that boots the backend but can never open a **window** (a
-Nuitka/pywebview plugin interaction). So `build_run_station_exe()` **actually runs** the compiled exe
-**windowed** (no args, from a real station root) and asserts BOTH that it reaches `/healthz` AND that
-a real window appears before calling it good — a compile that produces a windowless or non-booting
-exe is caught, not shipped. (Windowed verification needs an interactive desktop session; build on a
-desktop machine or the CI runner, not a headless box.)
+**`run_station.exe` runtime verification.** The build also PyInstaller-**onefile**-freezes the
+windowed launcher (`run_station.exe`, the one `station.py` entrypoint bundling pywebview + the
+`launcher` supervision module — no Python/pip on the client, no compiler needed on the builder
+either). A frozen exe can still fail to actually WORK even when the build itself succeeds — most
+commonly a missing WebView2 runtime, or pywebview picking a platform backend that doesn't render
+(the same class of bug as the old `controller.exe "Failed to import encodings"` failure was for
+the backend). So `build_run_station_exe()` **actually runs** the built exe **windowed** (no args,
+from a real station root) and asserts BOTH that it reaches `/healthz` AND that a real window
+appears before calling it good — a build that produces a windowless or non-booting exe is caught,
+not shipped. (Windowed verification needs an interactive desktop session; build on a desktop
+machine or the CI runner, not a headless box.)
 
 This step is **fail-soft**: it never aborts the release. `run.dist` (the backend + the in-app update
 artifact — `.zip` + `.ksupdate`) does **not** need `run_station.exe` at all; only the offline
-first-install `setup.exe` does. So on a compile failure OR a failed runtime smoke test,
+first-install `setup.exe` does. So on a build failure OR a failed runtime smoke test,
 `build_release.py` prints a `WARNING`, removes the broken exe if any, and exits with a **distinct
 code (3)** — `run.dist` + the update artifact are still produced. `deploy\build-installer.ps1` then
 throws a clear "missing run_station.exe" error with the same guidance instead of silently building a
@@ -75,11 +74,10 @@ setup.exe steps and publishes the release without run_station.exe/setup.exe** ra
 whole workflow (the in-app updater is unaffected).
 
 If you hit this locally:
-1. **Build where the tested toolchain is** — the release CI runner (`windows-latest`) ships MSVC
-   Build Tools, so this is rare there; prefer building `run_station.exe`/`setup.exe` in CI over a
-   bare MSVC-less dev box.
-2. **Or install MSVC locally** — Visual Studio Build Tools, workload "Desktop development with
-   C++" — then re-run `build_release.py --track app`; the default backend picks up `cl` automatically.
+1. **Make sure pywebview is installed** — `pip install -e "backend[release]"` — and re-run
+   `build_release.py --track app`.
+2. **Check for a missing WebView2 runtime** on the builder machine (an OS component; see
+   `deploy/installer.iss.template`).
 3. **Or skip the offline installer for now** — `run.dist` + the `.zip`/`.ksupdate` still ship; use
    `deploy\install-station.ps1` (below) for first-install until a rebuild fixes `run_station.exe`.
 
@@ -137,10 +135,9 @@ hosted build.
    - `<slug>-<ver>.ksupdate` — the signed trust envelope;
    - `run_station.exe` — the frozen windowed launcher (no Python on the client);
    - `<AppShort>-Setup-<ver>.exe` — the **offline first-install** installer.
-   **Cost:** the backend build itself is fast (PyInstaller, ~1.5 min); the remaining per-release
-   cost is `run_station.exe`'s Nuitka onefile compile + the WebView2/Inno steps, and that Nuitka
-   cache never really warms across runs on GitHub-hosted CI (cache is ref-scoped — see the note
-   atop the template). Prefer 2a on a Free plan.
+   **Cost:** both binaries are PyInstaller-frozen and fast (~1.5 min each); the remaining
+   per-release cost on GitHub-hosted CI is mostly the WebView2 fetch + Inno Setup compile.
+   Prefer 2a on a Free plan for zero CI minutes at all.
 
 The `.zip` is a **complete** app: the UI, the in-app help, the app definition, the drivers, and the
 vendored broker all ride inside `run.dist`, so an update refreshes everything (including your

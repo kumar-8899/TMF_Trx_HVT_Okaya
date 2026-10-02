@@ -39,6 +39,11 @@ const RANGES: Record<string, number | null> = {
   "Today": 0, "7 days": 7, "30 days": 30, "90 days": 90, "All time": null,
 };
 
+// The backend returns `kpis: {}` until a report DB is configured, so any KPI can be missing:
+// show a dash rather than "undefined%".
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const withUnit = (v: unknown, unit: string): string => (isNum(v) ? `${v}${unit}` : "—");
+
 function sinceFor(label: string): number | undefined {
   const v = RANGES[label];
   if (v === null) return undefined;
@@ -129,12 +134,12 @@ export function Analytics() {
       {/* KPI band */}
       {k && (
         <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Kpi label="First Pass Yield" value={`${k.fpy}%`} color={k.fpy >= 95 ? C.pass : k.fpy >= 85 ? C.run : C.fail} />
-          <Kpi label="Yield" value={`${k.yield}%`} />
-          <Kpi label="Units" value={k.units} />
-          <Kpi label="Runs" value={k.runs} />
-          <Kpi label="Retest rate" value={`${k.retest_rate}%`} color={k.retest_rate > 10 ? C.run : undefined} />
-          <Kpi label="Avg cycle" value={`${k.avg_cycle_s}s`} />
+          <Kpi label="First Pass Yield" value={withUnit(k.fpy, "%")} color={isNum(k.fpy) ? (k.fpy >= 95 ? C.pass : k.fpy >= 85 ? C.run : C.fail) : undefined} />
+          <Kpi label="Yield" value={withUnit(k.yield, "%")} />
+          <Kpi label="Units" value={withUnit(k.units, "")} />
+          <Kpi label="Runs" value={withUnit(k.runs, "")} />
+          <Kpi label="Retest rate" value={withUnit(k.retest_rate, "%")} color={isNum(k.retest_rate) && k.retest_rate > 10 ? C.run : undefined} />
+          <Kpi label="Avg cycle" value={withUnit(k.avg_cycle_s, "s")} />
         </Grid>
       )}
 

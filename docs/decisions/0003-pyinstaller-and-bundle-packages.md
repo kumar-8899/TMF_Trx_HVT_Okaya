@@ -144,11 +144,59 @@ uncontended build): **82–84s**, about 7x under the 10-minute gate.
   judged acceptable — the dual-scope mechanism it replaces existed
   specifically to avoid a *slow* full rebuild, and that's no longer the
   situation.
-- **`run_station.exe` is unaffected and stays on Nuitka** (`build_run_station_exe()`,
-  `station.py`'s `__compiled__` detection) — it's a separate, already-fast,
-  single-file onefile compile with no app-payload bundling of its own; nothing
-  about the app-track backend build applies to it. `deploy/cut-release.ps1`'s
-  `NUITKA_CACHE_DIR`/`-CacheDir` mechanism is retained for this reason — it
-  still warms `run_station.exe`'s own Nuitka compile, confirmed by tracing
-  Nuitka's `AppDirs.py` (a general Nuitka cache-location env var, not
-  something the old backend build owned exclusively).
+- (Superseded by the addendum below — `run_station.exe` was NOT actually fast,
+  and has since moved off Nuitka too.)
+
+## Addendum (same day) — run_station.exe was not actually fast either
+
+The "known limitation" this addendum replaces assumed `run_station.exe`'s
+Nuitka onefile compile was cheap because it's a small, single-purpose target.
+It measured real: a clean, isolated `build_run_station_exe()` timing came in
+at **662.7s (11.05 min)** — with the C-compile step **100% cache-hit**
+(528/528 files), meaning the cost was entirely Nuitka's own per-build
+Python-analysis/codegen phase, the identical architectural problem the
+backend had. Nuitka is now fully retired from this repo: `build_run_station_exe()`
+runs PyInstaller `--onefile` too, using the same principle as the backend
+(bundle by ordinary import following; exclude only what's genuinely
+irrelevant). Measured: **80.2s (1.34 min)**, including a full runtime smoke
+test that passed (backend reached `/healthz`, a real window opened) —
+roughly 8x faster, and verified correct, not just faster.
+
+**pywebview's platform-exclusion list carries over unchanged.**
+`webview/guilib.py` tries every backend's import in turn inside a try/except
+(`android`, `cocoa`, `gtk`, `qt`, `winforms`) — real
+`import webview.platforms.X` statements, so PyInstaller's Analysis finds all
+of them exactly like Nuitka's import-following did, regardless of which OS
+actually needs which. The same exclusion set (`_WEBVIEW_NOFOLLOW`) translates
+directly: Nuitka's `--nofollow-import-to` becomes PyInstaller's
+`--exclude-module`, one flag per platform. `winforms`, its `win32.py` helper
+(webview's own module, not pywin32), and `edgechromium` stay unexcluded, same
+as before. `_pyinstaller_hooks_contrib` ships a dedicated `hook-webview.py`
+(data files + DLLs) plus `hook-clr.py`/`hook-clr_loader.py` (pythonnet, which
+`winforms.py` needs for its .NET interop) — solid out-of-the-box support with
+no plugin-conflict workaround needed (Nuitka's own pywebview plugin had a
+real bug here — see git history for the original `_WEBVIEW_NOFOLLOW` comment).
+
+**Known, accepted tradeoff: onefile startup latency.** A PyInstaller onefile
+exe unpacks itself to a temp directory on every launch — unlike Nuitka's
+onefile, which is a genuinely compiled single binary with instant startup.
+For `run_station.exe`, a one-click "double the icon, the app opens" launcher,
+this means a brief (~1-3s) delay before the window appears, every time. This
+was a known, explicit tradeoff at decision time (build-time speed over
+launch-time latency), not an oversight — PyInstaller `--onedir` would avoid
+it but changes `run_station.exe` from one sibling file into a folder,
+touching the Inno installer template, the GitHub Release asset list, and
+`RELEASE.json`'s hashing; not pursued in this pass.
+
+**`station.py`'s frozen-detection now checks `sys.frozen`, not just
+`__compiled__`.** `ROOT` is computed from `sys.executable` when frozen
+(PyInstaller's own documented pattern for finding the real exe path, since
+`__file__` would resolve into the onefile temp extraction dir instead).
+
+**`deploy/cut-release.ps1`'s `NUITKA_CACHE_DIR`/`-CacheDir` mechanism is now
+removed** — it is genuinely dead: nothing in this repo invokes Nuitka
+anywhere anymore (confirmed by a repo-wide search). `nuitka` and `zstandard`
+(onefile compression, Nuitka-specific) are dropped from
+`backend/pyproject.toml`'s `release` extra; only `pyinstaller` + `pywebview`
+remain. The `docs/templates/release.yml` "Cache Nuitka build" CI step is
+removed for the same reason.

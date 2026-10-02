@@ -5,6 +5,42 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.27.1 — 2026-09-29
+
+**run_station.exe: also replace Nuitka with PyInstaller (PATCH).**
+
+v1.27.0 assumed `run_station.exe`'s Nuitka onefile compile was cheap ("already fast, separate")
+and left it untouched. It wasn't: a clean, isolated timing measured **662.7s (11.05 min)** — with
+the C-compile step **100% cache-hit** (528/528 files), so the entire cost was Nuitka's own
+per-build analysis/codegen phase, the same architectural problem the backend had.
+
+- `build_run_station_exe()` now runs PyInstaller `--onefile` instead of Nuitka. Measured:
+  **80.2s (1.34 min)**, including a full runtime smoke test that passed (reached `/healthz`,
+  opened a real window) — about 8x faster, and verified correct, not just faster.
+- pywebview's platform-exclusion list (`_WEBVIEW_NOFOLLOW`) carries over unchanged, translated
+  from Nuitka's `--nofollow-import-to` to PyInstaller's `--exclude-module`.
+- `station.py`'s frozen-detection now also checks `sys.frozen` (not just `__compiled__`), and
+  resolves `ROOT` from `sys.executable` when frozen — PyInstaller's own documented pattern,
+  since a frozen onefile exe's `__file__` would resolve into the temp extraction dir instead.
+- Nuitka is now **fully retired from this repo** — nothing invokes it anywhere. Dropped:
+  `nuitka`/`zstandard` from `backend/pyproject.toml`'s `release` extra, the `--jobs` CLI flag
+  (no longer used by anything), `deploy/cut-release.ps1`'s `NUITKA_CACHE_DIR`/`-CacheDir`
+  mechanism, and `docs/templates/release.yml`'s "Cache Nuitka build" CI step — all genuinely
+  dead now, not just unused for the backend.
+- **Known, accepted tradeoff**: a PyInstaller onefile exe unpacks itself to a temp directory on
+  every launch (~1-3s delay before the window appears), unlike Nuitka's onefile. Judged
+  acceptable for build-time speed; `--onedir` would avoid it but changes `run_station.exe` from
+  one file into a folder, touching the Inno installer and release-asset shape — not pursued here.
+
+See ADR [0003](docs/decisions/0003-pyinstaller-and-bundle-packages.md)'s addendum for the full
+reasoning.
+
+**Also in this patch — Analytics no longer prints "undefined%" without a report DB.** Until a
+report database is configured the backend returns `kpis: {}`, and `frontend/src/screens/Analytics.tsx`
+rendered every missing KPI as `undefined%` / `undefineds` (and coloured First Pass Yield red). Missing
+KPIs now show an em dash with no colour. New `Analytics.test.tsx` covers the empty and populated
+cases; `docs/assets/screens/analytics.png` re-captured.
+
 ## v1.27.0 — 2026-09-29
 
 **Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).**

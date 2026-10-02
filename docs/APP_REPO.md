@@ -14,7 +14,7 @@ framework tag** and licensed per customer. This is the app-repo side.
 
 ```
 framework (source + git tags)  ──fork a tag──►  App_<Customer> (editable fork)
-                                                    └── its own CI: Nuitka → sign → Release (LICENSED build)
+                                                    └── its own CI: PyInstaller → sign → Release (LICENSED build)
 ```
 
 ## Scaffold a new app
@@ -78,7 +78,7 @@ See RELEASE_HOWTO.md (framework tags) and SECURE_DISTRIBUTION.md (§5–6, the p
 An app repo ships two workflows the framework does not (framework repo = `ci.yml` only):
 
 - **`.github/workflows/release.yml`** (from `docs/templates/release.yml`) — on an **`app-v*`**
-  tag: tag-matches-version guard → tests → `build_release.py` (Nuitka + a hashed artifact `.zip` +
+  tag: tag-matches-version guard → tests → `build_release.py` (PyInstaller + a hashed artifact `.zip` +
   `full_artifact_hash` in `RELEASE.json`) → sign the `.ksupdate` → publish a Release with the
   CHANGELOG section as the body and its assets: `<slug>-<version>.ksupdate` (trust) +
   `<slug>-<version>.zip` (the run.dist the station verifies and swaps) + `station.py`.

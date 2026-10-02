@@ -100,15 +100,15 @@ Info "release-build verified: track=app, version=$version (RELEASE.json matches 
 if (-not (Test-Path $rsExe)) {
   throw "missing $rsExe`n`n" +
     "build_release.py --track app builds run_station.exe automatically, but is FAIL-SOFT: if the " +
-    "Nuitka compile fails, or the compiled exe fails its own runtime smoke test (couldn't reach " +
-    "/healthz), it WARNS and removes/skips run_station.exe rather than aborting the whole release " +
-    "(run.dist + the .zip/.ksupdate still get built - only the offline setup.exe needs it).`n`n" +
-    "This usually means the LOCAL C toolchain (no MSVC -> Nuitka's zig/clang fallback) could not " +
-    "produce a runnable frozen launcher. Options:`n" +
-    "  1. Build run_station.exe (and this installer) on a machine with the tested MSVC toolchain - " +
-    "e.g. the release CI runner (windows-latest ships MSVC Build Tools).`n" +
-    "  2. Install 'Desktop development with C++' (Visual Studio Build Tools) locally and re-run " +
-    "build_release.py --track app.`n" +
+    "PyInstaller build fails, or the exe fails its own runtime smoke test (couldn't reach " +
+    "/healthz or never opened a window), it WARNS and removes/skips run_station.exe rather than " +
+    "aborting the whole release (run.dist + the .zip/.ksupdate still get built - only the " +
+    "offline setup.exe needs it).`n`n" +
+    "Options:`n" +
+    "  1. Check the build output above for the PyInstaller error, or the pywebview/WebView2 " +
+    "runtime issue that failed the smoke test.`n" +
+    "  2. Re-run 'pip install -e \"backend[release]\"' to make sure pywebview is installed, then " +
+    "re-run build_release.py --track app.`n" +
     "  3. Skip the offline setup.exe for now and use deploy/install-station.ps1 (scriptable " +
     "fallback; needs Python + pip on the client) instead."
 }

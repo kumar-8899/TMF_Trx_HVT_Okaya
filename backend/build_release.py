@@ -26,8 +26,8 @@ Output layout (SECURE_DISTRIBUTION.md §5):
         vendor/mosquitto/  vendored broker (win64: mosquitto.exe + DLLs + loopback conf) — the
                            frozen station starts its OWN broker: no Mosquitto install/service/admin
       run_station.exe      frozen windowed launcher (deploy root, BESIDE run.dist) — the ONE
-                           `station.py` entrypoint Nuitka-compiled, bundling pywebview + the
-                           launcher module: client needs NO Python/pip. Its own release asset;
+                           `station.py` entrypoint PyInstaller-frozen (onefile), bundling pywebview
+                           + the launcher module: client needs NO Python/pip. Its own release asset;
                            survives the run.dist swap because it's a sibling. FAIL-SOFT
                            (build_run_station_exe): a compile or runtime-smoke-test failure WARNS
                            + returns rather than aborting — run.dist below still gets built either
@@ -380,40 +380,23 @@ def copy_vendor_broker() -> None:
 
 # pywebview.platforms submodules to exclude from the frozen run_station.exe on Windows.
 #
-# Nuitka ships a bundled `PywebViewPlugin` that intercepts every `webview.platforms.*` import and
-# decides, on its own, which ones belong on this OS — its Windows allow-list is exactly
-# {winforms, edgechromium, edgehtml, mshtml, cef}. That list is WRONG for our purposes on at least
-# one real Nuitka/pywebview combination (Nuitka 4.1.3): `win32` is missing from it even though
-# `winforms.py` (which the plugin DOES want) imports `win32.py` internally as its own helper.
-# Nuitka hard-fails ("Conflict between user and plugin decision for module
-# 'webview.platforms.win32'") the instant our command line and the plugin disagree about ANY
-# platforms submodule — in EITHER direction (confirmed empirically: `--nofollow-import-to` it
-# conflicts, and so does explicitly `--include-module`-ing it back in). There is no per-module flag
-# that wins that argument; the plugin's opinion is final for any module it has one about. An
-# earlier version of this function retried adaptively (expanding the exclude set from Nuitka's own
-# FATAL line), which "resolves" the conflict by agreeing to exclude `win32` — the compile succeeds,
-# but `winforms.py` can then never import at runtime, and the resulting exe boots its backend fine
-# yet can never open a window (caught by _verify_run_station_exe's windowed check below, but not
-# actually fixed by that retry — reproduced for real on a live app fork).
-#
-# So we don't ask the plugin. `--disable-plugin=pywebview` removes it (and its opinions) entirely,
-# and we take over its one legitimate job ourselves: excluding the platforms genuinely irrelevant
-# to a Windows build. `winforms` (needed), its `win32` dependency, and `edgechromium` (pywebview
-# prefers this over winforms when the WebView2 runtime is present) are then included by Nuitka's
-# ORDINARY static import following, same as any other module — nothing left to veto them. This is
-# a fixed, version-independent list (unlike the plugin's own allow-list, the actual Python import
-# graph of `winforms.py` doesn't vary by Nuitka/pywebview version), so it doesn't need the adaptive
-# retry the plugin-arbitrated approach did. Confirmed live: without this, the compiled exe raised
-# `ImportError: Module 'webview.platforms.win32' was actively excluded` the instant it tried to
-# open a window; with it, a real window opens.
+# pywebview's platform selection (webview/guilib.py) tries importing each backend in turn inside
+# a try/except ImportError — android, cocoa, gtk, qt, winforms — so ordinary static analysis
+# (PyInstaller's Analysis, same as Nuitka's own import-following before this) finds ALL of them
+# regardless of which OS actually needs which, since they're all real `import webview.platforms.X`
+# statements, just guarded at runtime. On Windows only `winforms` (+ its own `win32.py` helper
+# module, not pywin32) and `edgechromium` (pywebview prefers this over winforms when the WebView2
+# runtime is present) are ever reached — the rest are genuinely dead weight for a Windows-only
+# build, so they're excluded explicitly via --exclude-module. This is a fixed, platform-derived
+# list, not something that varies by pywebview version.
 _WEBVIEW_NOFOLLOW = ("android", "cocoa", "gtk", "qt", "mshtml", "edgehtml", "cef")
 
 
 def _process_has_visible_window(image_name: str) -> bool:
     """True if any VISIBLE top-level window is owned by a process whose image basename matches
-    `image_name` (case-insensitive). Matches by image name, not PID: Nuitka `--onefile` is a
-    bootstrap process that spawns a CHILD to run the real payload, and the window belongs to the
-    child, not the PID we launched — but both carry the same exe name. Windows-only; else False."""
+    `image_name` (case-insensitive). Matches by image name, not PID: an onefile build's bootstrap
+    process can spawn a CHILD to run the real payload, and the window belongs to the child, not
+    the PID we launched — but both carry the same exe name. Windows-only; else False."""
     if sys.platform != "win32":
         return False
     import ctypes
@@ -459,8 +442,8 @@ def _process_has_visible_window(image_name: str) -> bool:
 def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
     """Best-effort GATE: actually RUN the frozen `run_station.exe` **windowed** (no args) from a real
     station root and confirm BOTH that it reaches `/healthz` AND that a real window appears. The
-    backend boots fine right up until pywebview throws (e.g. the Nuitka/pywebview `win32` plugin
-    conflict, Issue 4), so a `--no-window` /healthz probe alone "verified" an exe that could never
+    backend boots fine right up until pywebview throws (e.g. a missing/excluded platform module,
+    Issue 4), so a `--no-window` /healthz probe alone "verified" an exe that could never
     open a window — it opened a console that closed itself on every launch. Checking for an actual
     window closes that blind spot. A failure here does not abort the release (see
     build_run_station_exe) — the caller downgrades the windowed launcher to "missing".
@@ -521,8 +504,8 @@ def _verify_run_station_exe(station_root: Path, timeout: float = 90.0) -> bool:
                 pass
 
 
-def build_run_station_exe(jobs: int) -> bool | None:
-    """Nuitka-compile the windowed launcher into a standalone **`run_station.exe`** that
+def build_run_station_exe() -> bool | None:
+    """PyInstaller-freeze the windowed launcher into a standalone **`run_station.exe`** that
     bundles pywebview + the `launcher` supervision module, so a client PC needs NO system
     Python and NO pip (frozen-offline station). It ships in the station ROOT (beside run.dist,
     NOT inside it) so it survives the updater's run.dist swap. `run.exe` is still spawned as the
@@ -530,16 +513,19 @@ def build_run_station_exe(jobs: int) -> bool | None:
 
     Onefile → a single `release-build/run_station.exe`. Requires pywebview installed on the
     builder (`pip install "pywebview>=5.0"`); on Windows it renders through the WebView2 runtime
-    (an OS component the installer carries — see deploy/installer.iss.template).
+    (an OS component the installer carries — see deploy/installer.iss.template). Note the
+    tradeoff: a PyInstaller onefile exe unpacks itself to a temp dir on every launch (a brief
+    delay before the window appears), unlike a real compiler's onefile output — accepted here for
+    build-time speed, matching the backend's ADR 0003.
 
     FAIL-SOFT by design: run.dist (the backend + the in-app update artifact) does not need
-    run_station.exe at all — only the offline first-install setup.exe does. So a compile or smoke
+    run_station.exe at all — only the offline first-install setup.exe does. So a build or smoke
     failure here WARNS and returns instead of aborting the whole release; the caller (main) still
     produces run.dist + the .zip/.ksupdate, and surfaces the failure as a distinct non-zero exit so
-    CI can tell (docs/DEPLOY_STATION.md: build it on a machine with the tested MSVC toolchain instead,
+    CI can tell (docs/DEPLOY_STATION.md: build it on a machine with a desktop session instead,
     e.g. the release CI runner — build-installer.ps1 treats a missing run_station.exe as "build in CI").
 
-    Returns True (built + verified runnable), False (attempted and failed — compile, missing exe, or
+    Returns True (built + verified runnable), False (attempted and failed — build, missing exe, or
     failed the runtime smoke test), or None (skipped: non-Windows, or station.py missing)."""
     import os
     if sys.platform != "win32":
@@ -549,48 +535,49 @@ def build_run_station_exe(jobs: int) -> bool | None:
     if not station.is_file():
         print(f"WARNING: {station} not found — no frozen run_station.exe built")
         return None
-    # `station.py` does `import launcher`; make backend/ importable so Nuitka can bundle it.
+    # `station.py` does `import launcher`; make backend/ importable so PyInstaller's Analysis
+    # can resolve it by name, same as build_backend()'s app packages.
     env = dict(os.environ)
     env["PYTHONPATH"] = str(BACKEND) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     icon = REPO / "frontend" / "public" / "favicon.ico"
+    workpath = OUT / "build_station"
 
     cmd = [
-        sys.executable, "-m", "nuitka",
+        sys.executable, "-m", "PyInstaller",
+        str(station),
         "--onefile",
-        "--assume-yes-for-downloads",
-        f"--jobs={jobs}",
-        "--output-dir=" + str(OUT),
-        "--output-filename=run_station.exe",
-        "--windows-console-mode=disable",       # kiosk: no console window
-        "--include-module=launcher",            # the supervision loop (bundled, not spawned)
-        "--disable-plugin=pywebview",           # see _WEBVIEW_NOFOLLOW — its own opinion is wrong
-        "--include-package=webview",            # pywebview (the native window: winforms + data)
-        "--nofollow-import-to=" + ",".join(f"webview.platforms.{p}" for p in _WEBVIEW_NOFOLLOW),
+        "--name=run_station",
+        f"--distpath={OUT}",
+        f"--workpath={workpath}",
+        f"--specpath={workpath}",
+        "--noconfirm",
+        "--windowed",                # kiosk: no console window
     ]
+    # pywebview's platform selection (webview/guilib.py) tries every backend's import in turn
+    # (android/cocoa/gtk/qt/winforms), each a plain `import webview.platforms.X` inside a
+    # try/except — ordinary static analysis finds ALL of them regardless of platform, so the
+    # irrelevant ones must be excluded explicitly (same set Nuitka needed --nofollow-import-to
+    # for). `winforms`/`edgechromium`/`win32` (webview's own helper module, not pywin32) stay in.
+    for p in _WEBVIEW_NOFOLLOW:
+        cmd.append(f"--exclude-module=webview.platforms.{p}")
     # Embed the app icon so the TASKBAR icon is correct before the window opens (the window
     # title-bar icon is set at runtime via webview.start(icon=...)). A fork's own favicon.ico wins.
     if icon.is_file():
-        cmd.append(f"--windows-icon-from-ico={icon}")
-    cmd.append(str(station))
+        cmd.append(f"--icon={icon}")
 
     print("+", " ".join(str(c) for c in cmd), flush=True)
     result = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True)
     print((result.stdout or "") + (result.stderr or ""))
     if result.returncode != 0:
-        print(f"WARNING: run_station.exe compile FAILED (rc={result.returncode}) — run.dist is still "
+        print(f"WARNING: run_station.exe build FAILED (rc={result.returncode}) — run.dist is still "
               "built/usable; the in-app updater does not need run_station.exe, only the offline "
-              "setup.exe does. Build it on a machine with the tested MSVC toolchain (DEPLOY_STATION.md).")
+              "setup.exe does. Build it on a machine with pywebview installed (DEPLOY_STATION.md).")
         return False
     exe = OUT / "run_station.exe"
     if not exe.is_file():
-        print("WARNING: Nuitka reported success but did not produce run_station.exe "
+        print("WARNING: PyInstaller reported success but did not produce run_station.exe "
               "(is pywebview installed? `pip install -e \"backend[release]\"`)")
         return False
-    # Drop the onefile scratch trees (run_station.build / .dist / .onefile-build) so manifest()
-    # doesn't hash them and package_artifact stays lean — only run_station.exe ships.
-    for scratch in OUT.glob("run_station.*"):
-        if scratch.is_dir():
-            shutil.rmtree(scratch, ignore_errors=True)
     print(f"windowed launcher: run_station.exe -> deploy root ({exe.stat().st_size // 1024} KB) "
           "— verifying it actually boots ...")
     if not _verify_run_station_exe(OUT):
@@ -752,7 +739,6 @@ def package_artifact(product: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-frontend", action="store_true")
-    ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--track", choices=["framework", "app"], default="framework",
                     help="release tier (app repos pass --track app)")
     ap.add_argument("--product", default="super_test_app",
@@ -797,7 +783,7 @@ def main() -> int:
         # FAIL-SOFT (see build_run_station_exe docstring): run.dist + the .zip/.ksupdate are still
         # produced below even if the frozen windowed launcher can't be built/verified here — only the
         # offline first-install setup.exe needs run_station.exe, not the in-app update path.
-        run_station_ok = build_run_station_exe(args.jobs)  # BESIDE run.dist (no Python/pip on client)
+        run_station_ok = build_run_station_exe()  # BESIDE run.dist (no Python/pip on client)
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
     # RELEASE.json must ride INSIDE run.dist (the swap unit) so an applied update swaps the
     # version manifest too; app_version() reads run.dist/RELEASE.json first (core.__init__).

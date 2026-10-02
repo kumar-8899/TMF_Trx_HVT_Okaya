@@ -105,7 +105,7 @@ python station.py                # the SAME entrypoint from source (dev; needs P
 python run.dist\launcher.py      # backend + controller only, no window
 ```
 
-- **`run_station.exe`** is the one `station.py` entrypoint Nuitka-compiled: it bundles pywebview
+- **`run_station.exe`** is the one `station.py` entrypoint PyInstaller-frozen (onefile): it bundles pywebview
   + the launcher and runs the supervision loop in-process, so a client needs **no system Python,
   no pip**. It ships in the deploy root beside `run.dist`; `python station.py` from the deploy
   root is the same code from source for dev (it detects the `run.dist` layout). The vendored
@@ -134,8 +134,8 @@ of the pywebview window needs a real `.ico`/`.png`, not the SVG — wired as of 
 - **Title-bar icon (both source + frozen):** `station.py` passes
   `webview.start(icon=<favicon.ico>)` — resolved from the built SPA (`frontend/public` or
   `run.dist/frontend`), so a fork's own `favicon.ico` is used automatically.
-- **Taskbar icon before the window opens (frozen):** the `run_station.exe` Nuitka step (compiling
-  `station.py`) embeds it via `--windows-icon-from-ico=frontend/public/favicon.ico`.
+- **Taskbar icon before the window opens (frozen):** the `run_station.exe` PyInstaller build step (freezing
+  `station.py`) embeds it via `--icon=frontend/public/favicon.ico`.
 
 `frontend/public/favicon.ico` (multi-res) is generated from `favicon.svg`; regenerate it if
 the SVG changes. A source run still shows Python's icon in the taskbar (only the title-bar

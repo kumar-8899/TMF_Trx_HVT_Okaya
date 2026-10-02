@@ -7,9 +7,9 @@
       "alt": "Analytics — test quality, failures and cycle-time insights",
       "audience": "both",
       "route": "/analytics",
-      "framework_version": "1.23.0",
+      "framework_version": "1.27.1",
       "source": "frontend/src/screens/Analytics.tsx",
-      "source_hash": "de18c486035ed8a6"
+      "source_hash": "8485aeff9e18c4c5"
     },
     {
       "id": "config-barcode",
