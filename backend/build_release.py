@@ -186,6 +186,7 @@ def build_backend(track: str = "framework", product: str = "super_test_app") -> 
             cmd.append(f"--add-binary={src_dll};.")
     env = None
     if track == "app":
+        # The recipe module builds its catalog via `from controller.packages import …`
         # (modules/recipe/catalog.py), so the CONTROLLER package must be bundled too. The app's
         # OWN step-type/library packages + instrument_libs are ALWAYS bundled by name — there is
         # no narrow/compiled-in toggle; that distinction only ever meant something under a real
@@ -782,7 +783,7 @@ def main() -> int:
     build_backend(args.track, args.product)
     if args.track == "app":
         # run.exe doubles as the controller (`run.exe --controller`). Verify it can start as one
-        # BEFORE spending time on data/config/zip — fail fast on a mis-bundled toolchain.
+        # BEFORE spending time on data/payload/zip — fail fast on a mis-bundled toolchain.
         _verify_frozen_controller(args.product)
     copy_data()
     copy_docs_frontend_dll(args.skip_frontend)

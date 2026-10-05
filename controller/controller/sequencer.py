@@ -22,12 +22,17 @@ class Sequencer:
         self._emit = emit            # emit(event_type, payload)
         self._diag = diag_fn
         self._any_fail = False
+        self._stop_on_fail = False
 
     def run(self, recipe: dict, *, run_id: str, station: str, run_parameters: dict,
             deadline_ts: float, aborted_fn) -> str:
         """Walk the recipe's top-level steps. Returns 'PASS' | 'FAIL'. Raises StepAborted
-        if aborted (the engine then runs teardown + emits run-aborted)."""
+        if aborted (the engine then runs teardown + emits run-aborted).
+
+        Recipe-level `stop_on_fail: true` (default false = run every step regardless): once any
+        step's FINAL attempt FAILs, every later step is skipped — see `_exec`."""
         self._any_fail = False
+        self._stop_on_fail = recipe.get("stop_on_fail") is True
         ctx = StepContext(
             station=station, run_id=run_id, trace=f"run:{run_id}", run_parameters=run_parameters,
             variables=self._vars, deadline_ts=deadline_ts, aborted_fn=aborted_fn,
@@ -41,6 +46,14 @@ class Sequencer:
             raise StepAborted()
         step_id = step.get("id") or step.get("type", "step")
         type_id = step.get("type")
+        if self._stop_on_fail and self._any_fail:
+            # An earlier step already FAILed (final attempt) and the recipe asked to stop at the
+            # first failure. Skip silently: no step-started/-completed/test-result events, so the
+            # event stream only ever describes steps that actually ran. The verdict is already
+            # FAIL (_any_fail); teardown is the run engine's job, not this walk's, so it still
+            # runs. INFO (not PASS) so a skipped child can never read as a passing one.
+            self._diag("info", "step.skipped", step_id=step_id, reason="stop_on_fail")
+            return results.StepResult(status=results.INFO, message="skipped: stop_on_fail")
         entry = registry.get(type_id)
         if entry is None:
             raise StepFailed(f"unknown step type '{type_id}'")   # validation should have caught it

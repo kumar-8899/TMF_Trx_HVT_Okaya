@@ -210,6 +210,25 @@ measurements** — an exception-forced FAIL is never recomputed from (and so nev
 overridden by) the empty measurement list a crashed step necessarily produced (v1.18.2;
 `sequencer.py` `_attempt()`). Limits come from `params`, never from handler code.
 
+**Stop on first failure.** A recipe may set a top-level `stop_on_fail: true` (strictly
+boolean `true`; absent, `false`, or any other value keeps the original behaviour — every
+step runs and every result is reported). Once any step's **final** attempt FAILs (a retry
+that recovers does not count), `Sequencer._exec` skips every later step — later siblings
+inside a composite and every later top-level step alike — without emitting
+`step-started` / `step-completed` / `test-result` for them, and logs a `step.skipped`
+diag. The failing step's own results are still emitted, the run verdict is FAIL, and
+teardown still runs (it belongs to the run engine, not the step walk). The `on_fail`
+field in the step envelope is a separate, per-step setting that the Python controller does
+not act on. `stop_on_fail` is implemented by the Python controller only; this document does
+not cover whether the LabVIEW engine honours it.
+
+**A failed test should still leave a result row.** A crashed step contributes *no*
+`test-result` (`measurement_count` 0 — tested, above), so a step type that wants its
+failure to show up in the Results table and reports must **return** a FAIL measurement
+instead of raising: assert `Measurement(status=FAIL)` (with limits set) when a reading
+exists, or give a non-numeric value against numeric limits (e.g. `"ERROR"`) when it does
+not — the framework judges that FAIL by its own rule. Reserve raising for an abort.
+
 A handler touches only `ctx` (`context.py`): `read/write/read_many/invoke`,
 `wait/aborted/deadline_exceeded/remaining_ms`, `diag`, `execute_child`. **No
 instrument, no instance id, no bridge, no DB, no filesystem.** The static

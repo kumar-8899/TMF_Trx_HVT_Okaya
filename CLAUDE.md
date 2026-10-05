@@ -8,13 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Testbench** — a high-voltage transformer test bench built by forking the `Super_Test_App`
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
-version is `app/okaya_hvt/VERSION` (currently `1.0.0`), independent of the framework's version
-(`backend/pyproject.toml`, currently `1.22.1`). `CHANGELOG.md` at the repo root is still the
-**framework's** changelog (inherited, not app-specific) — don't add app entries there.
+version is `app/okaya_hvt/VERSION` (`1.0.7` when last released), independent of the framework's
+version (`backend/pyproject.toml`; merged through `v1.27.0`). Releases are cut with
+`deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
+repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
+entries there.
 
-This working tree currently has app content (`app/`, `instrument_libs/`,
-`frontend/src/app/overrides/okaya_hvt/`) scaffolded but **not yet committed** (`git status`
-shows them untracked) — check `git status` before assuming the fork is checked in.
+App content (`app/`, `instrument_libs/`, `frontend/src/app/overrides/okaya_hvt/`) is committed
+and released; still check `git status` for in-flight work before assuming a clean tree.
 
 **Docs are still the contract.** For framework mechanics: `docs/ARCHITECTURE.md`,
 `docs/PRINCIPLES.md`, `docs/contracts/`. For **this bench specifically**:
@@ -68,7 +69,12 @@ instruments, the variable map, or step types here.
     **always** opens the route in a `finally` (never leaves a tap energized on error/abort).
   - `hipot_acw` ([handler.py](app/okaya_hvt/okaya_hvt_steps/hipot_acw/handler.py)): same routing
     pattern, but invokes `measure_acw` on the `hipot` action instead of reading a scalar signal
-    — leakage current (mA) + a `breakdown` flag, both judged, route always reopened. One shared
+    — ONE measurement row (leakage mA, named by the `name` param = the test point's human
+    label), route always reopened. **A failed test is always a visible FAIL row, never a
+    missing one**: over-limit leakage → the reading; a reported breakdown → the reading, FAIL
+    asserted explicitly; a tester/link error or malformed reply → value `ERROR`, FAIL. It never
+    raises for a test failure (a raised step emits no `test-result` — framework contract,
+    `PYTHON_CONTROLLER.md` §6); only an operator abort propagates. One shared
     step type across the bench's **six** test points (Primary/Secondary/Core/Feedback pairs, see
     `app/okaya_hvt/specs/hipot_acw.md`) — the six `hipot_route_*` relay channels (Ch0-Ch5, all on
     `relay1`) no longer collide with anything (the signals that used to share relay1 were
@@ -86,14 +92,32 @@ instruments, the variable map, or step types here.
   bench). Six checkboxes (one per hipot test point), each revealing a panel with the three
   configurable params (ACW Voltage kV, Test Time sec, Max Current mA); `buildSteps`/`parseRecipe`
   map the form to/from one recipe `group` per selected test (id = the test key, e.g. `pri_sec`),
-  each wrapping one `hipot_acw` step.
+  each wrapping one `hipot_acw` step whose `name` is the human label ("Primary to Secondary" —
+  what the Results table/reports show; recipes saved before 2026-10 carry the old
+  `<key>_leakage_current` names until re-saved). The form also carries a user-typed **Model ID**
+  (becomes `recipe_id`; locked once the recipe exists; the backend validates it —
+  `[A-Za-z0-9_-]{1,64}`, no reserved Windows names — because it is a folder name) and a
+  **Stop on first failure** switch (recipe-level `stop_on_fail`, default OFF; the Python
+  controller skips every step after the first FAIL — `PYTHON_CONTROLLER.md` §6; a skipped test
+  emits no row). The detail page's Duplicate opens the editor as a *new* recipe needing its own ID.
+- **Local framework patches (NOT yet upstream)** — this fork deliberately carries edits to
+  framework-owned files; expect merge conflicts there on the next framework tag and offer each
+  upstream: `controller/controller/sequencer.py` (`stop_on_fail`), `controller/controller/config.py`
+  + `__main__.py` (`instrument_call_timeout_s`, hardcoded 10 s call timeout), `backend/modules/
+  recipe/variants/filesystem.py` (`recipe_id` validation), `deploy/cut-release.ps1` (resume mode
+  was unreachable), `.github/workflows/ci.yml` (+2 lines), with tests in `controller/tester/
+  test_stop_on_fail.py` and `backend/modules/recipe/tester/test_recipe.py`.
+- **App step tests are not in CI** (`app/` is outside the backend's pytest paths). Run them by
+  hand after touching a step type — from `app/okaya_hvt` with
+  `PYTHONPATH=<repo>/controller;<repo>/app/okaya_hvt;<repo>`: `python -m pytest okaya_hvt_steps`.
 - **Bench tools**: `app/okaya_hvt/tools/` — `run_sim.py` (headless run with inline sim
   instances), `spec_lint.py`.
 - **App config** (`backend/config/app.json`): branding "Okaya HVT Testbench"; modules enabled —
   `runs`, `auth` (local_db, roles `super_admin/admin/engineer/operator/maintenance`), `logs`,
   `recipe` (filesystem, step types from `okaya_hvt_steps`), `report` (sqlite + pass/fail folder
   sinks), `mes` (folder provider, gate/publish both disabled), `health`, `config`, `help`,
-  `variables`. `updates.github_repo` is still the placeholder `<owner>/TMF_Trx_HVT_Okaya`.
+  `variables`. `updates.github_repo` is `kumar-8899/TMF_Trx_HVT_Okaya` (also in the tracked
+  `backend/config/app.release.json`, which is what ships as the frozen build's `app.example.json`).
 
 ## Commands
 

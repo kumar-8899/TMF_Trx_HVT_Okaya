@@ -20,8 +20,10 @@ Per-call programming — only what the capability interface actually exposes; ev
 (rise/fall time, current range, current limits, total step count) is whatever that step already
 has, normally set up once from the front panel or FILE:LOAD:
     measure_ir(voltage, step):          FUNC:TYPE <step>,IR  ->  FUNC:IR:VOLT <step>,<voltage>
-    measure_acw(voltage, dwell, step):  FUNC:TYPE <step>,AC  ->  FUNC:AC:VOLT <step>,<voltage>
+    measure_acw(voltage, dwell, step, current_limit_ma=None):
+                                         FUNC:TYPE <step>,AC  ->  FUNC:AC:VOLT <step>,<voltage>
                                          -> FUNC:AC:TTIM <step>,<dwell>
+                                         -> FUNC:AC:UPPC <step>,<mA> (+ read-back), only if given
 Then TEST starts the run and FETCh? is polled until that step's segment carries a sorting
 result (5 comma-separated fields; 4 means the step hasn't finished — manual §1.12 "Additional
 Notes"). FETCh? only answers from the <Measurement Display> page (§1.12 "Notice"), so
@@ -62,6 +64,7 @@ _ACW_RESULTS = _ACW_BREAKDOWN | {"PASS", "HI-Limit", "LO-Limit"}
 _IR_RESULTS = frozenset({"PASS", "HI-Limit", "LO-Limit", "Charge Lo"})
 
 _POLL_S = 0.2
+_AC_LIMIT_MIN_MA, _AC_LIMIT_MAX_MA = 0.001, 20.0     # UT5320 series, manual §1.5.11
 
 
 class Ut5320r(InstrumentBase, ISafetyTester):
@@ -76,6 +79,8 @@ class Ut5320r(InstrumentBase, ISafetyTester):
         "ir_volt":   "FUNC:IR:VOLT {step},{v}",     # §1.5.31  <int> 50-2500 V
         "ac_volt":   "FUNC:AC:VOLT {step},{v}",     # §1.5.7   <int> 50-5000 V
         "ac_ttim":   "FUNC:AC:TTIM {step},{t}",     # §1.5.8   <float> s, test (dwell) time
+        "ac_uppc":   "FUNC:AC:UPPC {step},{ma:.3f}",  # §1.5.11  <float> mA, AC upper current limit
+        "ac_uppc_q": "FUNC:AC:UPPC? {step}",        # §1.5.11  -> <float> mA (read back)
         "start":     "TEST",                        # §1.8  (== FUNC:STARt)
         "stop":      "RESET",                       # §1.9  (== FUNC:STOP) — also safe_state
         "fetch":     "FETCh?",                      # §1.12 -> "<step>,<mode>,<kV>,<mA|MΩ>[,<result>];…"
@@ -128,11 +133,14 @@ class Ut5320r(InstrumentBase, ISafetyTester):
                               instance_id=self.instance_id, method="measure_ir")
         return value
 
-    async def measure_acw(self, voltage: float, dwell: float, step: int = 1) -> tuple[float, bool]:
+    async def measure_acw(self, voltage: float, dwell: float, step: int = 1,
+                          current_limit_ma: float | None = None) -> tuple[float, bool]:
         step = int(step)                # conformance/callers may pass a float; normalize once
         await self._program_step(step, "AC")
         await self.transport.write(self.CMD["ac_volt"].format(step=step, v=int(round(voltage))))
         await self.transport.write(self.CMD["ac_ttim"].format(step=step, t=float(dwell)))
+        if current_limit_ma is not None:
+            await self._program_ac_current_limit(step, float(current_limit_ma))
         leakage_ma, result = await self._run_and_fetch(step, "AC", "measure_acw")
         if result not in _ACW_RESULTS:
             raise DeviceError(f"unexpected ACW sorting result {result!r} on step {step}",
@@ -159,6 +167,26 @@ class Ut5320r(InstrumentBase, ISafetyTester):
             if isinstance(sim, SimTransport):
                 value = "150.300" if mode == "IR" else "1.500"
                 sim.responses["FETC*"] = f"{step},{mode},0.500,{value},PASS"
+
+    async def _program_ac_current_limit(self, step: int, ma: float) -> None:
+        """Program the step's AC upper current limit (§1.5.11, UT5320 range 0.001-20.00 mA) and,
+        on real hardware, READ IT BACK. Before this existed the limit was never sent, so the tester
+        kept whatever the front panel held (1 mA) and tripped HI-Limit on any higher recipe limit.
+        Out of range is an error, never a silent clamp (§4.4); a readback mismatch is an error too,
+        since the instrument ignoring the write would otherwise just look like a bad DUT."""
+        if not (_AC_LIMIT_MIN_MA <= ma <= _AC_LIMIT_MAX_MA):
+            raise DeviceError(
+                f"AC current limit {ma} mA is outside the UT5320's {_AC_LIMIT_MIN_MA}-{_AC_LIMIT_MAX_MA} mA range",
+                instance_id=self.instance_id, method="measure_acw")
+        await self.transport.write(self.CMD["ac_uppc"].format(step=step, ma=ma))
+        if self.simulated:
+            return
+        raw = await self.transport.query(self.CMD["ac_uppc_q"].format(step=step))
+        got = self._num(raw, "measure_acw", raw)
+        if abs(got - ma) > 0.0006:
+            raise DeviceError(f"tester did not apply the AC current limit on step {step}: "
+                              f"sent {ma:.3f} mA, reads back {got} mA",
+                              instance_id=self.instance_id, method="measure_acw")
 
     async def _run_and_fetch(self, step: int, mode: str, method: str) -> tuple[float, str]:
         """TEST, then poll FETCh? until `step`'s segment carries a GENUINELY NEW sorting result

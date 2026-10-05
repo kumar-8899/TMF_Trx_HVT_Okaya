@@ -73,10 +73,12 @@ Not a `signals` entry — reached only through the `hipot` action
 | `measure_ir(voltage, step)` | insulation resistance (MΩ) | implemented on the driver, not yet used by any step type on this bench |
 
 **The hipot ACW reading** is `leakage_ma` (mA) + `breakdown` (bool), both returned by one
-`measure_acw` call and both judged by the `hipot_acw` step type as the `<name>` and
-`<name>_breakdown` measurements (default name `leakage_current`) — there is no separate scalar
-signal for it; the reading only exists as the return value of that action call, recorded as a
-report measurement each time a hipot test step runs.
+`measure_acw` call. The `hipot_acw` step type records ONE measurement from them (`<name>`,
+default `leakage_current`; the recipe form passes the test point's human label) — a reported
+`breakdown` is not a separate row, it forces that one row to FAIL — and a tester error also
+yields a FAIL row (value `ERROR`), so a failed test is never missing from the report. There is
+no separate scalar signal for it; the reading only exists as the return value of that action
+call, recorded as a report measurement each time a hipot test step runs.
 
 ### Starting/stopping the hipot — checked, not a signal
 

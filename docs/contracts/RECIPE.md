@@ -73,6 +73,11 @@ One JSON document per version. Validated against
   "required_role": "operator",
   "linked_documents": ["docs/INV-C-TP.pdf"],
 
+  // ── run behaviour (optional) ──────────────────────────────────
+  // true = once any step's FINAL attempt FAILs, skip every later step (Python controller,
+  // PYTHON_CONTROLLER.md §6). Absent / false / non-boolean = run everything (the default).
+  "stop_on_fail": false,
+
   // ── prompts at run start ──────────────────────────────────────
   "run_parameters": [
     { "name": "serial_number", "kind": "string", "required": true,
@@ -214,6 +219,13 @@ content_hash   sha256 of canonical JSON     stamped at save, immutable
 A run record stores all three. The hash is the proof artifact for "what
 exact bytes ran on this DUT." Compute it at save time and never modify
 the file afterwards.
+
+**`recipe_id` format.** It is the recipe's folder name on disk and may be typed by a
+user, so `create_recipe` rejects anything but 1-64 characters of letters, digits, `-`
+or `_`, starting with a letter or digit, and not a Windows reserved device name (`CON`,
+`NUL`, `COM1`, …) — no path separators, dots, spaces or drive colons. This is the only
+place an id enters, so it is the one place it is validated; ids on existing recipes
+are never re-checked.
 
 ### 5.2 Save = new version
 

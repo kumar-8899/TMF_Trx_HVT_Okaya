@@ -13,7 +13,7 @@ import { api } from "../../../api/client";
 import { useAuth } from "../../../auth/AuthContext";
 import { PageHeader } from "../../../components/ui";
 import {
-  type FormValue, HipotRecipeForm, buildSteps, emptyForm, parseRecipe, slug,
+  type FormValue, HipotRecipeForm, buildSteps, emptyForm, modelIdError, parseRecipe,
 } from "./HipotRecipeForm";
 
 export function HipotRecipeEditor() {
@@ -22,24 +22,38 @@ export function HipotRecipeEditor() {
   const loc = useLocation();
   const initial = (loc.state as any) || null;
   const r0 = initial?.recipe ?? null;
+  // Duplicate = a NEW recipe prefilled from an existing one (the detail page's Duplicate button):
+  // it must get its own Model ID, so it is treated as a creation, never as editing the source.
+  const isDuplicate = initial?.duplicate === true;
 
-  const [value, setValue] = useState<FormValue>(() => (r0 ? parseRecipe(r0) : emptyForm()));
-  const recipeId = useMemo(() => r0?.recipe_id || "", [r0]);
+  const [value, setValue] = useState<FormValue>(() => {
+    if (!r0) return emptyForm();
+    const v = parseRecipe(r0);
+    return isDuplicate ? { ...v, modelId: "" } : v;
+  });
+  // Non-empty only when editing an EXISTING recipe: its ID is then fixed (the form locks it and
+  // buildRecipe() ignores whatever the Model ID field holds).
+  const recipeId = useMemo(() => (isDuplicate ? "" : r0?.recipe_id || ""), [r0, isDuplicate]);
   const [draftId, setDraftId] = useState<string | null>(initial?.draftId ?? null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "error" | "success"; text: string } | null>(null);
 
   function buildRecipe() {
-    const rid = recipeId || slug(value.model);
+    const rid = recipeId || value.modelId.trim();
     return {
       schema_version: 1, recipe_id: rid, name: value.model || rid, model: value.model,
-      owner: r0?.owner || principal?.username || "", description: value.description,
+      owner: (!isDuplicate && r0?.owner) || principal?.username || "", description: value.description,
+      stop_on_fail: value.stopOnFail,
       steps: buildSteps(value),
     };
   }
 
   async function save() {
     setMsg(null);
+    if (!recipeId) {
+      const idErr = modelIdError(value.modelId);
+      if (idErr) { setMsg({ kind: "error", text: idErr }); return; }
+    }
     if (!value.model.trim()) { setMsg({ kind: "error", text: "Enter a model name." }); return; }
     const recipe = buildRecipe();
     if (recipe.steps.length === 0) { setMsg({ kind: "error", text: "Select at least one test." }); return; }
@@ -64,7 +78,8 @@ export function HipotRecipeEditor() {
   return (
     <Box>
       <PageHeader
-        title={recipeId ? `Edit recipe — ${recipeId}` : "New recipe"}
+        title={recipeId ? `Edit recipe — ${recipeId}`
+          : isDuplicate ? `New recipe — copy of ${r0?.recipe_id ?? ""}` : "New recipe"}
         subtitle="Hipot AC-withstand test recipe"
         actions={
           <>
@@ -78,7 +93,7 @@ export function HipotRecipeEditor() {
         }
       />
       {msg && <Alert severity={msg.kind} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
-      <HipotRecipeForm value={value} onChange={setValue} />
+      <HipotRecipeForm value={value} onChange={setValue} idLocked={!!recipeId} />
     </Box>
   );
 }

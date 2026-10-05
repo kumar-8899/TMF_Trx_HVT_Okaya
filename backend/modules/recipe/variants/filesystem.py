@@ -7,6 +7,7 @@ Authoring/versioning (R2), validation (R3), execution wire (R4), export/import
 
 from __future__ import annotations
 
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -33,6 +34,21 @@ from modules.recipe.versioning import content_hash
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# A recipe_id is a FOLDER NAME under the recipe root (RecipeStore.recipe_dir) and can be typed by
+# a user (an app's New-recipe form), so it is validated where ids enter — creation. No path
+# separators / dots / drive colons (traversal + Windows trailing-dot aliasing), bounded length,
+# and not a Windows reserved device name (CON, NUL, COM1, ...), which cannot be a directory there.
+_RECIPE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+_WINDOWS_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.IGNORECASE)
+
+
+def _check_recipe_id(rid: object) -> None:
+    if not isinstance(rid, str) or not _RECIPE_ID_RE.fullmatch(rid) or _WINDOWS_RESERVED.fullmatch(rid):
+        raise RecipeValidationError([
+            "recipe_id must be 1-64 characters: letters, digits, '-' or '_', starting with a "
+            "letter or digit (and not a reserved name such as CON or NUL)"])
 
 
 class FilesystemRecipe:
@@ -150,6 +166,7 @@ class FilesystemRecipe:
         rid = payload.get("recipe_id")
         if not rid:
             raise RecipeValidationError(["recipe_id required"])
+        _check_recipe_id(rid)
         if self.store.exists(rid):
             raise RecipeExistsError(f"recipe '{rid}' already exists")
         meta = {

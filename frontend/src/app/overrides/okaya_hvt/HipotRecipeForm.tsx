@@ -10,7 +10,7 @@
  * is the six-point hipot AC-withstand sequence (`hipot_acw` step type, `app/okaya_hvt/specs/
  * hipot_acw.md`), routed through the Waveshare relay card to the shared UT5320R+ tester. */
 import {
-  Checkbox, FormControlLabel, Grid, InputAdornment, Paper, Stack, TextField, Typography,
+  Checkbox, FormControlLabel, Grid, InputAdornment, Paper, Stack, Switch, TextField, Typography,
 } from "@mui/material";
 
 import { Section } from "../../../components/ui";
@@ -44,10 +44,28 @@ export interface HipotParams {
 }
 
 export interface FormValue {
-  model: string;
+  modelId: string;      // the recipe's immutable ID (becomes `recipe_id`, a folder name on disk)
+  model: string;        // display name — editable any time
   description: string;
+  stopOnFail: boolean;  // recipe-level `stop_on_fail`: stop the run at the first failed test
   selected: Set<string>;
   tests: Record<string, HipotParams>;
+}
+
+// The Model ID is typed by the user and used verbatim as the recipe_id, which the backend stores
+// as a FOLDER NAME — so it is restricted to the same set the server enforces (RecipeStore
+// create: modules/recipe/variants/filesystem.py `_check_recipe_id`). The server is the real
+// boundary; this just gives the operator the reason up front instead of a 422 after Save.
+const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const RESERVED_ID_RE = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+export function modelIdError(id: string): string | null {
+  const s = id.trim();
+  if (!s) return "Enter a Model ID.";
+  if (!MODEL_ID_RE.test(s)) {
+    return "Use 1-64 letters, digits, '-' or '_' (starting with a letter or digit); no spaces or symbols.";
+  }
+  if (RESERVED_ID_RE.test(s)) return `"${s}" is a reserved name — choose another ID.`;
+  return null;
 }
 
 // Zero, not a plausible-looking guess: the real per-test-point ACW voltage/time/current-limit
@@ -56,7 +74,9 @@ export interface FormValue {
 export const zeroParams = (): HipotParams => ({ voltageKv: 0, testTimeS: 0, maxCurrentMa: 0 });
 
 export const emptyForm = (): FormValue => ({
-  model: "", description: "", selected: new Set(),
+  // stopOnFail defaults OFF: that is what every recipe did before the toggle existed (the
+  // controller runs every selected test and reports each), so existing recipes parse unchanged.
+  modelId: "", model: "", description: "", stopOnFail: false, selected: new Set(),
   tests: Object.fromEntries(HIPOT_TESTS.map((t) => [t.key, zeroParams()])),
 });
 
@@ -65,9 +85,11 @@ export const slug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,
 /* ---------------------------------------------------------------- form <-> recipe steps */
 // One recipe GROUP per selected test point (id = the test key, e.g. "pri_sec"), each wrapping
 // exactly one hipot_acw step — matches the per-group spec-lint convention (docs/TEST_SPECS.md):
-// a recipe group named "pri_sec" gets its own `specs/pri_sec.md` once authored. Measurement
-// names (`<key>_leakage_current` / `<key>_leakage_current_breakdown`) are fixed by this
-// function, not user-editable — spec-lint checks them literally.
+// a recipe group named "pri_sec" gets its own `specs/pri_sec.md` once authored. The measurement
+// name is the test point's human LABEL ("Primary to Secondary"), fixed by this function and not
+// user-editable: it is exactly what the Results table / reports show as the test name. (It was
+// `<key>_leakage_current`, which rendered as "pri_sec_leakage_current". If a per-group spec is
+// authored later, its Output table must list the label — spec-lint matches names literally.)
 export function buildSteps(v: FormValue): any[] {
   const steps: any[] = [];
   for (const t of HIPOT_TESTS) {
@@ -85,7 +107,7 @@ export function buildSteps(v: FormValue): any[] {
               voltage: p.voltageKv * 1000,
               test_time: p.testTimeS,
               max_current_ma: p.maxCurrentMa,
-              name: `${t.key}_leakage_current`,
+              name: t.label,
             },
           },
         ],
@@ -97,8 +119,10 @@ export function buildSteps(v: FormValue): any[] {
 
 export function parseRecipe(recipe: any): FormValue {
   const v = emptyForm();
+  v.modelId = recipe?.recipe_id || "";
   v.model = recipe?.model || recipe?.name || "";
   v.description = recipe?.description || "";
+  v.stopOnFail = recipe?.stop_on_fail === true;   // strictly `true` — mirrors the controller
   for (const g of recipe?.steps ?? []) {
     const t = HIPOT_TESTS.find((x) => x.key === g.id);
     if (!t) continue;
@@ -131,8 +155,14 @@ function NumField({
 
 /* ---------------------------------------------------------------- the form */
 export function HipotRecipeForm({
-  value, onChange, readOnly = false,
-}: { value: FormValue; onChange?: (v: FormValue) => void; readOnly?: boolean }) {
+  value, onChange, readOnly = false, idLocked = false,
+}: {
+  value: FormValue; onChange?: (v: FormValue) => void; readOnly?: boolean;
+  /** The Model ID is fixed once the recipe exists (editing a saved recipe / the read-only view). */
+  idLocked?: boolean;
+}) {
+  const idEditable = !readOnly && !idLocked;
+  const idErr = idEditable && value.modelId ? modelIdError(value.modelId) : null;
   const patch = (p: Partial<FormValue>) => onChange?.({ ...value, ...p });
   const toggle = (key: string) => {
     const n = new Set(value.selected); n.has(key) ? n.delete(key) : n.add(key); patch({ selected: n });
@@ -174,10 +204,31 @@ export function HipotRecipeForm({
         <Stack spacing={2}>
           <Section title="Recipe">
             <Stack spacing={2}>
+              <TextField label="Model ID" size="small" fullWidth required={idEditable}
+                value={value.modelId} disabled={!idEditable} error={!!idErr}
+                onChange={(e) => patch({ modelId: e.target.value.trim() })} placeholder="e.g. 1400"
+                inputProps={{ maxLength: 64, "aria-label": "Model ID" }}
+                helperText={idEditable
+                  ? (idErr ?? "Letters, digits, - and _. Cannot be changed after the recipe is created.")
+                  : "Fixed when the recipe was created."} />
               <TextField label="Model name" size="small" fullWidth value={value.model} disabled={readOnly}
                 onChange={(e) => patch({ model: e.target.value })} placeholder="e.g. TX-100" />
               <TextField label="Description" size="small" fullWidth multiline minRows={2} disabled={readOnly}
                 value={value.description} onChange={(e) => patch({ description: e.target.value })} />
+              <FormControlLabel
+                control={<Switch checked={value.stopOnFail} disabled={readOnly}
+                  onChange={(e) => patch({ stopOnFail: e.target.checked })}
+                  inputProps={{ "aria-label": "Stop on first failure" }} />}
+                label={
+                  <Stack>
+                    <Typography variant="body2">Stop on first failure</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {value.stopOnFail
+                        ? "ON — the run stops at the first failed test; later tests are not run."
+                        : "OFF — every selected test runs, and every result is reported."}
+                    </Typography>
+                  </Stack>
+                } />
             </Stack>
           </Section>
 
