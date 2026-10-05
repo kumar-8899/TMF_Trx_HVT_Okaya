@@ -9,7 +9,7 @@ Testbench** — a high-voltage transformer test bench built by forking the `Supe
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
 version is `app/okaya_hvt/VERSION` (`1.0.7` when last released), independent of the framework's
-version (`backend/pyproject.toml`; merged through `v1.27.0`). Releases are cut with
+version (`backend/pyproject.toml`; merged through `v1.27.1`). Releases are cut with
 `deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
 repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
 entries there.

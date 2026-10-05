@@ -515,9 +515,9 @@ browser can use it, so `npm run build` is a **compile check** that catches
 broken TypeScript in the PR rather than at release time.
 
 The full app-track build (`build_release.py`) is deliberately **excluded**
-from `ci.yml`: even a fast PyInstaller backend build (ADR
-[0003](decisions/0003-pyinstaller-and-bundle-packages.md), ~1.5 min) plus
-`run_station.exe`'s Nuitka onefile compile, WebView2 fetch, and Inno setup
+from `ci.yml`: even a fast PyInstaller build (ADR
+[0003](decisions/0003-pyinstaller-and-bundle-packages.md), ~1.5 min for each of
+the backend and `run_station.exe`) plus the WebView2 fetch and Inno setup
 compile prove nothing `pytest` did not already prove faster.
 
 > `ci.yml` = *is the code correct?* — fast, frequent.
@@ -526,27 +526,22 @@ compile prove nothing `pytest` did not already prove faster.
 ### 10.3 App repo — `release.yml` (on tag `app-v*`) OR `deploy/cut-release.ps1` (local)
 
 `version guard (tag == VERSION **and** strictly newer than the latest published
-`app-v*`) → tests → vendor Mosquitto → PyInstaller (backend, ~1.5 min) + Nuitka
-(run_station.exe onefile, unaffected by ADR 0003) → zip + hash → sign .ksupdate →
-WebView2 + setup.exe → publish Release with the changelog body`. Signing secrets
-(`KS_INTERMEDIATE_*`) live only in app-repo Actions secrets or the releasing
-developer's environment — never committed, never in the framework repo.
+`app-v*`) → tests → vendor Mosquitto → PyInstaller (backend + run_station.exe
+onefile, ADR 0003) → zip + hash → sign .ksupdate → WebView2 + setup.exe →
+publish Release with the changelog body`. Signing secrets (`KS_INTERMEDIATE_*`)
+live only in app-repo Actions secrets or the releasing developer's environment
+— never committed, never in the framework repo.
 
 **Two ways to run those steps, same Release + four assets:**
 
-- **GitHub-hosted `release.yml`** — on the `app-v*` tag push. Simple, but every
-  tagged build is **cold**: GitHub Actions cache is ref-scoped, a cache saved on
-  one tag is unreachable from the next, and nothing runs `run_station.exe`'s
-  Nuitka build on the default branch to seed the fallback scope. The backend
-  step itself is now fast (PyInstaller); the remaining per-release cost is
-  `run_station.exe`'s cold Nuitka compile + the WebView2/Inno steps.
+- **GitHub-hosted `release.yml`** — on the `app-v*` tag push. Simple; both
+  freezes are fast and need no compiler cache, so the remaining per-release
+  cost is mostly the WebView2 fetch + Inno Setup compile.
 - **`deploy/cut-release.ps1`** (rendered from `deploy/cut-release.ps1.template` by
-  `new-test-app`) — the identical steps on a developer's machine with a
-  **persistent** local `NUITKA_CACHE_DIR` (warm after the first build — still
-  used by `run_station.exe`'s Nuitka compile even though the backend itself no
-  longer compiles), no CI minutes. A fork that adopts it retargets its own
-  `release.yml` to `on: workflow_dispatch:` so the tag push doesn't fire both.
-  Prereqs: `CONTRIBUTING.md`.
+  `new-test-app`) — the identical steps on a developer's machine, no CI minutes
+  at all. A fork that adopts it retargets its own `release.yml` to
+  `on: workflow_dispatch:` so the tag push doesn't fire both. Prereqs:
+  `CONTRIBUTING.md`.
 
 **Tag with the `app-v<version>` prefix and push ONLY that tag:**
 
@@ -563,11 +558,6 @@ would fire it. `release.yml` triggers on `app-v*` only, so push just the one tag
 The prefix is a **tag convention only** — release asset names stay plain
 `<slug>-<ver>.zip` / `.ksupdate`, and the in-app updater reads the version from
 the `.ksupdate` manifest (never the tag), so the prefix is invisible to a client.
-
-`release.yml` still has a `Cache Nuitka build` step, but see the comment block at
-the top of the template: on GitHub-hosted runs it effectively never hits, because
-the cache is scoped per-ref and no run ever seeds a reusable scope. The local
-`cut-release.ps1` is what actually gives you a warm cache.
 
 ### 10.4 App repo — `upstream-sync.yml` (weekly)
 

@@ -2,7 +2,7 @@
 
 Keystation's release model is three tracks under one signed-manifest trust chain
 (core DLL · framework · app; chat #4). The station's job here is intake + trust +
-resolve + operator-gate — NOT self-mutation: a running Nuitka binary cannot replace
+resolve + operator-gate — NOT self-mutation: a running frozen binary cannot replace
 its own file, so *applying* an update is a launcher/restart step. This service:
 
   1. **ingest** a `.ksupdate` — verify it through the licensing core

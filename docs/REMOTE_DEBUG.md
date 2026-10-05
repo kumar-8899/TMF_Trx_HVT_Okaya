@@ -14,7 +14,7 @@ this system is **not a human-readable log view** — it is a **machine-readable
 artifact small enough and dense enough for Claude Code to reason over.**
 Every decision below follows from that premise.
 
-**Standing constraint.** The bench runs Nuitka-compiled code. There are no
+**Standing constraint.** The bench runs a frozen (PyInstaller) backend, no source in sight. There are no
 breakpoints and there never will be. The recording must be complete enough
 that stepping through code is unnecessary.
 
@@ -75,7 +75,7 @@ Step 7 is the replacement for "add a print statement and ship a new build."
 ```
 BENCH PC                                     DEVELOPER LAPTOP
 ┌──────────────────────────────┐
-│ backend (Nuitka, compiled)   │
+│ backend (frozen, PyInstaller)   │
 │ mosquitto (loopback)         │
 │                              │
 │ DEBUG SERVER sidecar :8001   │

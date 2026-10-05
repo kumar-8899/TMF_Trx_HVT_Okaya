@@ -50,13 +50,15 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-# Nuitka-compiled run_station.exe sets __compiled__ (not sys.frozen). Compute this FIRST and use
-# sys.argv[0] for ROOT when compiled: in a Nuitka onefile exe `__file__` resolves to the temp
-# extraction dir, NOT the exe's real location, so ROOT/run.dist would point into that temp dir.
-COMPILED = "__compiled__" in globals()
-ROOT = Path(sys.argv[0]).resolve().parent if COMPILED else Path(__file__).resolve().parent
+# run_station.exe is PyInstaller-frozen (sets sys.frozen); also check __compiled__ (what a
+# Nuitka build would set instead) since checking both costs nothing. Compute this FIRST and use
+# sys.executable for ROOT when frozen: a PyInstaller onefile exe unpacks to a temp dir at
+# runtime, so `__file__` would resolve there, not the exe's real location — sys.executable is
+# the real running exe path (PyInstaller's own documented pattern for this).
+COMPILED = "__compiled__" in globals() or bool(getattr(sys, "frozen", False))
+ROOT = Path(sys.executable).resolve().parent if COMPILED else Path(__file__).resolve().parent
 RUN_DIST = ROOT / "run.dist"
-# Frozen = we run against a compiled run.dist/run.exe (either the compiled exe, or a source run
+# Frozen = we run against a compiled run.dist/run.exe (either the frozen exe, or a source run
 # from a deploy root that has one). Source = a dev checkout with backend/ + frontend/.
 FROZEN = COMPILED or (RUN_DIST / "run.exe").is_file()
 BACKEND = ROOT / "backend"
@@ -76,7 +78,7 @@ def _log(msg: str) -> None:
 
 def _import_launcher():
     """The supervision loop module. Frozen `run_station.exe` bundles `launcher` (import the
-    compiled-in copy); a source run imports it from `backend/`; a source run from a deploy
+    bundled copy); a source run imports it from `backend/`; a source run from a deploy
     root imports the copy shipped inside `run.dist`."""
     if not COMPILED:
         extra = str(BACKEND) if not FROZEN else str(RUN_DIST)
