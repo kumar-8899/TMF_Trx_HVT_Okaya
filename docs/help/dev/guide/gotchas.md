@@ -20,6 +20,10 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
   `python -m uvicorn` directly. A fresh virtualenv gets the newest uvicorn, so this only bites new installs.
 - **Never stop processes by name** (`Stop-Process -Name python`). It kills every Python on the PC, including
   your other apps. Stop the one you started, by PID or by the port it listens on.
+- **After Exit, a `python -m controller` is still running.** Before v1.27.4 a browser tab left open (a live
+  WebSocket) stalled the graceful shutdown, and the watchdog's `os._exit` then orphaned the controller: still
+  on MQTT, no instruments, so the next start had two controllers and runs flickered FAIL/PASS. Look for stray
+  controllers by command line, stop the orphans by PID, and make any hard exit go through `core.serve.force_exit`.
 
 ## Forks & releases
 
@@ -53,6 +57,17 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
   (e.g. `safety_tester` needs v1.2.0+) is silently unregistered — fork a newer release.
 - **The sequencer computes the verdict.** A crashed step used to report PASS with zero measurements; if you
   write a handler, raise or return measurements — never decide pass/fail yourself.
+
+## Reports & export
+
+- **A report export has a column-count ceiling.** The xlsx layout is `tests × selected fields` wide, and
+  Excel stops at 16,384 columns (and the writer caps ~3 M cells because merged headers need openpyxl's
+  in-memory mode). An app with thousands of tests should untick sub-columns or export TDMS. The API answers
+  422 with the numbers rather than writing a broken file.
+- **A test name repeated in one run keeps only its last result in the matrix** (`ReportStore._full` keys by
+  `test_name`), in the Full view and in every export. Give repeated measurements distinct names.
+- **nptdms cannot write an empty string channel** (no type can be inferred). `exporters/tdms.py` writes empty
+  float channels for a zero-row export; don't "fix" it by passing an empty object array.
 
 ## Frontend
 

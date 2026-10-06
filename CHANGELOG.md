@@ -5,6 +5,64 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.28.0 — 2026-10-06
+
+**Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).**
+
+The bulk export used to be one CSV where each test cell was a single squashed string
+(`exp 320 | meas 319 | PASS`). Reports → Full view → **Export (all filtered)** now has a **Format**
+dropdown (Excel / TDMS) and a **Test columns** selector.
+
+- **xlsx** follows `Report Template.xlsx`: row 1 = `serial_no, model, recipe_id, result, business_day,
+  shift_label, date, time, operator, cycle_s` + one merged header per test; row 2 =
+  `Expected Value | Measured Value | Result | Cycle Time`; data from row 3. Real Excel dates/times/durations,
+  numeric measured values, PASS/FAIL colouring.
+- **tdms**: flat single group `Reports`, one channel per DUT column and per `<test> - <field>`, equal length.
+- Untick a field (e.g. **Result**) and it disappears under **every** test; at least one must stay ticked.
+  Choice is remembered per PC.
+- API: `GET /reports/full/export?format=xlsx|tdms|csv&fields=…&columns=…` (`csv` stays the default, so
+  existing callers are unchanged), `GET /reports/export/formats` (catalog the UI is built from). Bad
+  format/fields → 422, no report DB → 409, and a capped export (20,000 runs) says so in the response.
+- New `modules/report/exporters/` (registry: a new format is one module + one `register_format`).
+  `ReportStore.full_matrix` rows also carry `operator`, `station`, `started_ts` (invisible in the Full view).
+- Dependencies: `openpyxl` moves from the dev extras to the runtime dependencies and `nptdms` (pulls
+  numpy) is added; both are imported lazily. **Verify the frozen build** (`build_release.py`) bundles them
+  and note the size increase from numpy.
+- Tests: `modules/report/tester/test_export.py` (layout vs the template, field selection, typed cells,
+  TDMS round-trip, REST, permissions) and `ReportExportControls.test.tsx`.
+
+## v1.27.4 — 2026-10-03
+
+**Exit station no longer leaves the controller running; the recipe editor shows the selected group's steps (PATCH).**
+
+Found while recording a demo: after **Exit station** the backend was gone but the supervised Python
+controller kept running on its own, still answering on MQTT as `st1`. The next station start then had
+two controllers; the stale one had no instruments, so runs flickered FAIL/PASS and the day's fail
+counter went up. It is also a safety problem: that controller was never stopped, so its instruments
+were never driven to safe state.
+
+Cause: uvicorn waits, with no limit, for every open connection before it runs the app's lifespan
+shutdown (the step that stops the controller). A browser tab left on the Runs page holds the live-values
+WebSocket (`values_ws`) open, so the shutdown never started. The `/system/shutdown` watchdog then fired
+after 12 s and called `os._exit(0)`, which skips the lifespan, so the controller was orphaned.
+
+- `core/serve.py`: `serve()` passes `timeout_graceful_shutdown` (5 s) to uvicorn, so stuck connections
+  are cancelled and the lifespan shutdown (controller stop, bridge, DB) always runs. It also treats the
+  `KeyboardInterrupt` uvicorn re-raises after a graceful stop as a normal exit.
+- New `core.serve.force_exit(app)`: the watchdog now stops the controller (whole process tree) first,
+  then exits. It is a **daemon** timer of 30 s (it outlasts the graceful path), so a clean exit is no
+  longer held back for the old fixed 12 s.
+- `tests/test_serve_selector.py`: a held-open connection no longer blocks shutdown (fails with the
+  timeout removed), and `force_exit` stops the controller before it exits, even if the stop fails.
+- **Recipe editor** (`frontend/src/components/RecipeForm.tsx`): the "Inner steps" JSON box of a `group` step
+  kept the text of the **first** step when another group step was selected, because the box only reloaded
+  when the parameter *name* changed and every group's is `steps`. Editing a limit there would have written
+  the first group's steps into the selected one. The parameters form is now keyed by the selected step.
+  New `RecipeForm.test.tsx` fails on the old code. Found while editing a limit for the demo.
+- Known and left alone: the controller's graceful stop on Windows waits its full 6 s and then
+  kills the tree (`CTRL_BREAK` cannot reach a process spawned with `CREATE_NO_WINDOW`), and
+  uvicorn logs a `CancelledError` traceback for the connection it cancels.
+
 ## v1.27.3 — 2026-10-03
 
 **new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).**

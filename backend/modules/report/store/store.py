@@ -1,8 +1,8 @@
-"""ReportStore — the relational report system-of-record (MySQL / SQL Server).
+"""ReportStore â€” the relational report system-of-record (MySQL / SQL Server).
 
 SQLAlchemy Core, one dialect-agnostic schema + query layer. The sync engine runs in a
 thread executor (writes are per-run, low rate; keeps mssql simple). Drivers are imported
-lazily by SQLAlchemy on connect, so the app boots without them — `test_connection`
+lazily by SQLAlchemy on connect, so the app boots without them â€” `test_connection`
 reports a clear "driver not installed" message.
 
 Aggregation runs on the DB server (GROUP BY over indexed columns), so analytics scale to
@@ -57,7 +57,7 @@ def _make_engine(cfg: dict):
 
 
 def build_server_url(cfg: dict) -> URL:
-    """Like build_url but WITHOUT the target database — connects at server level so a missing
+    """Like build_url but WITHOUT the target database â€” connects at server level so a missing
     database can be created (SQL Server connects via `master`)."""
     p = (cfg or {}).get("provider")
     user, pw, host = cfg.get("user"), cfg.get("password"), cfg.get("host")
@@ -74,7 +74,7 @@ def build_server_url(cfg: dict) -> URL:
 
 def _ensure_database(cfg: dict) -> None:
     """Create the target database if it doesn't exist (MySQL / SQL Server); SQLite makes its
-    own file. Idempotent. Needs a user with CREATE privilege — otherwise a clear error so the
+    own file. Idempotent. Needs a user with CREATE privilege â€” otherwise a clear error so the
     operator can create it (or be granted the right). DDL can't be parameterized, so the name
     is validated to a safe identifier first."""
     import re
@@ -93,7 +93,7 @@ def _ensure_database(cfg: dict) -> None:
             else:  # sqlserver
                 c.execute(text(f"IF DB_ID(N'{db}') IS NULL EXEC('CREATE DATABASE [{db}]')"))
     except ModuleNotFoundError:
-        raise                                       # driver missing — reported upstream
+        raise                                       # driver missing â€” reported upstream
     except Exception as exc:  # noqa: BLE001
         raise StoreError(
             f"database '{db}' does not exist and could not be created automatically "
@@ -147,7 +147,7 @@ class ReportStore:
             except ModuleNotFoundError as exc:            # DBAPI driver missing
                 return {"ok": False, "status": "error",
                         "detail": f"driver not installed: {exc}"}
-            except Exception as exc:  # noqa: BLE001 — honest failure verdict
+            except Exception as exc:  # noqa: BLE001 â€” honest failure verdict
                 return {"ok": False, "status": "fail", "detail": str(exc).splitlines()[0][:300]}
             finally:
                 eng.dispose()
@@ -270,7 +270,9 @@ class ReportStore:
         rows = []
         for r in runs:
             base = _with_cycle(dict(r))
-            row = {k: base.get(k) for k in ("run_id", *fixed)}
+            # extras beyond `fixed` (operator/station/started_ts) feed the xlsx/tdms exporters; the
+            # Full-view dialog only renders `fixed` + tests, so they are invisible there.
+            row = {k: base.get(k) for k in ("run_id", "operator", "station", "started_ts", *fixed)}
             row.update({n: per_run.get(r["run_id"], {}).get(n) for n in names})
             rows.append(row)
         return {"fixed": fixed, "tests": names, "rows": rows, "total": int(total),

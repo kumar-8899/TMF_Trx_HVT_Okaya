@@ -8,6 +8,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from core.services.security import require_permission
+from modules.report.exporters import (
+    ExportError, ExportSpec, ExportUnavailable, formats_catalog,
+)
 
 _VIEW = [Depends(require_permission("REPORT.VIEW"))]
 _EXPORT = [Depends(require_permission("REPORT.EXPORT"))]
@@ -60,17 +63,40 @@ def build_router(module) -> APIRouter:
         return await module.full_matrix(limit=limit,
                                         **_filters(recipe_id, result, model, shift, serial, date_from, date_to))
 
+    @router.get("/export/formats", dependencies=_EXPORT)
+    async def export_formats() -> dict:
+        """Formats + selectable DUT columns / per-test parameter fields (the UI builds its controls from this)."""
+        return formats_catalog()
+
     @router.get("/full/export", dependencies=_EXPORT)
     async def full_export(
         recipe_id: str | None = None, result: str | None = None,
         model: str | None = None, shift: str | None = None, serial: str | None = None,
         date_from: str | None = None, date_to: str | None = None, save: bool = False,
+        format: str = "csv", fields: str | None = None, columns: str | None = None,
     ):
-        data = await module.full_csv(**_filters(recipe_id, result, model, shift, serial, date_from, date_to))
-        if save:   # native window: save to the PC's Downloads and return the path to show the user
-            return _save_to_downloads(data, "reports-full.csv")
-        return Response(content=data, media_type="text/csv",
-                        headers={"Content-Disposition": 'attachment; filename="reports-full.csv"'})
+        """Bulk export of the filtered runs. `format=csv` (default) is the legacy flat CSV; `xlsx` / `tdms`
+        use the template layout. `fields` = comma list of expected,measured,result,cycle (default all);
+        `columns` = DUT columns (default the template's ten)."""
+        flt = _filters(recipe_id, result, model, shift, serial, date_from, date_to)
+        if format == "csv":
+            data = await module.full_csv(**flt)
+            if save:   # native window: save to the PC's Downloads and return the path to show the user
+                return _save_to_downloads(data, "reports-full.csv")
+            return Response(content=data, media_type="text/csv",
+                            headers={"Content-Disposition": 'attachment; filename="reports-full.csv"'})
+        try:
+            out = await module.full_export(format, ExportSpec.parse(columns, fields), **flt)
+        except ExportError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        except ExportUnavailable as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        name = f"reports-full.{out['ext']}"
+        if save:
+            return {**_save_to_downloads(out["data"], name), "rows": out["rows"],
+                    "total": out["total"], "truncated": out["truncated"]}
+        return Response(content=out["data"], media_type=out["media_type"],
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     # --- report DB config (professional store) — super_admin ---------------
     # Defined BEFORE /{run_id} so 'db-config' isn't captured as a run id.

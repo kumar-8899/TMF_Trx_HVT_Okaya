@@ -227,6 +227,24 @@ class StandardReport:
     async def full_csv(self, **f) -> bytes:
         return await self.store.full_csv(**f)
 
+    async def full_export(self, fmt: str, spec, *, limit: int = 20000, **f) -> dict:
+        """Bulk export of the filtered matrix in a registered format (xlsx / tdms / …).
+        Returns {data, filename_ext, media_type, rows, total, truncated}."""
+        from datetime import datetime
+
+        from modules.report.exporters import ExportError, get_format
+        fmt_obj = get_format(fmt)
+        matrix = await self.store.full_matrix(limit=limit, **f)
+        if not matrix.get("configured", True):
+            raise ExportError("The report database is not configured — nothing to export. "
+                              "Set it in Settings → Report database.", status=409)
+        meta = {"station": self.station, "filters": f,
+                "exported_at": datetime.now().isoformat(timespec="seconds")}
+        data = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: fmt_obj.build(matrix, spec, meta))     # CPU-bound; keep the loop free
+        return {"data": data, "ext": fmt_obj.ext, "media_type": fmt_obj.media_type,
+                "rows": len(matrix["rows"]), "total": matrix["total"], "truncated": matrix["truncated"]}
+
     async def dashboard(self, since=None, until=None, model=None, operator=None, shift=None, station=None) -> dict:
         return await self.store.dashboard(since=since, until=until, model=model, operator=operator,
                                           shift=shift, station=station)

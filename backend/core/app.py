@@ -31,6 +31,9 @@ from core.services.diagnostics import LEVELS, BusDiagSink, Diagnostics
 from core.services.licensing_keystation import build_licensing
 from core.services.spa import install_spa, resolve_frontend_dist
 from core.services.web import install_web
+from core.serve import force_exit
+
+SHUTDOWN_WATCHDOG_S = 30.0    # /system/shutdown: hard-exit if the graceful path has not finished
 
 # Live config + data live OUTSIDE a swappable run.dist when frozen (TMF_STATE_DIR); the
 # read-only *.example.json stay bundled. Source/tests = today's backend/ layout.
@@ -476,17 +479,22 @@ def create_app(
         modules stop, the Python controller is gracefully stopped (every instrument driven
         to safe state), the bridge goes offline, the DB is closed — then the process exits 0,
         so the launcher does NOT restart it (that is what distinguishes exit from relaunch).
-        A watchdog hard-exits if a graceful shutdown stalls."""
+        A watchdog hard-exits if a graceful shutdown stalls — but stops the controller FIRST
+        (``force_exit``): a bare ``os._exit`` would orphan it, still on MQTT, instruments not
+        safe-stated. It is a daemon timer so a clean shutdown is not held up waiting for it, and
+        it outlasts the worst graceful path (uvicorn's connection wait + the controller stop)."""
         app.state.diag.info("core", "station shutdown requested")
 
         def _graceful():
             try:
                 signal.raise_signal(signal.SIGINT)     # main-thread signal → uvicorn graceful exit
             except Exception:  # noqa: BLE001 — no signal support → hard exit
-                os._exit(0)
+                force_exit(app)
 
         asyncio.get_event_loop().call_later(0.5, _graceful)
-        threading.Timer(12.0, lambda: os._exit(0)).start()   # fallback if shutdown stalls
+        watchdog = threading.Timer(SHUTDOWN_WATCHDOG_S, lambda: force_exit(app))
+        watchdog.daemon = True
+        watchdog.start()
         return {"ok": True, "shutting_down": True, "note": "station is exiting"}
 
     # ---- licensing surface (secure distribution P1; Settings → License) ----
