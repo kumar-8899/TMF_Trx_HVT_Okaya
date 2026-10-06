@@ -28,7 +28,7 @@ import { Bolt, PlayArrow } from "@mui/icons-material";
 import {
   Alert, Box, Button, Grid, MenuItem, Stack, TextField, Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../../../api/client";
 import { useAuth } from "../../../auth/AuthContext";
@@ -60,6 +60,10 @@ export function OkayaMaintenance() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [relay1On, setRelay1On] = useState<string | null>(null);
+  // The LIVE energised route. `relay1On` is a render-time snapshot: startTest()'s `finally` ran
+  // setRelay1Channel(null) from the closure of the click, where it was still null, so the
+  // "open the route" write was skipped and the contactor stayed energised after every test.
+  const relay1OnRef = useRef<string | null>(null);
   const [relay2State, setRelay2State] = useState<Record<string, boolean>>({});
 
   const [route, setRoute] = useState(HIPOT_TESTS[0].routeSignal);
@@ -85,14 +89,16 @@ export function OkayaMaintenance() {
 
   // relay1: one channel at a time — energising a new one first opens whichever was on.
   const setRelay1Channel = async (routeSignal: string | null) => {
-    if (relay1On && relay1On !== routeSignal) await call("relay1", "write_digital", [ROUTE_CHANNELS[relay1On], false]);
+    const prev = relay1OnRef.current;
+    if (prev && prev !== routeSignal) await call("relay1", "write_digital", [ROUTE_CHANNELS[prev], false]);
     if (routeSignal) await call("relay1", "write_digital", [ROUTE_CHANNELS[routeSignal], true]);
+    relay1OnRef.current = routeSignal;
     setRelay1On(routeSignal);
   };
 
   const toggleRelay1 = async (routeSignal: string) => {
     setBusy(routeSignal); setActionError(null);
-    try { await setRelay1Channel(relay1On === routeSignal ? null : routeSignal); }
+    try { await setRelay1Channel(relay1OnRef.current === routeSignal ? null : routeSignal); }
     catch (e: any) { setActionError(e.message); }
     finally { setBusy(null); }
   };
@@ -115,8 +121,8 @@ export function OkayaMaintenance() {
     setTesting(true); setTestError(null); setResult(null);
     let energised = false;
     try {
+      energised = true;      // set BEFORE the write: a write that reached the board but errored must still be opened
       await setRelay1Channel(route);
-      energised = true;
       await sleep(200); // settle, matches hipot_acw step type's default settle_s
       const r = await call("hipot", "measure_acw", [voltageV, dwellS, stepN]);
       const [leakage_ma, breakdown] = r.result as [number, boolean];

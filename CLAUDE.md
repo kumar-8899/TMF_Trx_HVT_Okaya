@@ -84,7 +84,10 @@ instruments, the variable map, or step types here.
     **not** a variable-map signal — `measure_acw`
     issues SCPI `TEST` and polls to completion internally as one blocking call (checked against
     the real legacy control software's separate Start/Stop VIs; doesn't apply here — see
-    `INSTRUMENT_DRIVERS.md`).
+    `INSTRUMENT_DRIVERS.md`). The driver programs the recipe's current limit (`FUNC:AC:UPPC`) AND forces `FUNC:AC:RANG AUTO` (a
+    10 mA limit alone leaves a coarse range that reads small leakage as exactly 0.000 mA), reading both back;
+    the tester also pushes an unsolicited result line at test end, so the VISA transport `drain()`s stale
+    replies before the read-back (else the next test failed with `implausible reading '1,AC,...;'`).
 - **Frontend**: `frontend/src/app/overrides/recipe-editor.tsx` and `recipe-detail.tsx` are thin
   registry shims pointing at `okaya_hvt/HipotRecipeEditor.tsx` / `HipotRecipeDetail.tsx` /
   `HipotRecipeForm.tsx` (replaced the earlier Variac-based Transformer* form 2026-09, which

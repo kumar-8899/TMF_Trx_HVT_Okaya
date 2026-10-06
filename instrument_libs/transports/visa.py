@@ -55,6 +55,34 @@ class VisaTransport(Transport):
         except Exception as exc:  # noqa: BLE001 — a timeout/IO error is a lost link
             raise TransportDisconnected(f"VISA query failed: {exc}", detail=cmd) from exc
 
+    async def drain(self, quiet_ms: int = 50, max_bytes: int = 65536) -> int:
+        """Discard replies nobody asked for (left in the socket buffer by an earlier exchange), so
+        the next query reads its OWN answer instead of one that is a reply behind. Reads until the
+        line has been quiet for `quiet_ms`; returns the byte count thrown away. Never raises — a
+        failed drain just means nothing was drained (the next query reports a real link problem)."""
+        if self._inst is None:
+            return 0
+
+        def _drain() -> int:
+            from pyvisa import errors  # lazy, like connect()
+
+            inst, old, dropped = self._inst, self._inst.timeout, 0
+            inst.timeout = quiet_ms
+            try:
+                while dropped < max_bytes:
+                    try:
+                        dropped += len(inst.read_raw())
+                    except errors.VisaIOError:      # timeout = the buffer is empty
+                        break
+            finally:
+                inst.timeout = old
+            return dropped
+
+        try:
+            return await self._run(_drain)
+        except Exception:  # noqa: BLE001
+            return 0
+
     async def write(self, cmd: str) -> None:
         if self._inst is None:
             raise TransportDisconnected("VISA not connected", detail=cmd)

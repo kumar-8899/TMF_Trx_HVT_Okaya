@@ -49,11 +49,14 @@ whichever the bench actually uses.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from instrumentlib import ISafetyTester, InstrumentBase, SimTransport
 from instrumentlib.errors import DeviceError, GarbageResponse
 
 from instrument_libs.transports import VisaTransport
+
+_LOG = logging.getLogger(__name__)
 
 # FETCh? sorting-result tokens that mean a genuine dielectric breakdown during AC withstand
 # (manual §1.12) — as opposed to a plain over/under current-limit judgement, which the
@@ -81,6 +84,8 @@ class Ut5320r(InstrumentBase, ISafetyTester):
         "ac_ttim":   "FUNC:AC:TTIM {step},{t}",     # §1.5.8   <float> s, test (dwell) time
         "ac_uppc":   "FUNC:AC:UPPC {step},{ma:.3f}",  # §1.5.11  <float> mA, AC upper current limit
         "ac_uppc_q": "FUNC:AC:UPPC? {step}",        # §1.5.11  -> <float> mA (read back)
+        "ac_rang":   "FUNC:AC:RANG {step},AUTO",    # §1.5.15  current range AUTO (see _program_ac_current_limit)
+        "ac_rang_q": "FUNC:AC:RANG? {step}",        # §1.5.15  -> AUTO|FIXED
         "start":     "TEST",                        # §1.8  (== FUNC:STARt)
         "stop":      "RESET",                       # §1.9  (== FUNC:STOP) — also safe_state
         "fetch":     "FETCh?",                      # §1.12 -> "<step>,<mode>,<kV>,<mA|MΩ>[,<result>];…"
@@ -136,6 +141,7 @@ class Ut5320r(InstrumentBase, ISafetyTester):
     async def measure_acw(self, voltage: float, dwell: float, step: int = 1,
                           current_limit_ma: float | None = None) -> tuple[float, bool]:
         step = int(step)                # conformance/callers may pass a float; normalize once
+        await self._drain_stale("start of measure_acw")
         await self._program_step(step, "AC")
         await self.transport.write(self.CMD["ac_volt"].format(step=step, v=int(round(voltage))))
         await self.transport.write(self.CMD["ac_ttim"].format(step=step, t=float(dwell)))
@@ -168,6 +174,17 @@ class Ut5320r(InstrumentBase, ISafetyTester):
                 value = "150.300" if mode == "IR" else "1.500"
                 sim.responses["FETC*"] = f"{step},{mode},0.500,{value},PASS"
 
+    async def _drain_stale(self, where: str) -> None:
+        """Throw away any reply the tester sent that nobody asked for, so the next query reads its
+        OWN answer. Only a real VISA transport has anything to drain (sim replies are canned)."""
+        drain = getattr(self.transport, "drain", None)
+        if self.simulated or drain is None:
+            return
+        n = await drain()
+        if n:
+            _LOG.warning("%s: discarded %d stale byte(s) from the tester's reply stream (%s)",
+                         self.instance_id, n, where)
+
     async def _program_ac_current_limit(self, step: int, ma: float) -> None:
         """Program the step's AC upper current limit (§1.5.11, UT5320 range 0.001-20.00 mA) and,
         on real hardware, READ IT BACK. Before this existed the limit was never sent, so the tester
@@ -181,11 +198,32 @@ class Ut5320r(InstrumentBase, ISafetyTester):
         await self.transport.write(self.CMD["ac_uppc"].format(step=step, ma=ma))
         if self.simulated:
             return
-        raw = await self.transport.query(self.CMD["ac_uppc_q"].format(step=step))
-        got = self._num(raw, "measure_acw", raw)
+        # Confirmed live (2026-10): from the 2nd test of a run on, this read-back returned the
+        # PREVIOUS test's FETCh? line ("1,AC,0.501,0.055,PASS;") — one unread reply was left in the
+        # socket buffer, so every answer was one behind. Drop whatever is pending first, and if a
+        # non-numeric line still comes back, discard it and ask once more (the stream is then
+        # back in step) rather than failing the test as a tester error.
+        await self._drain_stale("before AC current-limit read-back")
+        query = self.CMD["ac_uppc_q"].format(step=step)
+        raw = await self.transport.query(query)
+        try:
+            got = self._num(raw, "measure_acw", raw)
+        except GarbageResponse:
+            raw = await self.transport.query(query)
+            got = self._num(raw, "measure_acw", raw)
         if abs(got - ma) > 0.0006:
             raise DeviceError(f"tester did not apply the AC current limit on step {step}: "
                               f"sent {ma:.3f} mA, reads back {got} mA",
+                              instance_id=self.instance_id, method="measure_acw")
+        # Confirmed live (2026-10): with a 10 mA upper limit programmed, every reading below
+        # ~0.05 mA came back as exactly 0.000 mA (PASS) — the tester's current range follows the
+        # limit unless it is set to AUTO. Without the limit write the same DUT read 0.02-0.05 mA.
+        # AUTO lets the range follow the actual current, so a small leakage is still resolved.
+        await self.transport.write(self.CMD["ac_rang"].format(step=step))
+        mode = (await self.transport.query(self.CMD["ac_rang_q"].format(step=step))).strip().upper()
+        if mode != "AUTO":
+            raise DeviceError(f"tester did not switch step {step} to AUTO current range "
+                              f"(reads back {mode!r}) — low leakage would read as 0.000 mA",
                               instance_id=self.instance_id, method="measure_acw")
 
     async def _run_and_fetch(self, step: int, mode: str, method: str) -> tuple[float, str]:
