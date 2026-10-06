@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Testbench** — a high-voltage transformer test bench built by forking the `Super_Test_App`
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
-version is `app/okaya_hvt/VERSION` (`1.0.7` when last released), independent of the framework's
+version is `app/okaya_hvt/VERSION` (`1.0.9` when last released), independent of the framework's
 version (`backend/pyproject.toml`; merged through `v1.29.0`). Releases are cut with
 `deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
 repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
@@ -104,7 +104,7 @@ instruments, the variable map, or step types here.
   framework-owned files; expect merge conflicts there on the next framework tag and offer each
   upstream: `controller/controller/sequencer.py` (`stop_on_fail`), `controller/controller/config.py`
   + `__main__.py` (`instrument_call_timeout_s`, hardcoded 10 s call timeout), `backend/modules/
-  recipe/variants/filesystem.py` (`recipe_id` validation), `deploy/cut-release.ps1` (resume mode
+  recipe/variants/filesystem.py` (`recipe_id` validation), `deploy/build-installer.ps1` (PowerShell parse error from upstream v1.27.1 — `\"` in a double-quoted string, line ~110), `deploy/cut-release.ps1` (resume mode
   was unreachable), `.github/workflows/ci.yml` (+2 lines), with tests in `controller/tester/
   test_stop_on_fail.py` and `backend/modules/recipe/tester/test_recipe.py`.
 - **App step tests are not in CI** (`app/` is outside the backend's pytest paths). Run them by

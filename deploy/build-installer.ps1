@@ -107,7 +107,7 @@ if (-not (Test-Path $rsExe)) {
     "Options:`n" +
     "  1. Check the build output above for the PyInstaller error, or the pywebview/WebView2 " +
     "runtime issue that failed the smoke test.`n" +
-    "  2. Re-run 'pip install -e \"backend[release]\"' to make sure pywebview is installed, then " +
+    "  2. Re-run 'pip install -e backend[release]' to make sure pywebview is installed, then " +
     "re-run build_release.py --track app.`n" +
     "  3. Skip the offline setup.exe for now and use deploy/install-station.ps1 (scriptable " +
     "fallback; needs Python + pip on the client) instead."
