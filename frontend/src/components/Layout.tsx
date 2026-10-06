@@ -20,6 +20,7 @@ import { useRunActivity } from "./RunActivity";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
 import { HelpPanel } from "./help/HelpPanel";
+import { MesAlertDialog } from "./MesAlertDialog";
 import { StatusDot } from "./ui";
 import { UpdateChip } from "./UpdateChip";
 import { UserMenu } from "./UserMenu";
@@ -268,6 +269,7 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
         <Toolbar />
         <Outlet />
       </Box>
+      <MesAlertDialog />
       {showHelp && <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />}
     </Box>
   );

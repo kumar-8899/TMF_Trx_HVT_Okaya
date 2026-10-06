@@ -101,7 +101,12 @@ export function Runs() {
       if (t === "run-started") setErrLine("");
       if (runId && body.run_id === runId) {
         if (t === "test-result") setResults((prev) => [...prev, body as ResultRow]);
-        else if (t === "run-finished") { setRunStatus(body.result || "finished"); reconcile(runId); reopenForNext(); }
+        else if (t === "run-finished") {
+          setRunStatus(body.result || "finished"); reconcile(runId); reopenForNext();
+          // MES pushes the result on the same event; if that fails the operator must be told now,
+          // not on the next poll. Small delay: the failure record is written after the push attempt.
+          setTimeout(() => window.dispatchEvent(new Event("tmf:mes-refresh")), 1500);
+        }
         else if (t === "run-aborted") { setRunStatus("ABORTED"); reconcile(runId); reopenForNext(); }
       }
     },

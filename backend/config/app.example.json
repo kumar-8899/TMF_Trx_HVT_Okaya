@@ -84,7 +84,7 @@
       "config": {
         "stage": "st1",
         "provider": "folder",
-        "gate": { "enabled": false, "on_missing": "block" },
+        "gate": { "enabled": false, "on_missing": "block", "on_error": "block" },
         "publish": { "enabled": false },
         "folder": { "upstream_dir": "data/mes/upstream", "downstream_dir": "data/mes/downstream" }
       }

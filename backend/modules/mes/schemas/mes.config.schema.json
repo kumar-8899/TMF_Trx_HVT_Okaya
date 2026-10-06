@@ -6,19 +6,52 @@
   "additionalProperties": true,
   "properties": {
     "stage": { "type": "string", "description": "This station's stage label." },
-    "provider": { "enum": ["folder", "database", "xml"], "description": "Transport (folder shipped; db/xml phase 2)." },
+    "provider": { "enum": ["folder", "database"], "description": "Transport: folder (file handoff) or database (customer table). Editable at runtime in Config → MES." },
     "gate": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "enabled": { "type": "boolean", "description": "Block runs unless the previous stage passed." },
-        "on_missing": { "enum": ["block", "allow"], "description": "Behaviour when no upstream record exists." }
+        "on_missing": { "enum": ["block", "allow"], "description": "Behaviour when no upstream record exists." },
+        "on_error": { "enum": ["block", "allow"], "description": "Behaviour when the MES source cannot be read (database down, timeout). Default block." }
       }
     },
     "publish": {
       "type": "object",
       "additionalProperties": true,
       "properties": { "enabled": { "type": "boolean", "description": "Write this stage's result downstream on run-finish." } }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Database transport defaults; normally set in Config → MES and stored as the mes_db_config record (passwords never in app.json).",
+      "properties": {
+        "inbound": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "connection": { "type": "object", "description": "provider mysql|sqlserver|sqlite, host, port, user, password, odbc_driver, path" },
+            "database": { "type": "string" },
+            "table": { "type": "string", "description": "Table or view; 'schema.table' for a non-default schema." },
+            "serial_column": { "type": "string" },
+            "status_column": { "type": "string" },
+            "allow_value": { "type": "string", "description": "Status value that allows the run; anything else blocks." },
+            "ignore_case": { "type": "boolean" },
+            "latest_by": { "type": "array", "items": { "type": "string" }, "description": "Ordered columns, newest first (e.g. [date_col, time_col])." }
+          }
+        },
+        "outbound": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "same_as_inbound": { "type": "boolean" },
+            "connection": { "type": "object" },
+            "database": { "type": "string" },
+            "table": { "type": "string" },
+            "column_map": { "type": "object", "additionalProperties": { "type": "string" }, "description": "MES field -> target column." }
+          }
+        }
+      }
     },
     "folder": {
       "type": "object",

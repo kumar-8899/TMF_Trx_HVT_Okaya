@@ -69,6 +69,25 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
 - **nptdms cannot write an empty string channel** (no type can be inferred). `exporters/tdms.py` writes empty
   float channels for a zero-row export; don't "fix" it by passing an empty object array.
 
+## MES
+
+- **`mes` must not import `report` (or any module).** DB plumbing (URLs, engines, listings) lives in
+  `core/services/dbconn.py`; both modules use it. Put new shared DB code there, not in a module.
+- **Outbound MES has no outbox on purpose.** A failed push leaves only a status record (`mes_push`) and a loud
+  UI prompt; Retry rebuilds the row from the run record. Don't add a queue or background retry — operators
+  were explicit that a failed hand-off must be seen, not hidden.
+- **The failure prompt is driven by persisted state, not a WebSocket frame.** `StreamHub` is latest-wins with
+  no replay, so a one-shot frame can be missed; `MesAlertDialog` polls `GET /mes/alerts`.
+- **Use `table()/column()`, not reflection, for customer tables.** Reflection needs catalog permissions the
+  MES user often lacks, and typed-by-hand names must work. Never build SQL with f-strings from user input
+  (the only DDL that does validates the identifier against `[A-Za-z0-9_]+` first).
+- **A stored DB password is only reused for the same server.** `_same_server()` compares provider/host/port/user;
+  keep that check when adding any "blank password = keep" path.
+- **`latest_by` sorts as the database sorts the column.** Date + time in separate columns work as
+  `[date, time]` only if both are real DATE/TIME types or ISO text; `dd/mm/yyyy` text sorts wrongly.
+- **MySQL / SQL Server SQL isn't exercised in CI.** `SHOW DATABASES`, `sys.databases`, `ALTER TABLE … ADD`
+  and ODBC timeouts are string-asserted only; verify on the real servers.
+
 ## Frontend
 
 - **New pages go through `AppPage`, path must start with `/app/`.** Anything else is skipped with a console

@@ -5,6 +5,41 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.29.0 — 2026-10-06
+
+**MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).**
+
+MES was folder-only (`database` raised "not implemented"). Config → MES now offers **Folder | Database**.
+In Database mode **Inbound** and **Outbound** are each a guided process and can be switched off independently.
+
+- **Inbound (gate), read-only:** server → database → table → columns (serial, status, allow value) →
+  **Latest by** (one or more columns; `[date, time]` when stored separately) → **Try a serial** (dry run).
+  Status equal to the allow value allows the run, **anything else blocks**. No row → `gate.on_missing`;
+  several rows and no `latest_by` → every row must allow; DB error/timeout → new `gate.on_error` (default block),
+  with the reason in the 409.
+- **Outbound:** one row per run in ONE table using the report header schema (no per-test data), the moment
+  `run-finished` arrives. New database/table is created on an explicit **Apply**; an existing customer table is
+  mapped column-by-column (auto-matched, remappable, optional fields skippable; epoch→DATETIME coercion). Idempotent
+  (`run_id`), so Retry never duplicates.
+- **Loud failure, no outbox:** a failed push raises a diagnostic error, degrades module health, keeps a tiny
+  `mes_push` status record (no payload, no queue) and prompts on **every screen** (`MesAlertDialog`, driven by
+  `GET /mes/alerts`) with **Retry** (rebuilds from the run record) / **Dismiss** (confirmed + audited). Applies to the
+  folder transport too.
+- **Listing never blocks configuration:** if the server won't list databases/tables/columns the field accepts typed
+  names (`Autocomplete freeSolo`) and **Verify names** / **Check table** confirm them. Queries use
+  `table()/column()` (no reflection), so typed names work.
+- New `core/services/dbconn.py` (shared connection/discovery plumbing; **report store now delegates to it**,
+  behaviour unchanged) so `mes` and `report` need not import each other. Shared `DbServerForm` React component
+  (Report DB settings use it too).
+- API: `PUT /mes/config` accepts `provider`, `on_missing`, `on_error`; new `GET|PUT /mes/db-config` (passwords
+  redacted; a stored password is only reused for the **same** server), `POST /mes/db/{test,databases,tables,columns,
+  values,verify,inbound/check,outbound/validate,outbound/ensure}`, `GET /mes/alerts`, `POST /mes/alerts/{id}/{retry,dismiss}`.
+  The 403 on `/config/mes` for users without *Station settings* now says so instead of "MES module is not enabled".
+- Tests: `test_mes_db.py` (47 incl. runs→409 integration, which was missing), `tests/test_dbconn.py`,
+  `Mes.test.tsx`, `MesAlertDialog.test.tsx`. **Not verifiable here:** MySQL / SQL Server specifics
+  (`SHOW DATABASES`, `sys.databases`, `ALTER TABLE ADD`, ODBC timeouts) are asserted at SQL-string level only —
+  verify on the real servers before relying on a release.
+
 ## v1.28.0 — 2026-10-06
 
 **Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).**
