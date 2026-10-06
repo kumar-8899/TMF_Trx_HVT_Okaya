@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { ReportExportControls } from "../components/ReportExportControls";
 import { EmptyState, PageHeader, Section, StatusChip, statusKind } from "../components/ui";
 import { ResultsTable } from "../components/testing/ResultsTable";
 import { MONO_STACK } from "../theme/theme";
@@ -98,10 +99,9 @@ export function Reports() {
     try {
       const sep = path.includes("?") ? "&" : "?";
       const r = await api.get(`${path}${sep}save=true`);
-      setNotice(`Saved to: ${r.path}`);
+      setNotice(`Saved to: ${r.path}` + (r.truncated ? ` — only the newest ${r.rows} of ${r.total} runs were exported; narrow the filters to get the rest.` : ""));
     } catch (e: any) { setError(e.message); }
   };
-  const exportFull = () => saveExport(`/reports/full/export?${qs().toString()}`);
 
   return (
     <Box>
@@ -226,7 +226,7 @@ export function Reports() {
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <span>Full view — {full?.rows?.length ?? 0} run(s){full?.truncated ? " (capped)" : ""}</span>
             <Stack direction="row" spacing={1}>
-              {can("REPORT.EXPORT") && <Button size="small" variant="contained" startIcon={<Download />} onClick={exportFull}>Export CSV (all filtered)</Button>}
+              {can("REPORT.EXPORT") && <ReportExportControls query={qs().toString()} onExport={saveExport} />}
               <Button size="small" onClick={() => setFull(null)}>Close</Button>
             </Stack>
           </Stack>

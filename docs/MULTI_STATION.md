@@ -107,8 +107,11 @@ runs the backend under the launcher so both work in dev too.
   raises `SIGINT` so uvicorn shuts down **gracefully**: the full lifespan cleanup
   runs (modules stop, the Python controller is **gracefully** stopped so every
   instrument is driven to safe state, the bridge goes offline, the DB is closed),
-  then the process exits 0 → the launcher stops **without** restarting. A watchdog
-  hard-exits if a graceful shutdown stalls. The Exit button is super_admin-only.
+  then the process exits 0 → the launcher stops **without** restarting. uvicorn waits at most 5 s
+  (`core.serve.GRACEFUL_SHUTDOWN_TIMEOUT_S`) for open connections (a browser tab's live WebSocket)
+  before cancelling them, so the lifespan cleanup always runs. A 30 s daemon watchdog hard-exits if
+  the graceful path still stalls, and it stops the controller first (`core.serve.force_exit`): a bare
+  `os._exit` would orphan it. The Exit button is super_admin-only.
 
 The controller's graceful stop uses CTRL_BREAK on Windows / SIGTERM on POSIX (it
 is spawned in its own process group), so the controller runs its own teardown —

@@ -15,92 +15,23 @@ from __future__ import annotations
 import asyncio
 
 from sqlalchemy import (
-    and_, case, create_engine, delete, distinct, func, insert, select, text, true,
+    and_, case, delete, distinct, func, insert, select, text, true,
 )
-from sqlalchemy.engine import URL
 
+from core.services import dbconn
+from core.services.dbconn import DbError
 from modules.report import analytics as A
 from modules.report.store.schema import metadata, report, report_result
 
 _DETAIL_CAP = 50_000     # bounded header rows for FPY / cycle charts
 
 
-class StoreError(Exception):
-    """Report store misconfiguration / connection failure (honest, never a hang)."""
-
-
-def build_url(cfg: dict) -> URL:
-    p = (cfg or {}).get("provider")
-    user, pw = cfg.get("user"), cfg.get("password")
-    host, db = cfg.get("host"), cfg.get("database")
-    if p == "mysql":
-        return URL.create("mysql+pymysql", username=user, password=pw, host=host,
-                          port=int(cfg.get("port") or 3306), database=db)
-    if p == "sqlserver":
-        q = {"driver": cfg.get("odbc_driver") or "ODBC Driver 18 for SQL Server",
-             "TrustServerCertificate": "yes"}
-        return URL.create("mssql+pyodbc", username=user, password=pw, host=host,
-                          port=int(cfg.get("port") or 1433), database=db, query=q)
-    if p == "sqlite":     # tests only
-        return URL.create("sqlite", database=cfg.get("path") or ":memory:")
-    raise StoreError(f"unknown DB provider '{p}'")
-
-
-def _make_engine(cfg: dict):
-    url = build_url(cfg)
-    kw: dict = {"pool_pre_ping": True, "future": True}
-    if url.get_backend_name() == "sqlite":
-        kw["connect_args"] = {"check_same_thread": False}
-    else:
-        kw["pool_recycle"] = 1800
-    return create_engine(url, **kw)
-
-
-def build_server_url(cfg: dict) -> URL:
-    """Like build_url but WITHOUT the target database — connects at server level so a missing
-    database can be created (SQL Server connects via `master`)."""
-    p = (cfg or {}).get("provider")
-    user, pw, host = cfg.get("user"), cfg.get("password"), cfg.get("host")
-    if p == "mysql":
-        return URL.create("mysql+pymysql", username=user, password=pw, host=host,
-                          port=int(cfg.get("port") or 3306))
-    if p == "sqlserver":
-        q = {"driver": cfg.get("odbc_driver") or "ODBC Driver 18 for SQL Server",
-             "TrustServerCertificate": "yes"}
-        return URL.create("mssql+pyodbc", username=user, password=pw, host=host,
-                          port=int(cfg.get("port") or 1433), database="master", query=q)
-    raise StoreError(f"cannot auto-create for provider '{p}'")
-
-
-def _ensure_database(cfg: dict) -> None:
-    """Create the target database if it doesn't exist (MySQL / SQL Server); SQLite makes its
-    own file. Idempotent. Needs a user with CREATE privilege — otherwise a clear error so the
-    operator can create it (or be granted the right). DDL can't be parameterized, so the name
-    is validated to a safe identifier first."""
-    import re
-    p = (cfg or {}).get("provider")
-    db = (cfg or {}).get("database")
-    if p not in ("mysql", "sqlserver") or not db:
-        return
-    if not re.fullmatch(r"[A-Za-z0-9_]+", db):
-        raise StoreError(f"invalid database name '{db}' (letters, digits, underscore only)")
-    eng = create_engine(build_server_url(cfg), future=True, isolation_level="AUTOCOMMIT")
-    try:
-        with eng.connect() as c:
-            if p == "mysql":
-                c.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db}` "
-                               "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
-            else:  # sqlserver
-                c.execute(text(f"IF DB_ID(N'{db}') IS NULL EXEC('CREATE DATABASE [{db}]')"))
-    except ModuleNotFoundError:
-        raise                                       # driver missing — reported upstream
-    except Exception as exc:  # noqa: BLE001
-        raise StoreError(
-            f"database '{db}' does not exist and could not be created automatically "
-            f"({str(exc).splitlines()[0][:200]}). Create it manually, or grant the configured "
-            "user CREATE privilege.") from exc
-    finally:
-        eng.dispose()
+# Connection plumbing (URLs, engines, create-database) is shared with other modules via core.
+StoreError = DbError      # same exception type, so callers catching StoreError still catch connection errors
+build_url = dbconn.build_url
+_make_engine = dbconn.make_engine
+build_server_url = dbconn.build_server_url
+_ensure_database = dbconn.ensure_database
 
 
 class ReportStore:
@@ -270,7 +201,9 @@ class ReportStore:
         rows = []
         for r in runs:
             base = _with_cycle(dict(r))
-            row = {k: base.get(k) for k in ("run_id", *fixed)}
+            # extras beyond `fixed` (operator/station/started_ts) feed the xlsx/tdms exporters; the
+            # Full-view dialog only renders `fixed` + tests, so they are invisible there.
+            row = {k: base.get(k) for k in ("run_id", "operator", "station", "started_ts", *fixed)}
             row.update({n: per_run.get(r["run_id"], {}).get(n) for n in names})
             rows.append(row)
         return {"fixed": fixed, "tests": names, "rows": rows, "total": int(total),

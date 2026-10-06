@@ -20,6 +20,10 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
   `python -m uvicorn` directly. A fresh virtualenv gets the newest uvicorn, so this only bites new installs.
 - **Never stop processes by name** (`Stop-Process -Name python`). It kills every Python on the PC, including
   your other apps. Stop the one you started, by PID or by the port it listens on.
+- **After Exit, a `python -m controller` is still running.** Before v1.27.4 a browser tab left open (a live
+  WebSocket) stalled the graceful shutdown, and the watchdog's `os._exit` then orphaned the controller: still
+  on MQTT, no instruments, so the next start had two controllers and runs flickered FAIL/PASS. Look for stray
+  controllers by command line, stop the orphans by PID, and make any hard exit go through `core.serve.force_exit`.
 
 ## Forks & releases
 
@@ -53,6 +57,36 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
   (e.g. `safety_tester` needs v1.2.0+) is silently unregistered — fork a newer release.
 - **The sequencer computes the verdict.** A crashed step used to report PASS with zero measurements; if you
   write a handler, raise or return measurements — never decide pass/fail yourself.
+
+## Reports & export
+
+- **A report export has a column-count ceiling.** The xlsx layout is `tests × selected fields` wide, and
+  Excel stops at 16,384 columns (and the writer caps ~3 M cells because merged headers need openpyxl's
+  in-memory mode). An app with thousands of tests should untick sub-columns or export TDMS. The API answers
+  422 with the numbers rather than writing a broken file.
+- **A test name repeated in one run keeps only its last result in the matrix** (`ReportStore._full` keys by
+  `test_name`), in the Full view and in every export. Give repeated measurements distinct names.
+- **nptdms cannot write an empty string channel** (no type can be inferred). `exporters/tdms.py` writes empty
+  float channels for a zero-row export; don't "fix" it by passing an empty object array.
+
+## MES
+
+- **`mes` must not import `report` (or any module).** DB plumbing (URLs, engines, listings) lives in
+  `core/services/dbconn.py`; both modules use it. Put new shared DB code there, not in a module.
+- **Outbound MES has no outbox on purpose.** A failed push leaves only a status record (`mes_push`) and a loud
+  UI prompt; Retry rebuilds the row from the run record. Don't add a queue or background retry — operators
+  were explicit that a failed hand-off must be seen, not hidden.
+- **The failure prompt is driven by persisted state, not a WebSocket frame.** `StreamHub` is latest-wins with
+  no replay, so a one-shot frame can be missed; `MesAlertDialog` polls `GET /mes/alerts`.
+- **Use `table()/column()`, not reflection, for customer tables.** Reflection needs catalog permissions the
+  MES user often lacks, and typed-by-hand names must work. Never build SQL with f-strings from user input
+  (the only DDL that does validates the identifier against `[A-Za-z0-9_]+` first).
+- **A stored DB password is only reused for the same server.** `_same_server()` compares provider/host/port/user;
+  keep that check when adding any "blank password = keep" path.
+- **`latest_by` sorts as the database sorts the column.** Date + time in separate columns work as
+  `[date, time]` only if both are real DATE/TIME types or ISO text; `dd/mm/yyyy` text sorts wrongly.
+- **MySQL / SQL Server SQL isn't exercised in CI.** `SHOW DATABASES`, `sys.databases`, `ALTER TABLE … ADD`
+  and ODBC timeouts are string-asserted only; verify on the real servers.
 
 ## Frontend
 

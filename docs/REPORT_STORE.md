@@ -37,6 +37,31 @@ are exact SQL; unit-level detail (FPY p-chart, cycle I-MR) reads a bounded set o
 lightweight `report` header rows and sets `detail_truncated` when capped (narrow the range
 for exact detail).
 
+## Bulk export (`modules/report/exporters/`, `REPORT.EXPORT`)
+`GET /reports/full/export?<filters>&format=xlsx|tdms|csv&fields=…&columns=…&save=` exports the
+filtered **matrix** (`ReportStore.full_matrix`, newest 20,000 runs; the response says when capped).
+`GET /reports/export/formats` is the catalog the UI builds its controls from.
+
+- **Layout contract (xlsx)** = the customer's `Report Template.xlsx`: row 1 = the fixed DUT columns
+  (`serial_no, model, recipe_id, result, business_day, shift_label, date, time, operator, cycle_s`) then one
+  **merged** header per test; row 2 = the parameter sub-headers; data from row 3. `date`/`time` come from the
+  run's finish time (station-local zone), `business_day` is the shift-aware day. `cycle_s` and per-test
+  Cycle Time are Excel durations; `measured` is a number when numeric. A single selected field = no merge.
+- **Parameter fields** (`expected, measured, result, cycle`) are selectable; an unselected field is absent under
+  **every** test. At least one is required (else 422). `columns` selects DUT columns (`station`, `run_id`
+  are available, off by default).
+- **TDMS** = flat single group `Reports`: fixed columns, then `"<test> - <Field label>"` channels, all equal
+  length (row *n* = DUT *n*). Measured/Cycle are float64 (NaN = no value; seconds), Expected/Result strings; a
+  measured channel with any non-numeric value is written as strings. Root properties carry station,
+  export time, filters, tests and fields. A zero-row export writes empty float channels (nptdms cannot type
+  an empty string channel).
+- **Limits:** Excel 16,384 columns and a 3 M-cell cap (merged headers need openpyxl's in-memory mode) → a clear
+  422; `format=csv` (default, legacy flat CSV) is unchanged. A test name repeated inside one run keeps its last
+  occurrence (shared with the Full view).
+- **Adding a format** = a module with `build(matrix, spec, meta) -> bytes` + one `register_format(...)` in
+  `exporters/__init__.py`; the API, catalog and UI dropdown pick it up. Deps `openpyxl` + `nptdms` (numpy) are
+  runtime dependencies and imported lazily.
+
 ## Configure (Settings → Report database, super_admin)
 `GET/PUT /reports/db-config` (password redacted on read) + `POST /reports/db-config/test`
 (connect + `SELECT 1` + create schema → honest verdict). The connection config is stored

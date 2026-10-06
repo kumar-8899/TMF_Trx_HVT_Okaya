@@ -2,9 +2,30 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.27.3"
+    "version": "1.29.0"
   },
   "releases": [
+    {
+      "version": "1.29.0",
+      "date": "2026-10-06",
+      "bump": "MINOR",
+      "summary": "MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).",
+      "body": "**MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).**\n\nMES was folder-only (`database` raised \"not implemented\"). Config → MES now offers **Folder | Database**.\nIn Database mode **Inbound** and **Outbound** are each a guided process and can be switched off independently.\n\n- **Inbound (gate), read-only:** server → database → table → columns (serial, status, allow value) →\n  **Latest by** (one or more columns; `[date, time]` when stored separately) → **Try a serial** (dry run).\n  Status equal to the allow value allows the run, **anything else blocks**. No row → `gate.on_missing`;\n  several rows and no `latest_by` → every row must allow; DB error/timeout → new `gate.on_error` (default block),\n  with the reason in the 409.\n- **Outbound:** one row per run in ONE table using the report header schema (no per-test data), the moment\n  `run-finished` arrives. New database/table is created on an explicit **Apply**; an existing customer table is\n  mapped column-by-column (auto-matched, remappable, optional fields skippable; epoch→DATETIME coercion). Idempotent\n  (`run_id`), so Retry never duplicates.\n- **Loud failure, no outbox:** a failed push raises a diagnostic error, degrades module health, keeps a tiny\n  `mes_push` status record (no payload, no queue) and prompts on **every screen** (`MesAlertDialog`, driven by\n  `GET /mes/alerts`) with **Retry** (rebuilds from the run record) / **Dismiss** (confirmed + audited). Applies to the\n  folder transport too.\n- **Listing never blocks configuration:** if the server won't list databases/tables/columns the field accepts typed\n  names (`Autocomplete freeSolo`) and **Verify names** / **Check table** confirm them. Queries use\n  `table()/column()` (no reflection), so typed names work.\n- New `core/services/dbconn.py` (shared connection/discovery plumbing; **report store now delegates to it**,\n  behaviour unchanged) so `mes` and `report` need not import each other. Shared `DbServerForm` React component\n  (Report DB settings use it too).\n- API: `PUT /mes/config` accepts `provider`, `on_missing`, `on_error`; new `GET|PUT /mes/db-config` (passwords\n  redacted; a stored password is only reused for the **same** server), `POST /mes/db/{test,databases,tables,columns,\n  values,verify,inbound/check,outbound/validate,outbound/ensure}`, `GET /mes/alerts`, `POST /mes/alerts/{id}/{retry,dismiss}`.\n  The 403 on `/config/mes` for users without *Station settings* now says so instead of \"MES module is not enabled\".\n- Tests: `test_mes_db.py` (47 incl. runs→409 integration, which was missing), `tests/test_dbconn.py`,\n  `Mes.test.tsx`, `MesAlertDialog.test.tsx`. **Not verifiable here:** MySQL / SQL Server specifics\n  (`SHOW DATABASES`, `sys.databases`, `ALTER TABLE ADD`, ODBC timeouts) are asserted at SQL-string level only —\n  verify on the real servers before relying on a release."
+    },
+    {
+      "version": "1.28.0",
+      "date": "2026-10-06",
+      "bump": "MINOR",
+      "summary": "Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).",
+      "body": "**Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).**\n\nThe bulk export used to be one CSV where each test cell was a single squashed string\n(`exp 320 | meas 319 | PASS`). Reports → Full view → **Export (all filtered)** now has a **Format**\ndropdown (Excel / TDMS) and a **Test columns** selector.\n\n- **xlsx** follows `Report Template.xlsx`: row 1 = `serial_no, model, recipe_id, result, business_day,\n  shift_label, date, time, operator, cycle_s` + one merged header per test; row 2 =\n  `Expected Value | Measured Value | Result | Cycle Time`; data from row 3. Real Excel dates/times/durations,\n  numeric measured values, PASS/FAIL colouring.\n- **tdms**: flat single group `Reports`, one channel per DUT column and per `<test> - <field>`, equal length.\n- Untick a field (e.g. **Result**) and it disappears under **every** test; at least one must stay ticked.\n  Choice is remembered per PC.\n- API: `GET /reports/full/export?format=xlsx|tdms|csv&fields=…&columns=…` (`csv` stays the default, so\n  existing callers are unchanged), `GET /reports/export/formats` (catalog the UI is built from). Bad\n  format/fields → 422, no report DB → 409, and a capped export (20,000 runs) says so in the response.\n- New `modules/report/exporters/` (registry: a new format is one module + one `register_format`).\n  `ReportStore.full_matrix` rows also carry `operator`, `station`, `started_ts` (invisible in the Full view).\n- Dependencies: `openpyxl` moves from the dev extras to the runtime dependencies and `nptdms` (pulls\n  numpy) is added; both are imported lazily. **Verify the frozen build** (`build_release.py`) bundles them\n  and note the size increase from numpy.\n- Tests: `modules/report/tester/test_export.py` (layout vs the template, field selection, typed cells,\n  TDMS round-trip, REST, permissions) and `ReportExportControls.test.tsx`."
+    },
+    {
+      "version": "1.27.4",
+      "date": "2026-10-03",
+      "bump": "PATCH",
+      "summary": "Exit station no longer leaves the controller running; the recipe editor shows the selected group's steps (PATCH).",
+      "body": "**Exit station no longer leaves the controller running; the recipe editor shows the selected group's steps (PATCH).**\n\nFound while recording a demo: after **Exit station** the backend was gone but the supervised Python\ncontroller kept running on its own, still answering on MQTT as `st1`. The next station start then had\ntwo controllers; the stale one had no instruments, so runs flickered FAIL/PASS and the day's fail\ncounter went up. It is also a safety problem: that controller was never stopped, so its instruments\nwere never driven to safe state.\n\nCause: uvicorn waits, with no limit, for every open connection before it runs the app's lifespan\nshutdown (the step that stops the controller). A browser tab left on the Runs page holds the live-values\nWebSocket (`values_ws`) open, so the shutdown never started. The `/system/shutdown` watchdog then fired\nafter 12 s and called `os._exit(0)`, which skips the lifespan, so the controller was orphaned.\n\n- `core/serve.py`: `serve()` passes `timeout_graceful_shutdown` (5 s) to uvicorn, so stuck connections\n  are cancelled and the lifespan shutdown (controller stop, bridge, DB) always runs. It also treats the\n  `KeyboardInterrupt` uvicorn re-raises after a graceful stop as a normal exit.\n- New `core.serve.force_exit(app)`: the watchdog now stops the controller (whole process tree) first,\n  then exits. It is a **daemon** timer of 30 s (it outlasts the graceful path), so a clean exit is no\n  longer held back for the old fixed 12 s.\n- `tests/test_serve_selector.py`: a held-open connection no longer blocks shutdown (fails with the\n  timeout removed), and `force_exit` stops the controller before it exits, even if the stop fails.\n- **Recipe editor** (`frontend/src/components/RecipeForm.tsx`): the \"Inner steps\" JSON box of a `group` step\n  kept the text of the **first** step when another group step was selected, because the box only reloaded\n  when the parameter *name* changed and every group's is `steps`. Editing a limit there would have written\n  the first group's steps into the selected one. The parameters form is now keyed by the selected step.\n  New `RecipeForm.test.tsx` fails on the old code. Found while editing a limit for the demo.\n- Known and left alone: the controller's graceful stop on Windows waits its full 6 s and then\n  kills the tree (`CTRL_BREAK` cannot reach a process spawned with `CREATE_NO_WINDOW`), and\n  uvicorn logs a `CancelledError` traceback for the connection it cancels."
+    },
     {
       "version": "1.27.3",
       "date": "2026-10-03",
@@ -786,12 +807,69 @@
       ],
       "contract_dependencies": [],
       "permissions_used": [
-        "SYSTEM.SETTINGS"
+        "SYSTEM.SETTINGS",
+        "TEST.RUN"
       ],
       "routes": [
         {
+          "method": "GET",
+          "path": "/mes/alerts"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/alerts/{run_id}/dismiss"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/alerts/{run_id}/retry"
+        },
+        {
           "method": "PUT",
           "path": "/mes/config"
+        },
+        {
+          "method": "GET",
+          "path": "/mes/db-config"
+        },
+        {
+          "method": "PUT",
+          "path": "/mes/db-config"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/columns"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/databases"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/inbound/check"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/outbound/ensure"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/outbound/validate"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/tables"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/test"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/values"
+        },
+        {
+          "method": "POST",
+          "path": "/mes/db/verify"
         },
         {
           "method": "GET",
@@ -990,6 +1068,10 @@
         {
           "method": "POST",
           "path": "/db-config/test"
+        },
+        {
+          "method": "GET",
+          "path": "/export/formats"
         },
         {
           "method": "GET",

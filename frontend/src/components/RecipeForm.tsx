@@ -269,7 +269,9 @@ export function RecipeForm({
               </Section>
 
               <Section title="Parameters" subtitle={curType?.display_name ? `${curType.display_name} — from its schema` : cur.type}>
-                <ParamsForm type={curType} params={cur.params ?? {}} readOnly={readOnly}
+                {/* keyed by the step: the JSON fields keep their own text, so without this the box of
+                    the first step stays on screen when another group step is selected */}
+                <ParamsForm key={`${selected}:${cur.id}`} type={curType} params={cur.params ?? {}} readOnly={readOnly}
                   onSet={(k, v) => setParam(selected, k, v)} />
               </Section>
 
@@ -341,7 +343,7 @@ function Field({ name, spec, required, readOnly, value, onSet }: any) {
 function JsonField({ name, spec, required, readOnly, value, onSet }: any) {
   const [text, setText] = useState(value === undefined ? "" : JSON.stringify(value, null, 1));
   const [bad, setBad] = useState(false);
-  useEffect(() => { setText(value === undefined ? "" : JSON.stringify(value, null, 1)); }, [name]);  // reload on step switch
+  useEffect(() => { setText(value === undefined ? "" : JSON.stringify(value, null, 1)); }, [name]);  // another param; step switches remount via the key on ParamsForm
   return (
     <Box>
       <Typography variant="caption" color="text.secondary">{label(name, spec, required)} — {spec.description || "JSON"}</Typography>

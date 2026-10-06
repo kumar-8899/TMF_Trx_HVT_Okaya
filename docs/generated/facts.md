@@ -1,9 +1,12 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.27.3**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.29.0**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.29.0** (2026-10-06, MINOR) — MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).
+- **v1.28.0** (2026-10-06, MINOR) — Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).
+- **v1.27.4** (2026-10-03, PATCH) — Exit station no longer leaves the controller running; the recipe editor shows the selected group's steps (PATCH).
 - **v1.27.3** (2026-10-03, PATCH) — new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).
 - **v1.27.2** (2026-10-03, PATCH) — A fresh install no longer boots with the station offline (PATCH).
 - **v1.27.1** (2026-09-29, PATCH) — run_station.exe: also replace Nuitka with PyInstaller (PATCH).
@@ -11,9 +14,6 @@ Super_Test_App **v1.27.3**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.26.1** (2026-09-29, PATCH) — `cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).
 - **v1.26.0** (2026-09-29, MINOR) — Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).
 - **v1.25.0** (2026-09-28, MINOR) — Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).
-- **v1.24.2** (2026-09-28, PATCH) — Downstream fork fixes: a bad instrument no longer kills the whole controller, cycle time reaches reports, and results tables render human-readable (PATCH).
-- **v1.24.1** (2026-09-27, PATCH) — Station launcher: maximized by default (not kiosk), and a clean shutdown from the title-bar close button (PATCH).
-- **v1.24.0** (2026-09-21, MINOR) — User Portal: a built-in replacement for the printed software manual, with a searchable PDF library (MINOR).
 
 ## Modules
 
@@ -24,7 +24,7 @@ Super_Test_App **v1.27.3**. Regenerate: `python tools/gen_devguide.py`.
 | health | 1.0.0 | 1 |  | HEALTH.MAINTENANCE, HEALTH.RUN, HEALTH.VIEW |
 | help | 1.0.0 | 1 |  | HELP.VIEW |
 | logs | 1.0.0 | 1 | /logs | DIAGNOSTICS.PURGE, DIAGNOSTICS.VIEW |
-| mes | 1.0.0 | 1 |  | SYSTEM.SETTINGS |
+| mes | 1.0.0 | 1 |  | SYSTEM.SETTINGS, TEST.RUN |
 | portal | 1.0.0 | 1 |  | PORTAL.MANAGE, PORTAL.UPLOAD, PORTAL.VIEW |
 | recipe | 1.0.0 | 1 | /recipes | RECIPE.EDIT, RECIPE.VIEW |
 | report | 1.0.0 | 1 | /reports | REPORT.EXPORT, REPORT.VIEW, SYSTEM.SETTINGS |
