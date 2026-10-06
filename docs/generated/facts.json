@@ -2,9 +2,23 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.27.1"
+    "version": "1.27.3"
   },
   "releases": [
+    {
+      "version": "1.27.3",
+      "date": "2026-10-03",
+      "bump": "PATCH",
+      "summary": "new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).",
+      "body": "**new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).**\n\nFound in three rehearsals of a from-scratch demo app: the skill said \"write an in-process\n`run_sim.py`\" without showing how, so the model re-invented it each time and each time its first\nrun printed nothing. Cause: the instruments were never **connected** (`reg.connect_all()`), so every\nread failed inside the step and no measurement was emitted. It looked like a broken recipe; it cost\na debug cycle on every build.\n\n- New `docs/templates/run_sim.py`: the verified harness (build the registry, connect, patch a sim\n  answer for a negative case, drive the `Sequencer`, print each measurement + verdict). A developer\n  or the skill edits only `INSTRUMENTS` and `NEGATIVE_CASES`. It refuses to report success without\n  instruments or a negative case. Run for real against a 4-test app: PASS, and the patched case FAILs.\n- `new-test-app` (Phase 4) and `add-bench-test` (Layer 5) now say to copy the template and why\n  connecting matters, and that `tests/test_sequence_sim.py` imports the harness instead of\n  duplicating it. Both skill copies (`.claude/skills`, `plugins/tmf-tools`) stay in sync.\n- `tests/test_run_sim_template.py` guards the template (valid Python, connects before it runs,\n  keeps its two edit blocks)."
+    },
+    {
+      "version": "1.27.2",
+      "date": "2026-10-03",
+      "bump": "PATCH",
+      "summary": "A fresh install no longer boots with the station offline (PATCH).",
+      "body": "**A fresh install no longer boots with the station offline (PATCH).**\n\nFound while rehearsing a from-scratch demo app in a brand-new virtualenv. `pip install -e .[dev]`\nresolves the newest `uvicorn` (0.54), and on Windows that version builds its own event loop through\na loop factory and returns a **ProactorEventLoop**, ignoring the `WindowsSelectorEventLoopPolicy`\nthat `run.py` sets. `aiomqtt`/paho register sockets with `loop.add_reader`, which only a selector\nloop supports, so the MQTT bridge failed on every connect (`NotImplementedError`), the controller\nwas unreachable and the station stayed `offline`. Machines whose uvicorn was installed earlier\n(0.34) were unaffected, which is why it was not seen before: only new installs hit it.\n\n- New `core/serve.py` `serve(app, host, port)`: runs uvicorn with `loop=\"none\"` (uvicorn does not\n  touch the loop) inside an `asyncio.Runner(loop_factory=asyncio.SelectorEventLoop)`. Works on\n  uvicorn 0.34 and 0.54, on Python 3.11 and up.\n- `run.py` and `run_debug_server.py` (which also uses aiomqtt) call it instead of `uvicorn.run`.\n- Regression test `tests/test_serve_selector.py`: the loop is a selector loop and `add_reader`\n  works, checked on uvicorn 0.34 and 0.54. Booted for real on uvicorn 0.54: `/readyz` ready,\n  bridge connected, `st1` online.\n- Not pinned: no `uvicorn` upper bound was added; the fix is in the code, so newer uvicorn keeps working."
+    },
     {
       "version": "1.27.1",
       "date": "2026-09-29",

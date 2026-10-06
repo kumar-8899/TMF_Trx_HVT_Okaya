@@ -28,9 +28,9 @@ def main() -> int | None:
         # Controller mode — dispatch BEFORE importing core.app so the web stack never loads here.
         from controller.__main__ import main as controller_main
         return controller_main(argv[1:])
-    import uvicorn
     from core.app import app
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info", loop="asyncio")
+    from core.serve import serve
+    serve(app, host="127.0.0.1", port=8000)   # explicit selector loop: see core/serve.py
     return None
 
 

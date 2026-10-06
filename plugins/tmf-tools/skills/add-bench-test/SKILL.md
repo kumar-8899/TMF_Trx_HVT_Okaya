@@ -109,7 +109,10 @@ output↔sim measurements, signals↔map/registration). Drift = fix before shipp
 
 ## Layer 5 — Verify end to end
 
-- `python app/<name>/tools/run_sim.py` — in-process, prints each measurement + verdict.
+- `python app/<name>/tools/run_sim.py` — in-process, prints each measurement + verdict. If the app
+  has no `run_sim.py` yet, copy `docs/templates/run_sim.py` (it connects the instruments, which a
+  hand-written runner forgets: reads then fail silently and no measurement prints). Add a negative
+  case for the new test to its `NEGATIVE_CASES`.
 - `python -m pytest app/<name>/tests -q` — lock it (pass + a negative case).
 - Over the controller/MQTT (broker up): the app auto-starts the Python controller with this
   config; fire the run and tail the events.

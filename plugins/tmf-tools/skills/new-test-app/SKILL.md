@@ -191,7 +191,15 @@ Create the app-owned tree (TEMPLATE.md §1.1):
   format `docs/TEST_SPECS.md` (framework v1.8.0+). Also scaffold `tools/spec_lint.py`.
 - **`tools/run_sim.py`** — an in-process runner (load libs + step package + map, drive the
   controller `Sequencer` over the recipe, print each measurement + verdict). Great fast proof.
-- **`tests/test_sequence_sim.py`** — assert the sequence passes in sim + one negative case.
+  **Do not write it from scratch: copy `docs/templates/run_sim.py`** (it is in every fork) and
+  edit only its two marked blocks, `INSTRUMENTS` (the instrument records: id = the map's
+  `instance`, `simulated: True`) and `NEGATIVE_CASES` (a patched sim answer that must FAIL). The
+  template already does the step that is easy to forget: the instruments must be **connected**
+  (`loop.run(reg.connect_all())`) before the sequencer runs. Without it every read fails inside
+  the step, no measurement prints, and it looks like a broken recipe. Sim answers are canned
+  values (each driver's `_SIM` table), so a PASS needs spec limits that contain them.
+- **`tests/test_sequence_sim.py`** — assert the sequence passes in sim + one negative case
+  (import `run_recipe` and the `NEGATIVE_CASES` from `tools/run_sim.py`; do not duplicate the harness).
 - **`docs/INSTRUMENT_DRIVERS.md`** — the driver copy record.
 
 Recipe module (v1.3.0+, unified): recipes ARE controller-native — the recipe module

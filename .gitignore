@@ -71,3 +71,10 @@ blueprint-report.md
 
 # Developer onboarding deck generator — local only, never committed, so never in a release tag or a fork
 /tools/devdeck/
+
+# Demo / training recordings — local only, never committed, so never in a release tag or a fork
+*.mp4
+*.webm
+*.mkv
+*.mov
+/_recordings/
