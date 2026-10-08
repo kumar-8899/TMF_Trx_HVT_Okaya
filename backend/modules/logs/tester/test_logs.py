@@ -283,6 +283,21 @@ async def test_run_event_becomes_action(ctx):
     assert acts[0]["data"]["target"] == "R1"
 
 
+async def test_run_events_carry_result_reason_and_system_aborts_fail(ctx):
+    mod, core, _ = ctx
+    ev = lambda t, **b: mod._on_event(f"tmf/st1/event/{t}", {"type": t, "ts": 1.0, "payload": b})  # noqa: E731
+    await ev("run-finished", run_id="R1", result="PASS", recipe_id="rcp")
+    await ev("run-aborted", run_id="R2", reason="operator_abort")
+    await ev("run-aborted", run_id="R3", reason="validation_failed", errors=["bad step"])
+    await ev("run-aborted", run_id="R4", reason="safety:overtemp")
+    by = {a["data"]["target"]: a["data"] for a in (await mod.query_actions())["items"]}
+    assert (by["R1"]["result"], by["R1"]["detail"]["result"], by["R1"]["detail"]["recipe_id"]) == ("success", "PASS", "rcp")
+    assert by["R2"]["result"] == "success"                       # operator abort is not a fault
+    assert by["R3"]["result"] == "failure" and by["R3"]["detail"]["reason"] == "validation_failed"
+    assert by["R3"]["detail"]["errors"] == ["bad step"]
+    assert by["R4"]["result"] == "failure"
+
+
 def test_prune_decision_pure():
     from modules.logs.variants.db import _prune_decision
     rows = [{"ts": float(i)} for i in range(10)]  # ts 0..9

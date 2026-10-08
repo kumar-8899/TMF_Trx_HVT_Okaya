@@ -248,3 +248,19 @@ async def test_controller_kind_labview_connects_directly_unchanged():
     assert m.instance_status()[0]["state"] == "connected"
     await m.stop()
     await db.close()
+
+
+def test_failed_instrument_commands_are_warning_or_error_not_info():
+    """FRAMEWORK CR A1: `info` is below the default persist.min_level, so failed commands used to be dropped."""
+    events = []
+    core = CoreServices(db=None, bridge=None, diag=Diagnostics("st1", "0.0.0", sinks=[events.append]),
+                        station="st1")
+    m = DefaultVariables.construct(core, {"instances": [], "variables": {}})
+    m._on_cmd({"kind": "command", "instance_id": "ni1", "method": "read", "outcome": "ok"})
+    m._on_cmd({"kind": "command", "instance_id": "ni1", "method": "read", "outcome": "timeout"})
+    m._on_cmd({"kind": "command", "instance_id": "ni1", "method": "read", "outcome": "error"})
+    m._on_cmd({"kind": "state", "instance_id": "ni1", "state": "reconnecting"})
+    m._on_cmd({"kind": "state", "instance_id": "ni1", "state": "faulted"})
+    m._on_cmd({"kind": "state", "instance_id": "ni1", "state": "connected"})
+    assert [e["level"] for e in events if e["subsystem"] == "instrument"] == [
+        "info", "warning", "error", "warning", "error", "info"]

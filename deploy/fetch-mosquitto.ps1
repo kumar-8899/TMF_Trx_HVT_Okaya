@@ -7,14 +7,24 @@
 # resource (see deploy/README.md). The vendor folder is gitignored; CI/build
 # runs this script.
 #
-# Usage:  ./deploy/fetch-mosquitto.ps1 [-Version 2.0.22]
+# Usage:  ./deploy/fetch-mosquitto.ps1 [-Version 2.0.22] [-Force]
+#
+# The installer needs a UAC click, so a background / unattended run fails instantly. PRE-STAGE the vendor
+# folder once (run this interactively, or copy deploy/vendor/mosquitto/win64 from another PC): when
+# mosquitto.exe is already there this script does nothing, so cut-release.ps1 runs unattended.
+# -Force re-downloads and re-installs anyway.
 
 param(
-    [string]$Version = "2.0.22"
+    [string]$Version = "2.0.22",
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 $dest = Join-Path $PSScriptRoot "vendor/mosquitto/win64"
+if (-not $Force -and (Test-Path (Join-Path $dest "mosquitto.exe"))) {
+    Write-Host "Mosquitto already vendored -> $dest (use -Force to re-fetch)"
+    return
+}
 $setup = Join-Path $env:TEMP "mosq-setup-$Version.exe"
 $staging = Join-Path $env:TEMP "mosq-staging-$Version"
 $url = "https://mosquitto.org/files/binary/win64/mosquitto-$Version-install-windows-x64.exe"

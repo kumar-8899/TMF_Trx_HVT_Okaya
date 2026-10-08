@@ -33,7 +33,12 @@ one overnight with nobody watching — can be diagnosed afterwards.
   token** (required for anything but this machine).
 
 These are start-up settings: press **Save**, then **Relaunch to apply**. When it is off,
-nothing extra runs. A developer collects a recording with the `tmf-debug` tool.
+nothing extra runs. It works on an installed station as well as on a developer PC. A developer
+collects a recording with the `tmf-debug` tool.
+
+**No network to the developer's laptop?** Your support contact can ask for a **diagnostics file**: run
+`run.exe --debug-export` in the installation folder (or ask your administrator). It produces one `.zip`
+(recording, action and error logs, settings with passwords removed) that you can copy out on a USB stick.
 
 ## Exiting the station
 Open the **user menu** (your avatar, top-right) and choose **Exit station**

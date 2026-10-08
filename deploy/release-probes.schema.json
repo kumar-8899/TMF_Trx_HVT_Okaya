@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "release-probes.schema.json",
+  "title": "app/<slug>/release-probes.json - read by deploy/verify-build.ps1",
+  "type": "object",
+  "properties": {
+    "_doc": {
+      "type": "string"
+    },
+    "required_metadata": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "packages whose dist-info must be in run.dist"
+    },
+    "forbid_in_dist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "ADDED to the built-in forbidden GUI toolkits"
+    },
+    "forbid_in_dist_root": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "runtime DLLs that must not sit beside run.exe"
+    },
+    "probes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "auth": {
+            "type": "boolean"
+          },
+          "min_items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "controller_probes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "instance",
+          "calls"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "object",
+            "required": [
+              "id",
+              "library"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "library": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object"
+              }
+            }
+          },
+          "library_packages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requires_nidaqmx_device": {
+            "type": "string"
+          },
+          "calls": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "method"
+              ],
+              "properties": {
+                "method": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

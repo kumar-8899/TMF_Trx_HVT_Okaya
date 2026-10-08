@@ -15,15 +15,26 @@ import os
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-_DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "config" / "app.json"
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
+def _app_json_candidates() -> list[Path]:
+    """The station's live `app.json`, then the bundled example. Resolved through the same state-dir
+    rules as the backend (`TMF_STATE_DIR` = the external deploy root in a frozen build) - a
+    `__file__`-relative path pointed into the exe's archive there, so the frozen sidecar never saw
+    `debug.enabled`/ports (FRAMEWORK CR A2)."""
+    from core.services.config import resolve_state_dirs
+    live, examples, _ = resolve_state_dirs()
+    return [live / "app.json", examples / "app.example.json"]
+
+
 def _load_app_json() -> dict:
-    try:
-        return json.loads(_DEFAULT_CONFIG.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — standalone tool: fall back, never crash on boot
-        return {}
+    for path in _app_json_candidates():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — standalone tool: fall back, never crash on boot
+            continue
+    return {}
 
 
 def _station_of(app_json: dict) -> str:

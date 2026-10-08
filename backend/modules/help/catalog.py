@@ -98,6 +98,7 @@ PAGES: list[Page] = [
     Page("dev-test-specs", "Test procedure specs", "dev", "How-to", "TEST_SPECS.md"),
     Page("dev-deploy-station", "Deploying to a station", "dev", "How-to", "DEPLOY_STATION.md"),
     Page("dev-release-howto", "Cutting a release", "dev", "How-to", "RELEASE_HOWTO.md"),
+    Page("dev-release-gate", "The release gate", "dev", "How-to", "RELEASE_GATE.md"),
     Page("dev-updates", "Updates, rollback & AMC", "dev", "How-to", "UPDATES.md"),
     Page("dev-secure-distribution", "Secure distribution", "dev", "How-to", "SECURE_DISTRIBUTION.md"),
     Page("dev-remote-debug", "Remote debugging", "dev", "How-to", "REMOTE_DEBUG.md"),

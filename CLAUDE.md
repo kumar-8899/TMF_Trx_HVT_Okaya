@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Testbench** — a high-voltage transformer test bench built by forking the `Super_Test_App`
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
-version is `app/okaya_hvt/VERSION` (`1.0.9` when last released), independent of the framework's
-version (`backend/pyproject.toml`; merged through `v1.29.0`). Releases are cut with
+version is `app/okaya_hvt/VERSION` (`1.0.10` when last released), independent of the framework's
+version (`backend/pyproject.toml`; merged through `v1.30.0`). Releases are cut with
 `deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
 repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
 entries there.
@@ -107,9 +107,11 @@ instruments, the variable map, or step types here.
   framework-owned files; expect merge conflicts there on the next framework tag and offer each
   upstream: `controller/controller/sequencer.py` (`stop_on_fail`), `controller/controller/config.py`
   + `__main__.py` (`instrument_call_timeout_s`, hardcoded 10 s call timeout), `backend/modules/
-  recipe/variants/filesystem.py` (`recipe_id` validation), `deploy/build-installer.ps1` (PowerShell parse error from upstream v1.27.1 — `\"` in a double-quoted string, line ~110), `deploy/cut-release.ps1` (resume mode
-  was unreachable), `.github/workflows/ci.yml` (+2 lines), with tests in `controller/tester/
+  recipe/variants/filesystem.py` (`recipe_id` validation), `.github/workflows/ci.yml` (+2 lines), with tests in `controller/tester/
   test_stop_on_fail.py` and `backend/modules/recipe/tester/test_recipe.py`.
+  (`deploy/build-installer.ps1` and `deploy/cut-release.ps1` carried local fixes until v1.30.0, which adopted
+  both upstream — take upstream's copies of those files on conflict. `cut-release.ps1` now also needs port 8000
+  FREE (stop the running station first) and runs a release gate, `deploy/verify-build.ps1`.)
 - **App step tests are not in CI** (`app/` is outside the backend's pytest paths). Run them by
   hand after touching a step type — from `app/okaya_hvt` with
   `PYTHONPATH=<repo>/controller;<repo>/app/okaya_hvt;<repo>`: `python -m pytest okaya_hvt_steps`.

@@ -7,6 +7,7 @@
     tmf-debug snapshots --host bench1 [--get <id>]                 (PR-E)
     tmf-debug digest <file.jsonl>                                  (PR-B)
     tmf-debug why    --host bench1 --last-run                      (PR-G)
+    tmf-debug export [out.zip] [--state-dir <deploy root>]          (air-gapped bench: one zip)
 
 Everything lands in `.debug/` at the app-repo root (gitignored). The app CLAUDE.md
 documents this so Claude Code always knows where to look.
@@ -180,6 +181,22 @@ def cmd_why(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Offline export of a bench's diagnostics into ONE zip, for a PC with no network path to a laptop.
+
+    Runs ON the bench (or against its copied state dir) and reads files directly - no sidecar needed. The
+    implementation is the framework's stdlib-only `debug_server.export`; on an installed bench with no
+    Python, run `run.exe --debug-export [out.zip]` instead (same code, no tmf-debug install required)."""
+    try:
+        from debug_server.export import main as export_main
+    except ImportError:
+        print("tmf-debug export needs the framework's backend/ on PYTHONPATH (run it from a source checkout, "
+              "or on an installed bench use:  run.exe --debug-export [out.zip])", file=sys.stderr)
+        return 2
+    argv = ([args.out] if args.out else []) + (["--state-dir", args.state_dir] if args.state_dir else [])
+    return export_main(argv + ["--rows", str(args.rows)])
+
+
 # --- parser ----------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -239,6 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--since", type=int, default=None, help=argparse.SUPPRESS)
     sp.add_argument("--limit", type=int, default=20000)
     sp.set_defaults(func=cmd_why)
+
+    sp = sub.add_parser("export", help="pack a bench's diagnostics (recorder + logs + config) into one zip")
+    sp.add_argument("out", nargs="?", default=None, help="output zip")
+    sp.add_argument("--state-dir", default=None, help="deploy/state root (default: TMF_STATE_DIR or backend/)")
+    sp.add_argument("--rows", type=int, default=5000, help="max log rows per table")
+    sp.set_defaults(func=cmd_export)
 
     return p
 

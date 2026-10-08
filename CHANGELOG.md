@@ -5,6 +5,56 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.30.0 — 2026-10-09
+
+**Field-debuggability and release safety, from the Okaya Transformer testbench (MINOR).**
+
+Every item came from a real failure on a client PC or at release time: a hardware or installation fault could not be
+diagnosed from the dev PC, and the framework's own diagnostics did not capture it.
+
+*Diagnostics that did not work in the field*
+
+- **Central audit of state-changing requests** (`core/services/audit.py`, `contracts/LOGS.md` §12). Every
+  `POST/PUT/PATCH/DELETE` is recorded in `action_log` (principal, friendly action name, target, success/failure, status,
+  request id, field **names** only - never values) unless its route is on a short read-only list; 5xx -> `error`,
+  401/403 -> `warning` (`security`). Default is audited, so a new endpoint cannot be forgotten; forks add
+  `audit.register_read_only_post()` / `register_action_name()`. `web.unhandled_exc` now logs the exception **with its
+  traceback** (it returned a bare 500 and recorded nothing). CI guard: the audit tables must match real routes.
+- Failed instrument commands and unhealthy link states are `warning`/`error` (were `info`, below the persist threshold),
+  in the backend (`variables._on_cmd`) **and the controller** (`on_command` -> `diag`/`instrument`, so controller-side
+  NI/Modbus faults reach `error_log`). Sequencer diag now uses the ingested `diag` topic.
+- Run events keep `result`/`reason`/`recipe_id`/`errors`; system aborts (`recipe_fetch_failed`, `validation_failed`,
+  `step_timeout`, `error`, `safety:*`) and ABORTED/ERROR finishes are recorded as **failure** with a `runs` warning.
+- **Instrument errors name their cause**: empty `str(exc)` falls back to the class name; `NotConnected` keeps the
+  transport cause ("link dropped mid-command: ..."); `CommandTimeout` names the budget; `as_dict()`/the controller reply carry
+  `cause` and `traceback_tail`.
+- **Flight recorder runs in installed builds**: `run.exe --debug-server` (supervised by `station.py`: started when
+  Settings -> Remote debugging is on, restarted if it dies, follows the switch). **Offline export** for air-gapped PCs:
+  `run.exe --debug-export out.zip` / `tmf-debug export` -> recorder + log rows + redacted config +
+  `controller.generated.json` + environment, with a manifest of what was missing.
+
+*Build and release safety*
+
+- Backend exe excludes GUI toolkits (matplotlib, Qt, tkinter): Qt's old `MSVCP140.dll` crashed NI-DAQmx's
+  `DAQmxCreateTask` in the frozen exe only. Package metadata for native drivers (`nidaqmx`, `nitypes`, `pyvisa`) is
+  copied, and **derived from what the app's drivers import**.
+- **Release gate** (`deploy/verify-build.ps1`, `verify_controller_probe.py`, `docs/RELEASE_GATE.md`): `cut-release.ps1`
+  step 5b boots the BUILT exe on an empty state dir (`TMF_PORT`), requires every shipped module loaded, runs the app's
+  `release-probes.json` API probes and real driver calls through the built controller. Schema + example shipped.
+- **App entitlements**: `app/<slug>/license.entitlements.json` is merged into the shipped license, and the build fails
+  when a module in the shipped config would not activate (fail-closed licensing left app modules "Not Found").
+- `core.paths.bundle_root()` / `state_root()` / `load_failed()`: `__file__`-relative roots are wrong in the frozen exe;
+  framework modules use the helpers, and a map/config that fails to load is an `error`.
+- Tooling: `build-installer.ps1` PS 5.1 parse error fixed; release notes read/written as UTF-8 without BOM; `cut-release`
+  checks :8000 and Mosquitto up front, and is **resumable** after the tag push; `fetch-mosquitto.ps1` is a no-op when
+  pre-staged.
+- Tests: `test_audit.py`, `test_debug_export.py`, additions to `test_build_release.py`, logs/variables/instrumentlib
+  testers and `controller/tester/test_instrument_call.py`.
+
+**Not verifiable here:** the PowerShell gate and `cut-release` resume path, `run.exe --debug-server` /
+`--debug-export` inside a real PyInstaller build, and the NI-DAQmx controller probe need a Windows build PC with
+the NI driver - they were parse-checked and unit-tested at the Python level only.
+
 ## v1.29.0 — 2026-10-06
 
 **MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).**

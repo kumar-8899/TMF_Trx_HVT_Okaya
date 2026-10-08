@@ -105,6 +105,29 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
 - **The Developer Hub is not in the build.** Customers get the user manual only; don't link a customer-facing
   page to developer docs.
 
+- **`Path(__file__).parents[N]` is the source repo root - and one folder ABOVE the install in the frozen exe.** A
+  map or config loaded that way silently came up empty. Use `core.paths.bundle_root()` (shipped, read-only payload:
+  `app/<name>/`, `instrument_libs/`) and `state_root()` (config + data); report a failed load with
+  `core.paths.load_failed(...)` so it is an `error`, not a warning nobody reads.
+- **A driver works from source but crashes only in the installed exe** (NI-DAQmx *access violation*, "No package
+  metadata was found for nitypes"). Two known causes: a bundled GUI toolkit's old `MSVCP140.dll` shadowing the real one
+  (the backend exe excludes matplotlib/Qt/tkinter), and `importlib.metadata` dist-info that PyInstaller drops
+  (derived from your drivers' imports). Add a `controller_probes` entry in `app/<slug>/release-probes.json` so the
+  release gate makes a real driver call through the built exe - `docs/RELEASE_GATE.md`.
+- **An app module is "Not Found" on a fresh install.** Licensing is fail-closed and the shipped license names only
+  framework modules; entitle yours in `app/<slug>/license.entitlements.json` (the build now fails when you forget).
+
+## Diagnosing a client PC
+
+- **The Action/Error logs look empty.** Before v1.30.0 nothing recorded login, config or recipe changes and instrument
+  failures were dropped below the persist threshold. Every `POST/PUT/PATCH/DELETE` is now audited centrally
+  (`core/services/audit.py`); register an app's read-only POSTs with `audit.register_read_only_post(...)` instead of
+  adding `record_action` calls.
+- **"ni.write_digital failed" with no reason.** A timeout has an empty `str()`; errors now fall back to the class name and
+  carry `cause` / `traceback_tail`. Have your driver log the traceback before wrapping.
+- **The flight recorder does nothing on a client PC.** It runs there too since v1.30.0 (`run.exe --debug-server`,
+  supervised by the launcher). For an air-gapped PC: `run.exe --debug-export out.zip` and carry the zip out.
+
 ## Process
 
 - **Docs first.** Decide → update the doc → red test → code → green suites → CHANGELOG entry → tag.

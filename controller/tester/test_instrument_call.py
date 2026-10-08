@@ -87,3 +87,43 @@ def test_instrument_status_all_and_filtered(rig):
 
     only = client.served["instrument.status"]({"ids": ["psu1", "nope"]})
     assert {r["id"] for r in only["result"]["instances"]} == {"psu1"}
+
+
+# ---- field diagnostics (FRAMEWORK CR A1/A3) ---------------------------------
+
+def test_instrument_call_error_is_never_blank_and_carries_cause_and_traceback(rig):
+    client, registry = rig
+    inst = registry.get("psu1")
+
+    async def boom():
+        raise OSError()                      # str() == "" - used to reach the UI as an empty message
+
+    inst._boom = boom
+    out = client.served["instrument.call"]({"instance_id": "psu1", "method": "_boom"})
+    err = out["error"]
+    assert out["ok"] is False and err["message"] and "OSError" in err["message"]
+    assert err["cause"] == "OSError: OSError" and err["traceback_tail"]
+
+
+def test_instrument_diag_sink_publishes_failures_and_bad_states_only():
+    from controller.serve import instrument_diag_sink
+    sent = []
+    sink = instrument_diag_sink(lambda iid, p: sent.append((iid, p)))
+    sink({"kind": "command", "instance_id": "ni1", "method": "write_digital", "outcome": "ok"})
+    sink({"kind": "state", "instance_id": "ni1", "state": "connected"})
+    assert sent == []                                              # healthy traffic is not published
+    sink({"kind": "command", "instance_id": "ni1", "method": "write_digital", "outcome": "timeout",
+          "error": {"message": "command timed out after 5s"}})
+    sink({"kind": "command", "instance_id": "ni1", "method": "read", "outcome": "error",
+          "error": {"message": "OSError: boom"}})
+    sink({"kind": "state", "instance_id": "ni1", "state": "faulted"})
+    assert [(p["level"], p["subsystem"]) for _, p in sent] == [
+        ("warning", "instrument"), ("error", "instrument"), ("error", "instrument")]
+    assert "ni1.write_digital timeout: command timed out after 5s" == sent[0][1]["message"]
+    assert sent[0][1]["context"]["instance_id"] == "ni1"
+
+
+def test_instrument_diag_sink_never_raises_into_the_command_path():
+    from controller.serve import instrument_diag_sink
+    def broken(iid, p): raise RuntimeError("broker down")
+    instrument_diag_sink(broken)({"kind": "command", "instance_id": "x", "method": "m", "outcome": "error"})

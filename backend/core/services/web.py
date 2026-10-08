@@ -68,6 +68,9 @@ def install_web(app: FastAPI) -> WebShell:
         allow_headers=["*"],
     )
 
+    from core.services.audit import install_audit
+    install_audit(app)   # LOGS.md §12: every state-changing request -> action_log / error_log
+
     @app.middleware("http")
     async def request_id_mw(request: Request, call_next):
         rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex
@@ -88,6 +91,15 @@ def install_web(app: FastAPI) -> WebShell:
 
     @app.exception_handler(Exception)
     async def unhandled_exc(request: Request, exc: Exception):
+        # Was a bare 500 with NOTHING recorded - every unexpected backend crash was invisible.
+        try:
+            core = getattr(request.app.state, "core", None)
+            if core is not None:
+                core.diag.exception("http", f"unhandled exception: {request.method} {request.url.path}",
+                                    exc, method=request.method, path=request.url.path,
+                                    request_id=getattr(request.state, "request_id", None))
+        except Exception:  # noqa: BLE001 - logging must not mask the 500
+            pass
         return problem(
             request, status=500, title="Internal Server Error", detail=type(exc).__name__
         )

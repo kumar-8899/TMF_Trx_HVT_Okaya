@@ -82,6 +82,7 @@ DATA_PATTERNS = (
     "modules/**/known_issues/*.json",
     "core/schemas/*.json",
     "config/*.example.json",
+    "debug_server/ui/*.html",   # the flight-recorder UI (run.exe --debug-server)
 )
 
 
@@ -131,6 +132,86 @@ def _app_include_packages(product: str) -> list[str]:
 # only if another package turns out to need the same entry-point treatment.
 _PYVISA_METADATA_PACKAGES = ("pyvisa",)      # --copy-metadata: fixes entry_points() lookup
 _PYVISA_BACKEND_PACKAGES = ("pyvisa_py",)    # --collect-all: nothing statically imports it
+
+
+# Same class of gap for NI-DAQmx: nidaqmx/__init__.py and nitypes/__init__.py call
+# `importlib.metadata.version()` at import time, so a frozen build without their dist-info fails
+# every NI connect with "No package metadata was found for nitypes" (source runs never notice).
+_NIDAQMX_METADATA_PACKAGES = ("nidaqmx", "nitypes")
+# Native-driver packages whose dist-info is ALWAYS copied when installed. On top of this,
+# `_driver_metadata_packages()` derives the set from what the app's drivers actually import, so a new
+# driver needs no edit here (FRAMEWORK CR B2).
+_NATIVE_DRIVER_METADATA = _PYVISA_METADATA_PACKAGES + _NIDAQMX_METADATA_PACKAGES
+# GUI toolkits the headless backend/controller must NEVER bundle. matplotlib (pulled in via
+# pandas/scipy optional imports) drags PyQt5 in through its qt_compat hook, and PyQt5 ships an OLD
+# MSVCP140.dll. Windows reuses an already-loaded DLL by name, so NI-DAQmx's newer msvcp140 import
+# then resolves to Qt's copy and `DAQmxCreateTask` dies with "access violation reading 0x0" -
+# only in the frozen exe. run_station.exe (pywebview) is a separate build and does not need these.
+_BACKEND_EXCLUDED_MODULES = ("matplotlib", "PyQt5", "PyQt6", "PySide2", "PySide6", "tkinter")
+
+
+def _imported_top_level_modules(root: Path) -> set[str]:
+    """Top-level module names imported anywhere under `root` (AST scan, `.py` only)."""
+    import ast
+    names: set[str] = set()
+    for f in root.rglob("*.py"):
+        if "__pycache__" in f.parts:
+            continue
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                names.add(node.module.split(".")[0])
+    return names
+
+
+def _driver_metadata_packages(product: str) -> list[str]:
+    """Distributions whose dist-info must ride in the frozen exe: `_NATIVE_DRIVER_METADATA` plus every
+    installed third-party distribution the app's drivers import (`instrument_libs/`) - and, transitively,
+    what those require (nidaqmx -> nitypes). PyInstaller drops dist-info; a package that calls
+    `importlib.metadata` at import then fails ONLY in the frozen exe (FRAMEWORK CR B2)."""
+    import importlib.metadata as md
+    import importlib.util
+    wanted: dict[str, None] = {}
+    # the always-list: copied whenever the package is importable (also the pre-existing pyvisa contract)
+    for pkg in _NATIVE_DRIVER_METADATA:
+        if importlib.util.find_spec(pkg) is not None:
+            wanted[pkg] = None
+    il = REPO / "instrument_libs"
+    imported = _imported_top_level_modules(il) if il.is_dir() else set()
+    imported -= set(getattr(sys, "stdlib_module_names", ()))
+    top_to_dists = md.packages_distributions()
+    queue = [d for m in sorted(imported) for d in top_to_dists.get(m, [])]
+    queue += [n for n in wanted]                  # their own dependencies too (nidaqmx -> nitypes)
+    seen: set[str] = set()
+    while queue:
+        name = queue.pop(0)
+        key = name.lower().replace("_", "-")
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            dist = md.distribution(name)
+        except md.PackageNotFoundError:
+            continue
+        if not any(w.lower().replace("_", "-") == key for w in wanted):
+            wanted[dist.metadata["Name"]] = None
+        for req in dist.requires or []:
+            if ";" in req and "extra" in req.split(";", 1)[1]:
+                continue                      # optional extras are not installed dependencies
+            dep = req.split(";")[0]
+            for sep in "<>=!~[ (":
+                dep = dep.split(sep)[0]
+            if dep.strip():
+                queue.append(dep.strip())
+    # the framework's own runtime is never a "driver dependency" worth shadowing the build with
+    for skip in ("tmf-instrumentlib", "pip", "setuptools", "wheel"):
+        wanted.pop(skip, None)
+    return list(wanted)
 
 
 def build_backend(track: str = "framework", product: str = "super_test_app") -> None:
@@ -184,6 +265,11 @@ def build_backend(track: str = "framework", product: str = "super_test_app") -> 
         src_dll = Path(sys.base_prefix) / name
         if src_dll.is_file():
             cmd.append(f"--add-binary={src_dll};.")
+    for mod in _BACKEND_EXCLUDED_MODULES:
+        cmd.append(f"--exclude-module={mod}")
+    # `run.exe --debug-server` (flight recorder, FRAMEWORK CR A2) is loaded by name from run.py's
+    # dual entry, so static analysis would miss it; `tmf_debug` is the laptop CLI and not needed here.
+    cmd.append("--collect-submodules=debug_server")
     env = None
     if track == "app":
         # The recipe module builds its catalog via `from controller.packages import …`
@@ -194,9 +280,8 @@ def build_backend(track: str = "framework", product: str = "super_test_app") -> 
         cmd.append("--collect-submodules=controller")
         for pkg in _app_include_packages(product):
             cmd.append(f"--collect-submodules={pkg}")
-        for pkg in _PYVISA_METADATA_PACKAGES:
-            if importlib.util.find_spec(pkg) is not None:
-                cmd.append(f"--copy-metadata={pkg}")
+        for pkg in _driver_metadata_packages(product):
+            cmd.append(f"--copy-metadata={pkg}")
         for pkg in _PYVISA_BACKEND_PACKAGES:
             if importlib.util.find_spec(pkg) is not None:
                 cmd.append(f"--collect-all={pkg}")
@@ -655,7 +740,58 @@ def _sanitize_config(obj, _dropped: list):
     return obj
 
 
-def promote_app_config(app_config: str | None) -> None:
+def merge_entitlements(license_doc: dict, extra: dict) -> dict:
+    """The shipped license + the app's own entitlements (`app/<slug>/license.entitlements.json`:
+    `{"modules": {...}, "variants": {...}, "features": {...}}`). Licensing is fail-closed, so an app
+    module that is not entitled stays OFF on a fresh install ("Not Found" on its page) - the framework
+    `license.example.json` can only name framework modules. Extra wins; variants union (FRAMEWORK CR B4)."""
+    out = json.loads(json.dumps(license_doc))
+    ent = out.setdefault("entitlements", {})
+    for key in ("modules", "features"):
+        ent.setdefault(key, {}).update(extra.get(key) or {})
+    variants = ent.setdefault("variants", {})
+    for mid, vs in (extra.get("variants") or {}).items():
+        variants[mid] = sorted(set(variants.get(mid) or []) | set(vs))
+    return out
+
+
+def unentitled_modules(app_cfg: dict, license_doc: dict) -> list[str]:
+    """`module[variant]` entries of the shipped app config that the shipped license would NOT activate
+    (module off, or variant outside the allow-list) - the static twin of the gate in core/framework/gate.py."""
+    ent = (license_doc or {}).get("entitlements", {})
+    bad = []
+    for entry in app_cfg.get("modules", []):
+        mid, variant = entry.get("id"), entry.get("variant")
+        if not ent.get("modules", {}).get(mid, False):
+            bad.append(f"{mid}[{variant}]: module not entitled")
+        elif ent.get("variants", {}).get(mid) is not None and variant not in ent["variants"][mid]:
+            bad.append(f"{mid}[{variant}]: variant not in the entitlement allow-list {ent['variants'][mid]}")
+    return bad
+
+
+def ship_license(product: str, app_cfg: dict) -> None:
+    """Write run.dist/config/license.example.json = framework example + the app's entitlements, and FAIL the
+    build when any module in the shipped app config would not activate on a fresh install."""
+    base = json.loads((BACKEND / "config" / "license.example.json").read_text(encoding="utf-8"))
+    extra_file = REPO / "app" / product / "license.entitlements.json"
+    if extra_file.is_file():
+        base = merge_entitlements(base, json.loads(extra_file.read_text(encoding="utf-8")))
+    bad = unentitled_modules(app_cfg, base)
+    if bad:
+        raise SystemExit(
+            "BUILD FAILED: the shipped app config names modules the shipped license would not activate "
+            "(licensing is fail-closed - they would stay OFF on a fresh install):\n  "
+            + "\n  ".join(bad)
+            + f"\n  Entitle them in app/{product}/license.entitlements.json "
+              '({"modules": {"<id>": true}, "variants": {"<id>": ["<variant>"]}}).')
+    dest = DIST / "config" / "license.example.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8")
+    print(f"license: framework example + app entitlements -> run.dist/config/license.example.json "
+          f"({len(app_cfg.get('modules', []))} shipped module(s) all entitled)")
+
+
+def promote_app_config(app_config: str | None, product: str | None = None) -> None:
     """Ship the app's real branding + controller block + module STRUCTURE as the bundled
     config/app.example.json (which ensure_live copies to external live on first boot). Source:
     --app-config, else backend/config/app.release.json. Credentials are stripped; if none is
@@ -678,6 +814,8 @@ def promote_app_config(app_config: str | None) -> None:
     dest.write_text(json.dumps(clean, indent=2) + "\n", encoding="utf-8")
     note = f" (stripped site secrets: {sorted(set(dropped))})" if dropped else ""
     print(f"app config: {src.name} -> run.dist/config/app.example.json{note}")
+    if product:
+        ship_license(product, clean)
 
 
 def _framework_version() -> str:
@@ -778,7 +916,7 @@ def main() -> int:
         # A runnable app = the backend exe (which also runs the controller) + the app definition +
         # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
         copy_app_payload(args.product)
-        promote_app_config(args.app_config)
+        promote_app_config(args.app_config, args.product)
         copy_vendor_broker()            # vendored Mosquitto INSIDE run.dist (no service, no admin)
         # FAIL-SOFT (see build_run_station_exe docstring): run.dist + the .zip/.ksupdate are still
         # produced below even if the frozen windowed launcher can't be built/verified here — only the

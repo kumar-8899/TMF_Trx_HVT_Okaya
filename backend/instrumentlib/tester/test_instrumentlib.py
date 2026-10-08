@@ -228,3 +228,39 @@ async def test_reference_library_passes_conformance():
     results = await run_all(RefSupply, make)
     failed = [(n, d) for (n, ok, d) in results if not ok]
     assert failed == [], f"conformance failures: {failed}"
+
+
+# ---- error causes are never hidden (FRAMEWORK CR A3) -----------------------
+
+async def test_timeout_message_names_the_budget():
+    inst = make(fault_plan=[{"on": "read", "match": "*", "action": "delay_ms", "value": 2000}], timeout_s=0.05)
+    await inst.connect()
+    with pytest.raises(CommandTimeout) as ei:
+        await inst.invoke("measure_voltage")
+    assert "0.05s" in ei.value.message
+
+
+async def test_disconnect_message_keeps_the_cause_and_as_dict_exposes_it():
+    inst = make(fault_plan=[{"on": "any", "match": "*", "action": "disconnect", "once": True}])
+    await inst.connect()
+    with pytest.raises(NotConnected) as ei:
+        await inst.invoke("measure_voltage")
+    assert ei.value.message.startswith("link dropped mid-command: ")
+    assert len(ei.value.message) > len("link dropped mid-command: ")      # the cause is named, not dropped
+    d = ei.value.as_dict()
+    assert d["cause"] and d["cause"].startswith("TransportDisconnected")
+    assert isinstance(d["traceback_tail"], list) and d["traceback_tail"]
+
+
+async def test_unexpected_driver_error_with_empty_message_still_names_its_type():
+    inst = make()
+    await inst.connect()
+
+    async def boom():
+        raise OSError()          # str() == ""
+
+    setattr(inst, "_boom", boom)
+    with pytest.raises(Exception) as ei:
+        await inst.invoke("_boom")
+    assert "OSError" in ei.value.message
+    assert ei.value.as_dict()["cause"] == "OSError: OSError"

@@ -26,7 +26,7 @@ from controller.loop import AsyncLoopThread
 from controller.packages import load_step_type_packages, validate_app_step_types
 from controller.runstate import RunEngine
 from controller.safety import SafetyConfigError, SafetyController, SafetyMap, parse_monitors
-from controller.serve import (register_core_ops, register_maintenance_ops, register_run_ops,
+from controller.serve import (instrument_diag_sink, register_core_ops, register_maintenance_ops, register_run_ops,
                               register_safety_ops, register_station_ops)
 
 
@@ -54,7 +54,20 @@ def main(argv: list[str] | None = None) -> int:
     for v in validate_app_step_types():          # the CI gate, re-run at load (warn, don't die)
         _log("warning", f"step-type gate: {v}")
     registry = InstrumentRegistry(loop, log=_log)
-    registry.build(cfg.instruments, simulation=cfg.simulation)
+    # Failed instrument commands + unhealthy link states -> `diag` so they reach the app's error_log.
+    # The station clients don't exist yet, so the publisher is bound late (below).
+    _instr_clients: dict[str, StationClient] = {}
+    _instr_stations = {i["id"]: (i.get("stations") or [s.station for s in cfg.stations])
+                       for i in cfg.instruments}
+
+    def _publish_instrument_diag(iid, payload):
+        for st in _instr_stations.get(iid) or list(_instr_clients):
+            if st in _instr_clients:           # PC-wide event: the instrument's first socket carries it
+                _instr_clients[st].publish("diag", payload, qos=1)
+                return
+
+    registry.build(cfg.instruments, simulation=cfg.simulation,
+                   on_command=instrument_diag_sink(_publish_instrument_diag))
     loop.run(registry.connect_all())
     _log("info", f"instruments: {registry.status()}")
 
@@ -73,8 +86,11 @@ def main(argv: list[str] | None = None) -> int:
         return fetch
 
     def _diag(client):
-        return lambda level, message, **f: client.publish("diag/sequencer",
-                                                          {"level": level, "message": message, **f})
+        # exact `diag` topic (not `diag/sequencer`): the logs module ingests `diag`, so sequencer
+        # warnings/errors (teardown failed, ...) reach error_log instead of only the live tail.
+        return lambda level, message, **f: client.publish("diag", {
+            "ts": time.time(), "level": level, "subsystem": "sequencer", "message": message,
+            "context": f, "exception": None})
 
     # Load every station's map, then enforce the shared-instrument no-lease rule ACROSS
     # sockets before starting anything (§9.3, fail-closed — a write on a shared device is
@@ -139,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         daqs.append(daq)
         clients.append(c)
         clients_by_st[st.station] = c
+        _instr_clients[st.station] = c
         engines_by_st[st.station] = engine
 
     # Maintenance is PC-wide (§8): one shared state dict, served + published per station.

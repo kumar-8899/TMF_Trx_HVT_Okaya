@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -170,9 +171,11 @@ def _terminate_tree(proc: subprocess.Popen | None) -> None:
 
 
 def _debug_enabled() -> bool:
-    """Read app.json's debug.enabled — the Settings → Remote debugging switch (source only)."""
+    """Read app.json's debug.enabled — the Settings → Remote debugging switch. The live config is
+    under the external deploy root when frozen (`ROOT/config`), under `backend/config` from source."""
     try:
-        cfg = json.loads((BACKEND / "config" / "app.json").read_text(encoding="utf-8"))
+        live = (ROOT if FROZEN else BACKEND) / "config" / "app.json"
+        cfg = json.loads(live.read_text(encoding="utf-8"))
         return bool((cfg.get("debug") or {}).get("enabled"))
     except (OSError, ValueError):
         return False
@@ -257,13 +260,42 @@ class Station:
         _log(f"vite dev server started (pid={self.vite.pid})")
 
     def start_debug_server(self) -> None:
-        # Only in source mode, and only when Settings → Remote debugging is on (app.json
-        # debug.enabled). Kept a SEPARATE process so its lifecycle is independent — the recorder
-        # must survive to watch the core while the core is broken.
-        if FROZEN or not _debug_enabled():
+        # The flight recorder, when Settings → Remote debugging is on (app.json debug.enabled).
+        # A SEPARATE process so its lifecycle is independent - the recorder must survive to watch the
+        # core while the core is broken. Source: `python run_debug_server.py`. Installed (frozen):
+        # `run.exe --debug-server` (FRAMEWORK CR A2 - it used to be source-only, so the feature built
+        # for field debugging did nothing on a client PC).
+        if self._closing or not _debug_enabled() or (
+                self.debug_server is not None and self.debug_server.poll() is None):
             return
-        self.debug_server = subprocess.Popen([sys.executable, "run_debug_server.py"], cwd=str(BACKEND))
+        if FROZEN:
+            flags = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
+            self.debug_server = subprocess.Popen(
+                [str(RUN_DIST / "run.exe"), "--debug-server"], cwd=str(RUN_DIST),
+                env={**os.environ, "TMF_STATE_DIR": str(ROOT)}, creationflags=flags)
+        else:
+            self.debug_server = subprocess.Popen([sys.executable, "run_debug_server.py"], cwd=str(BACKEND))
         _log(f"debug server (flight recorder) started (pid={self.debug_server.pid})")
+
+    def supervise_debug_server(self) -> None:
+        """Keep the recorder matching the Settings switch: start it when turned on, stop it when turned
+        off, restart it if it dies. Runs on a daemon thread for the life of the station."""
+        def loop() -> None:
+            while not self._closing:
+                try:
+                    running = self.debug_server is not None and self.debug_server.poll() is None
+                    if _debug_enabled() and not running:
+                        if self.debug_server is not None:
+                            _log(f"debug server exited (rc={self.debug_server.returncode}) - restarting")
+                        self.start_debug_server()
+                    elif running and not _debug_enabled():
+                        _log("remote debugging switched off - stopping the debug server")
+                        _terminate_tree(self.debug_server)
+                        self.debug_server = None
+                except Exception as exc:  # noqa: BLE001 - the watchdog must never die
+                    _log(f"debug server watchdog: {exc}")
+                time.sleep(5.0)
+        threading.Thread(target=loop, daemon=True, name="tmf-debug-watchdog").start()
 
     # ---- stop -----------------------------------------------------------------
     def shutdown(self) -> None:
@@ -399,7 +431,8 @@ def main() -> int:
     try:
         station.start_broker()
         station.start_backend()
-        station.start_debug_server()   # source only, and only if Settings → Remote debugging is on
+        station.start_debug_server()   # only if Settings → Remote debugging is on (source AND installed)
+        station.supervise_debug_server()
         if args.dev:
             station.start_vite()
 

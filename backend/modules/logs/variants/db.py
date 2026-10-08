@@ -23,6 +23,10 @@ from modules.logs.sink import LogsDiagSink
 _RUN_ACTION = {"run-started": "run.start", "run-finished": "run.complete", "run-aborted": "run.abort"}
 # Run actions arrive from the controller, not a logged-in user.
 _SYSTEM = Principal("controller", role="system", permissions=frozenset())
+# run-aborted reasons that are the operator's choice, not a fault (everything else - recipe_fetch_failed,
+# validation_failed, step_timeout, error, safety:<id> - is a system abort: recorded as a failure + warning).
+_OPERATOR_ABORT = {"operator_abort", ""}
+_BAD_FINISH = {"ABORTED", "ERROR"}   # run-finished results that are not a normal PASS/FAIL verdict
 
 
 def _prune_decision(rows: list[dict], max_days: int, max_records: int, now: float) -> float | None:
@@ -111,7 +115,20 @@ class DbLogs:
             return
         body = payload.get("payload", {}) or {}
         run_id = body.get("run_id") or body.get("id") or ""
-        await self.record_action(_SYSTEM, action, run_id, "success", {"event": etype})
+        detail: dict = {"event": etype}
+        for key in ("result", "reason", "recipe_id", "detail", "errors", "dry_run"):
+            if body.get(key) not in (None, "", []):
+                detail[key] = body[key]
+        result = "success"
+        if etype == "run-aborted" and str(body.get("reason") or "") not in _OPERATOR_ABORT:
+            result = "failure"
+        elif etype == "run-finished" and str(body.get("result") or "").upper() in _BAD_FINISH:
+            result = "failure"
+        if result == "failure":
+            # a run the system ended is a field fault: surface it in the error log, not only the action log
+            self.core.diag.warning("runs", f"run {run_id or '?'} ended abnormally ({etype})",
+                                   run_id=run_id, **{k: v for k, v in detail.items() if k != "event"})
+        await self.record_action(_SYSTEM, action, run_id, result, detail)
 
     # --- actions (LOGS §5) -------------------------------------------------
 

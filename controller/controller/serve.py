@@ -21,11 +21,70 @@ InstrumentError type the backend needs to reconstruct)."""
 from __future__ import annotations
 
 import time
+import traceback
 
 from controller import registry as step_registry
 from controller.bridge.client import StationClient
 from controller.instruments.registry import InstrumentRegistry
 from controller.instruments.variables import StationVariables
+
+
+def describe_exc(exc: BaseException) -> str:
+    """`str(exc)`, or the class name when that is empty - a TimeoutError / bare OSError prints as ''
+    and used to reach the operator as just "ni.write_digital failed"."""
+    return str(exc) or type(exc).__name__
+
+
+def _traceback_tail(exc: BaseException, n: int = 4) -> list[str]:
+    return [f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.lineno} in {f.name}"
+            for f in traceback.extract_tb(exc.__traceback__)[-n:]]
+
+
+def error_reply(exc: BaseException) -> dict:
+    """Structured instrument error for a bridge reply: the class name as `code`, a never-empty
+    `message`, the wrapped `cause` (an instrumentlib error raised `from` a driver fault) and the
+    `traceback_tail` of the ORIGINAL fault, so a field failure is diagnosable from the log alone."""
+    cause = exc.__cause__
+    origin = cause if cause is not None else exc
+    return {"code": type(exc).__name__, "message": describe_exc(exc),
+            "detail": getattr(exc, "detail", None),
+            "cause": f"{type(cause).__name__}: {describe_exc(cause)}" if cause is not None else None,
+            "traceback_tail": _traceback_tail(origin)}
+
+
+_BAD_STATES = {"disconnected": "warning", "reconnecting": "warning", "faulted": "error"}
+_BAD_OUTCOMES = {"timeout": "warning", "disconnected": "warning", "error": "error"}
+
+
+def instrument_diag_sink(publish):
+    """`on_command` for the instrument registry (instrumentlib `_emit_command` / `_emit_state` records).
+
+    Publishes a `diag` event ({ts, level, subsystem: "instrument", message, context}) for every FAILED
+    command and every unhealthy link-state change, so controller-side NI / Modbus / VISA faults reach the
+    app's error_log (the logs module ingests the exact `tmf/+/diag` topic). Successful commands are not
+    published - at bench rates that would flood the broker; the flight recorder has the value stream.
+
+    `publish(instance_id, payload)` routes to a station topic; it must never raise (the sink swallows)."""
+    def on_command(rec: dict) -> None:
+        level = message = None
+        iid = rec.get("instance_id")
+        if rec.get("kind") == "command":
+            level = _BAD_OUTCOMES.get(rec.get("outcome"))
+            err = rec.get("error") or {}
+            message = (f"{iid}.{rec.get('method')} {rec.get('outcome')}: "
+                       f"{err.get('message') or err.get('type') or 'no detail'}")
+        elif rec.get("kind") == "state":
+            level = _BAD_STATES.get(rec.get("state"))
+            message = f"{iid} link {rec.get('state')}"
+        if level is None:
+            return
+        ctx = {k: v for k, v in rec.items() if k != "kind" and v is not None}
+        try:
+            publish(iid, {"ts": time.time(), "level": level, "subsystem": "instrument",
+                          "message": message, "context": ctx, "exception": None})
+        except Exception:  # noqa: BLE001 - a diagnostics failure must never break an instrument call
+            pass
+    return on_command
 
 
 def hello_echo(args: dict) -> dict:
@@ -68,7 +127,7 @@ def register_station_ops(client: StationClient, variables: StationVariables,
             return {"ok": ok, "status": "pass" if ok else "fail",
                     "identity": str(idn), "detail": f"state: {inst.state}"}
         except Exception as exc:  # noqa: BLE001 — an open failure is a fail verdict, not a crash
-            return {"ok": False, "status": "fail", "detail": str(exc)}
+            return {"ok": False, "status": "fail", "detail": describe_exc(exc)}
 
     def instrument_call(args: dict) -> dict:
         """Backend proxy seam: `{instance_id, method, args}` -> the same
@@ -93,8 +152,7 @@ def register_station_ops(client: StationClient, variables: StationVariables,
             result = loop.run(inst.invoke(method, *call_args), timeout=20.0)
             return {"ok": True, "result": result}
         except Exception as exc:  # noqa: BLE001 — structured error, never raise out of a bridge handler
-            return {"ok": False, "error": {"code": type(exc).__name__, "message": str(exc),
-                                           "detail": getattr(exc, "detail", None)}}
+            return {"ok": False, "error": error_reply(exc)}
 
     def instrument_status(args: dict) -> dict:
         """Backend proxy seam: live per-instance state, straight off this registry's

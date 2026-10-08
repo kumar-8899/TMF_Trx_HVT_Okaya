@@ -20,6 +20,7 @@ from instrumentlib.errors import (
     NotConnected,
     NotSupported,
     TransportDisconnected,
+    describe_exc,
 )
 from instrumentlib.transport import FaultPlan, FaultTransport, SimTransport, Transport
 
@@ -134,19 +135,20 @@ class InstrumentBase:
             try:
                 return await asyncio.wait_for(fn(*args, **kwargs), self._timeout)
             except asyncio.TimeoutError as e:
-                outcome, err = "timeout", CommandTimeout("command timed out",
+                outcome, err = "timeout", CommandTimeout(f"command timed out after {self._timeout:g}s",
                                                          instance_id=self.instance_id, method=method)
                 raise err from e
             except TransportDisconnected as e:
                 outcome, err = "disconnected", e
                 self._begin_reconnect()              # start backoff loop; caller fails fast
-                raise NotConnected("link dropped mid-command",
+                raise NotConnected(f"link dropped mid-command: {type(e).__name__}: {describe_exc(e)}",
                                    instance_id=self.instance_id, method=method) from e
             except InstrumentError as e:
                 outcome, err = "error", e
                 raise
             except Exception as e:  # noqa: BLE001 — unexpected library error -> structured
-                outcome, err = "error", InstrumentError(str(e), instance_id=self.instance_id, method=method)
+                outcome, err = "error", InstrumentError(f"{type(e).__name__}: {describe_exc(e)}",
+                                                    instance_id=self.instance_id, method=method)
                 raise err from e
             finally:
                 self._emit_command(method, args, (time.time() - t0) * 1000.0, outcome, err)
