@@ -165,7 +165,10 @@ class ControllerSupervisor:
                     if vm and not Path(vm).is_absolute():
                         st["variable_map"] = str((cfg_dir / vm).resolve())
             except Exception as exc:  # noqa: BLE001 — bad app config must not crash the app
-                self._diag.warning("controller", f"controller config_file unusable: {exc}")
+                # an error, not a warning: the controller then starts with NO maps / step types / drivers
+                # and looks healthy (FRAMEWORK CR B5) - the path tried is in the record
+                from core.paths import load_failed
+                load_failed(self._diag, "controller", "controller config_file", src, exc)
                 cfg = {}
         cfg["schema_version"] = 1
         cfg["broker"] = {"host": self._host, "port": self._port}

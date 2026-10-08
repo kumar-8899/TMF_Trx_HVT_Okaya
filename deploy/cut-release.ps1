@@ -26,6 +26,12 @@ Slug is auto-detected as the sole directory under app/ (pass -Slug to override /
 so a fork runs it with no args. Every fork inherits this file unchanged - it is no longer a
 rendered template.
 
+Release gate (step 5b): the BUILT run.exe is booted on a first-boot (empty) state dir and probed -
+metadata, forbidden GUI toolkits, every shipped module loaded, the app's API probes and real driver
+calls through the built controller (docs/RELEASE_GATE.md). A failure stops the release before anything
+is signed or published. Re-running after a failure RESUMES: a tag already at HEAD is reused, and an
+existing GitHub Release for it gets its assets replaced - no version bump needed.
+
 Prereqs on THIS machine (see CONTRIBUTING.md): Python 3.11/3.12 + `pip install -e "backend[dev,release]"`,
 Node/npm, Inno Setup 6 (`winget install JRSoftware.InnoSetup`), and - for a real release (not
 -BuildOnly) - `gh` authenticated with contents:write on origin. Optional Keystation signing:
@@ -63,6 +69,21 @@ if (-not $Slug) {
   else { throw "multiple apps under app/ ($($apps.Name -join ', ')) - pass -Slug <product> to pick one." }
 }
 
+# --- 0. Preflight: fail in seconds, not after a 7-minute build ---------------------------------
+# build_release.py's run_station.exe smoke test boots the app on :8000 and REFUSES to pass when
+# anything already answers there (a running station would answer the probe instead of the new exe).
+function Test-PortFree([int]$Port) {
+  $c = New-Object System.Net.Sockets.TcpClient
+  try { $iar = $c.BeginConnect("127.0.0.1", $Port, $null, $null); return -not ($iar.AsyncWaitHandle.WaitOne(500) -and $c.Connected) }
+  catch { return $true } finally { $c.Close() }
+}
+if (-not (Test-PortFree 8000)) {
+  throw "preflight: something is already listening on 127.0.0.1:8000 (a running station?). Stop it first - the run_station.exe smoke test needs the port free."
+}
+$mosq = Join-Path $PSScriptRoot "vendor/mosquitto/win64/mosquitto.exe"
+if (Test-Path $mosq) { Info "preflight: vendored Mosquitto present - fetch step will be skipped" }
+else { Warn "preflight: no vendored Mosquitto - step 3 will download it (needs a UAC click on an interactive desktop); pre-stage deploy/vendor/mosquitto/win64 to run unattended." }
+
 $verFile = Join-Path $repo "app/$Slug/VERSION"
 if (-not (Test-Path $verFile)) { throw "no version file: app/$Slug/VERSION" }
 $new = (Get-Content $verFile -Raw).Trim()
@@ -79,8 +100,17 @@ $tagExists = $false
 if (-not $BuildOnly) {
   Step "1/10  version-collision guard"
   git fetch --tags origin --quiet
+  # A tag already AT HEAD means "resume": a previous run got past the tag push and failed later (build,
+  # gate, publish). That is not a collision - only a tag elsewhere is.
+  if (git tag -l $tag) {
+    $tagSha = git rev-list -n 1 $tag
+    $headSha = git rev-parse HEAD
+    if ($tagSha -ne $headSha) { throw "tag $tag already exists and points at $tagSha, not HEAD ($headSha). Delete it or bump VERSION." }
+    Warn "tag $tag already exists at HEAD - RESUME mode (skipping the commit/tag/push; an existing release is updated in place)"
+    $tagExists = $true
+  }
   $published = @(git tag -l "app-v*" | ForEach-Object { $_ -replace '^app-v', '' } |
-    Where-Object { $_ -as [version] } | Sort-Object { [version]$_ })
+    Where-Object { $_ -as [version] -and ($_ -ne $new -or -not $tagExists) } | Sort-Object { [version]$_ })
   $latest = if ($published) { $published[-1] } else { $null }
   if ($latest) {
     if ([version]$new -le [version]$latest) {
@@ -88,14 +118,7 @@ if (-not $BuildOnly) {
     }
     Info "latest published: app-v$latest  ->  new: $tag  (OK, strictly greater)"
   } else {
-    Info "no app-v* tags published yet - $tag is the first"
-  }
-  if (git tag -l $tag) {
-    $tagSha = git rev-list -n 1 $tag
-    $headSha = git rev-parse HEAD
-    if ($tagSha -ne $headSha) { throw "tag $tag already exists and points at $tagSha, not HEAD ($headSha). Delete it or bump VERSION." }
-    Warn "tag $tag already exists at HEAD - resume mode (skipping the tag/push step)"
-    $tagExists = $true
+    Info "no earlier app-v* tags published - $tag is the first"
   }
 
   $dirty = @(git status --porcelain | Where-Object { $_ -notmatch 'CHANGELOG\.md$|app/' + [regex]::Escape($Slug) + '/VERSION$' })
@@ -153,6 +176,13 @@ if ($rc -eq 3) {
   throw "build_release.py failed (exit $rc)"
 }
 
+# --- 5b. Release gate: boot the BUILT exe on first-boot config and probe it ---------------------
+# Fails the release before anything is signed or published (config drift, unlicensed module,
+# frozen-path bug, missing package metadata, a native driver that crashes only in the frozen exe).
+Step "5b/10  verify built app (deploy/verify-build.ps1)"
+& (Join-Path $PSScriptRoot "verify-build.ps1") -Slug $Slug
+if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { throw "verify-build failed (exit $LASTEXITCODE)" }
+
 # --- 6. Sign the .ksupdate (internal step; KS_INTERMEDIATE_* from the env if present) ---------
 Step "6/10  sign .ksupdate"
 $env:KS_TRACK = "app"
@@ -208,7 +238,7 @@ if ($BuildOnly) {
 Step "9/10  release notes"
 $notes = New-Object System.Collections.Generic.List[string]
 $inblk = $false
-foreach ($line in Get-Content "CHANGELOG.md") {
+foreach ($line in Get-Content "CHANGELOG.md" -Encoding UTF8) {   # PS 5.1 would read it as ANSI -> mojibake
   if ($line -match '^## ') {
     $tok = ($line -split '\s+')[1]
     $inblk = ($tok -eq "v$new" -or $tok -eq $new)
@@ -216,7 +246,9 @@ foreach ($line in Get-Content "CHANGELOG.md") {
   if ($inblk) { $notes.Add($line) }
 }
 if ($notes.Count -eq 0) { $notes.Add("Release $new") }
-Set-Content "release-notes.md" ($notes -join "`n") -Encoding UTF8
+# UTF-8 WITHOUT a BOM: PS 5.1's Set-Content -Encoding UTF8 writes a BOM, and gh then shows it (and mangles
+# non-ASCII such as the em dash) in the release notes.
+[System.IO.File]::WriteAllText((Join-Path $repo "release-notes.md"), ($notes -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
 
 # --- 10. Publish the GitHub Release (same 4 assets as release.yml) ---------------------------
 Step "10/10  publish GitHub Release"
@@ -242,7 +274,21 @@ foreach ($a in $assets) { if (-not (Test-Path $a)) { throw "missing release asse
 if ($DryRun) {
   Warn "DRY RUN - would: gh release create $tag --title $tag --notes-file release-notes.md $($assets -join ' ')"
 } else {
-  gh release create $tag --title $tag --notes-file "release-notes.md" @assets
-  if ($LASTEXITCODE) { throw "gh release create failed" }
-  Info "released $tag with $($assets.Count) assets"
+  $prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"   # PS 5.1: native stderr must not throw
+  gh release view $tag 2>&1 | Out-Null
+  $releaseExists = ($LASTEXITCODE -eq 0)
+  $ErrorActionPreference = $prevEap
+  if ($releaseExists) {
+    # resume: the release exists from an earlier, interrupted run - replace its assets + notes in place
+    Warn "release $tag already exists - updating its assets and notes (resume)"
+    gh release upload $tag @assets --clobber
+    if ($LASTEXITCODE) { throw "gh release upload failed" }
+    gh release edit $tag --notes-file "release-notes.md"
+    if ($LASTEXITCODE) { throw "gh release edit failed" }
+    Info "updated $tag with $($assets.Count) assets"
+  } else {
+    gh release create $tag --title $tag --notes-file "release-notes.md" @assets
+    if ($LASTEXITCODE) { throw "gh release create failed" }
+    Info "released $tag with $($assets.Count) assets"
+  }
 }

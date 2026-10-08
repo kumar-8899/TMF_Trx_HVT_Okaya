@@ -503,3 +503,30 @@ Any re-host MUST:
    encode as compact arrays, cap flushes per hour.
 8. Report `dropped`, `suppressed`, and `snapshots_suppressed` in every artifact.
 9. Emit a digest that is self-describing, ≤ ~100 KB, and carries `first_fault`.
+
+---
+
+## 14. Installed builds and the offline export (v1.30.0)
+
+The recorder was **source-only** (`station.py` returned early when frozen), so `debug.enabled = true` on a client
+PC did nothing - no `data/debug`, nothing on :8001 - on exactly the machines this feature exists for.
+
+- **`run.exe --debug-server`** is a third dual-entry mode of the frozen backend, beside `--controller`
+  (`backend/run.py`; `debug_server` is bundled with `--collect-submodules`). It reads the live `app.json` and writes
+  `data/debug/` under the **state root** (`TMF_STATE_DIR`, the external deploy root), never inside the swappable `run.dist`.
+- **Supervision** (`station.py`): `run_station.exe` / `python station.py` start it when `debug.enabled` is on,
+  **restart it if it dies, and stop/start it when the Settings switch changes** (polled every 5 s) - source and installed alike.
+- **Offline export** for a PC with no network path to a laptop - one zip to carry out on a USB stick:
+
+  ```
+  run.exe --debug-export [out.zip] [--state-dir <deploy root>] [--rows 5000]     # installed bench, no Python needed
+  tmf-debug export [out.zip] [--state-dir <root>]                                # from a source checkout
+  ```
+
+  Contents: `diagnostics/` (rolling capture + failure snapshots), `logs/error_log.jsonl`, `logs/action_log.jsonl`,
+  `logs/launcher.log`, `config/app.json` and `config/controller.generated.json` (**secrets redacted**),
+  `environment.json` (versions, OS, frozen/source, paths, free disk, `TMF_*`), and a `MANIFEST.json` that lists what
+  was packed **and what was missing** (a bench where recording was never enabled says so instead of shipping an empty
+  zip). Read-only on the station: the DB is opened `mode=ro`.
+- The error/action logs it packs are no longer empty: see `contracts/LOGS.md` section 12 (central request audit,
+  instrument failures, run aborts).

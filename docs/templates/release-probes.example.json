@@ -1,0 +1,30 @@
+{
+  "_doc": "Read by deploy/verify-build.ps1 (docs/RELEASE_GATE.md). Add a probe whenever a bug only shows up in an installed build.",
+  "required_metadata": [
+    "pyvisa"
+  ],
+  "probes": [
+    {
+      "path": "/recipes/step-types",
+      "auth": true,
+      "min_items": 8
+    }
+  ],
+  "controller_probes": [
+    {
+      "name": "driver_read",
+      "instance": {
+        "id": "dmm",
+        "library": "my_driver",
+        "params": {
+          "resource": "USB0::..."
+        }
+      },
+      "calls": [
+        {
+          "method": "identify"
+        }
+      ]
+    }
+  ]
+}

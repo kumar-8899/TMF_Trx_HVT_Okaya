@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.29.0**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.30.0**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.30.0** (2026-10-09, MINOR) — Field-debuggability and release safety, from the Okaya Transformer testbench (MINOR).
 - **v1.29.0** (2026-10-06, MINOR) — MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).
 - **v1.28.0** (2026-10-06, MINOR) — Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).
 - **v1.27.4** (2026-10-03, PATCH) — Exit station no longer leaves the controller running; the recipe editor shows the selected group's steps (PATCH).
@@ -13,7 +14,6 @@ Super_Test_App **v1.29.0**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.27.0** (2026-09-29, MINOR) — Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).
 - **v1.26.1** (2026-09-29, PATCH) — `cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).
 - **v1.26.0** (2026-09-29, MINOR) — Narrow the Nuitka compile surface + app-payload-only patch updates (MINOR).
-- **v1.25.0** (2026-09-28, MINOR) — Barcode Start dialog: scan-to-submit is now opt-in, not the unconditional default (MINOR).
 
 ## Modules
 

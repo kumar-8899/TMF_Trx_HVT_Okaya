@@ -21,7 +21,7 @@ Settled in design chat. Re-open only by editing this file.
 | # | Question | Decision |
 |---|---|---|
 | 1 | Unify or split record types? | **Split.** Two record types (`error_log`, `action_log`), one module, two endpoints. A future merged timeline is a query-layer concern (§11), not a shared record shape. |
-| 2 | How do actions arrive? | **Explicit `LogsContract.record_action(...)`**, resolved via `core.get_contract("logs")`. NOT auto-derived from a `category=action` diag convention. |
+| 2 | How do actions arrive? | **`LogsContract.record_action(...)`**, resolved via `core.get_contract("logs")`, NOT auto-derived from a `category=action` diag convention. Since v1.30.0 the **HTTP edge calls it for every state-changing request** (§12), so a new endpoint is audited without anyone remembering to; modules call it themselves only for actions that are not requests (run lifecycle, safety). |
 | 3 | Variant(s)? | **`db` only** for now. The `jsonl` variant slot is reserved in the manifest, not built. |
 | 4 | Retention? | **Append-only** by default, with **dedup/coalescing on write** (§6) and **optional pruning** (§9) bounded by config + license. |
 | 5 | Double-write risk? | **Single write path.** One internal sink, two callers (in-process Python diag + MQTT LabVIEW diag). `source` is stamped at emit; Python events never loop back over MQTT. |
@@ -375,7 +375,45 @@ LabVIEW emit itself (`LOGGING.md` §5).
 
 ---
 
-## 12. Repo layout (per `CORE.md` §8)
+## 12. Audit of state-changing requests and failure capture (v1.30.0)
+
+**Why.** §0.2 made actions an explicit call, and in the field nothing called it: a client station held 0
+`action_log` and 0 `error_log` rows after logins, instrument creation and a run of instrument failures. Per-endpoint
+calls cannot be enforced, so the audit sits in front of the whole app.
+
+**`core/services/audit.py`** (installed by `web.install_web`, before the request-id middleware):
+
+| Rule | Behaviour |
+|---|---|
+| What is audited | **Every `POST/PUT/PATCH/DELETE`**, unless its route *template* matches `READ_ONLY_POSTS` (batch reads, validations, connection probes - POST only). Default is **audited**. |
+| Record | `action_log`: principal (token verified; failed login = the submitted username, role `anonymous`), friendly action name (`_ACTION_NAMES`, else `"<method> <template>"`), target = the path parameters, `success`/`failure` (status < 400), `detail` = `{status, route, path, request_id, ms, fields, client, reason?}`. |
+| Secrets | **Bodies are never stored** - only the top-level key *names* (`fields`); login stores the username only. Error reasons are the RFC-7807 `title - detail`. |
+| Failures | `5xx` -> `error_log` (`http`), `401/403` -> `warning` (`security`), plus any exception that escapes a handler -> `web.unhandled_exc` logs it with its **traceback** (it used to return a bare 500 and record nothing; also for GETs). |
+| Never breaks a request | audit is best-effort; a logging failure is swallowed. |
+| App/fork routes | `audit.register_read_only_post(regex)` / `audit.register_action_name(method, template, name)` at module import. Do not edit the framework lists. |
+
+CI guard: `tests/test_audit.py::test_audit_tables_match_real_routes` walks the real app's routes and fails when a
+read-only pattern or friendly name refers to a route that no longer exists (a rename can otherwise drop a route out
+of the tables silently).
+
+**Other failure paths that now reach `error_log`:**
+
+- `variables._on_cmd`: an instrument command with `outcome != ok` or a link state `disconnected/reconnecting/faulted`
+  is `warning`/`error` (it was `info`, below the default `persist.min_level = warning`, so failed commands were dropped).
+- Controller (`controller/serve.instrument_diag_sink`, wired as the registry's `on_command`): failed commands and
+  unhealthy link states publish a `diag` event (`subsystem: "instrument"`) on the instrument's first station topic;
+  the logs module ingests the exact `tmf/+/diag` topic. Successful commands are never published (broker flood).
+  Sequencer diag (`teardown failed`, ...) now uses the same `diag` topic with `subsystem: "sequencer"`
+  (it was `diag/sequencer`, which logs does not subscribe).
+- `logs._on_event`: `run-*` actions keep `result`, `reason`, `recipe_id`, `errors` in `detail`. A `run-aborted` whose
+  reason is not `operator_abort` (`recipe_fetch_failed`, `validation_failed`, `step_timeout`, `error`, `safety:*`) and a
+  `run-finished` with `result` ABORTED/ERROR are recorded as **`failure`** and raise a `runs` warning.
+- Instrument errors name their cause (`InstrumentError.as_dict()` adds `cause` and `traceback_tail`; the controller's
+  `instrument.call` reply carries them; an empty `str(exc)` falls back to the class name).
+
+---
+
+## 13. Repo layout (per `CORE.md` §8)
 
 ```
 backend/modules/logs/

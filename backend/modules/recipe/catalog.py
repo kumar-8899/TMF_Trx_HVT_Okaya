@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import sys
 from functools import lru_cache
-from pathlib import Path
 
 from jsonschema import Draft7Validator
 
-_REPO = Path(__file__).resolve().parents[3]        # backend/modules/recipe/catalog.py → repo root
+from core.paths import bundle_root
+
+_REPO = bundle_root()      # source: repo root; frozen: run.dist (core/paths.py, not __file__)
 _CONTROLLER = _REPO / "controller"
 
 

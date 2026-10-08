@@ -10,6 +10,12 @@ The lamp in the top bar is amber/red. The LabVIEW controller link is down.
 
 ![Logs — error diagnostics and the action audit trail](asset:logs)
 
+## Who did what / why did it fail?
+The **Logs** page keeps an **action log** (every sign-in, setting, recipe, instrument and run change - who, what, and
+whether it worked) and an **error log** (failed instrument commands, rejected or failed requests, aborted runs with the
+reason). A run that the *system* ended - recipe could not be loaded, validation failed, timeout, safety trip - shows as
+a **failure**; a run you aborted yourself does not.
+
 ## A run won't start
 - **Blocked by MES** — the unit didn't pass the previous stage (see the message). Check MES config.
 - **No recipe** — the barcode didn't resolve to a recipe; pick a recipe directly.

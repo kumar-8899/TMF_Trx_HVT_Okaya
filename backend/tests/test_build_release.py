@@ -385,3 +385,85 @@ def test_build_backend_does_not_force_sqlalchemy_or_uvicorn_submodules(monkeypat
     assert "--collect-submodules=sqlalchemy" not in cmd
     assert "--collect-submodules=uvicorn" not in cmd
     assert "--clean" not in cmd
+
+
+# --- FRAMEWORK CR B1/B2/B4: frozen-build safety nets ----------------------------------------------
+
+def test_backend_excludes_gui_toolkits_that_shadow_the_msvc_runtime():
+    """matplotlib -> PyQt5 -> an old MSVCP140.dll crashed NI-DAQmx in the frozen exe only."""
+    assert {"matplotlib", "PyQt5", "PyQt6", "PySide2", "PySide6", "tkinter"} <= set(br._BACKEND_EXCLUDED_MODULES)
+
+
+def test_build_backend_passes_the_excludes_and_bundles_the_debug_sidecar(monkeypatch, tmp_path):
+    _repo, _out, captured = _stub_build_backend(monkeypatch, tmp_path)
+    br.build_backend()
+    cmd = captured["cmd"]
+    for mod in br._BACKEND_EXCLUDED_MODULES:
+        assert f"--exclude-module={mod}" in cmd
+    assert "--collect-submodules=debug_server" in cmd          # run.exe --debug-server (FRAMEWORK CR A2)
+    assert "debug_server/ui/*.html" in br.DATA_PATTERNS
+
+
+def test_driver_metadata_is_derived_from_what_the_drivers_import(tmp_path, monkeypatch):
+    il = tmp_path / "instrument_libs"
+    il.mkdir()
+    (il / "__init__.py").write_text("")
+    (il / "drv.py").write_text("import pytest\nimport json\nfrom os import path\n")   # pytest = a real dist
+    monkeypatch.setattr(br, "REPO", tmp_path)
+    pkgs = {p.lower() for p in br._driver_metadata_packages("x")}
+    assert "pytest" in pkgs                      # derived from the driver's import, no list edit needed
+    assert "json" not in pkgs                    # stdlib is not a distribution
+    assert "tmf-instrumentlib" not in pkgs
+
+
+def test_native_driver_metadata_always_listed():
+    assert {"pyvisa", "nidaqmx", "nitypes"} <= set(br._NATIVE_DRIVER_METADATA)
+
+
+def test_merge_entitlements_adds_app_modules_and_unions_variants():
+    base = {"entitlements": {"modules": {"runs": True}, "variants": {"runs": ["default"]}, "features": {}}}
+    out = br.merge_entitlements(base, {"modules": {"acme_maint": True},
+                                       "variants": {"acme_maint": ["default"], "runs": ["alt"]}})
+    assert out["entitlements"]["modules"] == {"runs": True, "acme_maint": True}
+    assert out["entitlements"]["variants"]["runs"] == ["alt", "default"]
+    assert base["entitlements"]["modules"] == {"runs": True}                      # input untouched
+
+
+def test_unentitled_modules_flags_what_the_gate_would_skip():
+    lic = {"entitlements": {"modules": {"runs": True, "daq": False}, "variants": {"runs": ["default"]}}}
+    cfg = {"modules": [{"id": "runs", "variant": "default"}, {"id": "daq", "variant": "default"},
+                       {"id": "acme_maint", "variant": "default"}, {"id": "runs", "variant": "other"}]}
+    bad = br.unentitled_modules(cfg, lic)
+    assert len(bad) == 3 and any("daq" in b for b in bad) and any("acme_maint" in b for b in bad)
+    assert any("variant" in b for b in bad)
+
+
+def test_shipped_framework_config_is_fully_entitled():
+    """The framework's own example app config must activate every module under its example license."""
+    root = br.BACKEND / "config"
+    cfg = json.loads((root / "app.example.json").read_text(encoding="utf-8"))
+    lic = json.loads((root / "license.example.json").read_text(encoding="utf-8"))
+    assert br.unentitled_modules(cfg, lic) == []
+
+
+def test_ship_license_fails_the_build_for_an_unentitled_app_module(tmp_path, monkeypatch):
+    (tmp_path / "app" / "acme").mkdir(parents=True)
+    monkeypatch.setattr(br, "REPO", tmp_path)
+    monkeypatch.setattr(br, "DIST", tmp_path / "dist")
+    cfg = {"modules": [{"id": "acme_maint", "variant": "default"}]}
+    with pytest.raises(SystemExit) as ei:
+        br.ship_license("acme", cfg)
+    assert "acme_maint" in str(ei.value) and "license.entitlements.json" in str(ei.value)
+    (tmp_path / "app" / "acme" / "license.entitlements.json").write_text(
+        json.dumps({"modules": {"acme_maint": True}}))
+    br.ship_license("acme", cfg)                                                  # now entitled -> ships
+    shipped = json.loads((tmp_path / "dist" / "config" / "license.example.json").read_text())
+    assert shipped["entitlements"]["modules"]["acme_maint"] is True
+
+
+def test_release_probes_example_matches_its_schema():
+    from jsonschema import Draft202012Validator
+    root = br.REPO
+    schema = json.loads((root / "deploy" / "release-probes.schema.json").read_text(encoding="utf-8"))
+    example = json.loads((root / "docs" / "templates" / "release-probes.example.json").read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(example)

@@ -89,9 +89,12 @@ class ProxiedInstrument:
         exc_cls = getattr(instrumentlib_errors, code, None) if code else None
         if not (isinstance(exc_cls, type) and issubclass(exc_cls, InstrumentError)):
             exc_cls = InstrumentError
+        detail = err.get("detail")
+        if err.get("cause"):      # keep the controller-side root cause visible on the rebuilt exception
+            detail = f"{detail} | cause: {err['cause']}" if detail else f"cause: {err['cause']}"
         raise exc_cls(err.get("message") or "instrument call failed",
                      instance_id=self.instance_id, method=method,
-                     code=code, detail=err.get("detail"))
+                     code=code, detail=detail)
 
 
 class InstanceRegistry:
@@ -115,8 +118,8 @@ class InstanceRegistry:
             entry = REGISTRY.get(lib_id)
             if entry is None:
                 self.skipped.append({"id": iid, "library": lib_id, "reason": "library not registered"})
-                self.diag.warning("variables", "instance skipped: unknown library",
-                                  instance=iid, library=lib_id)
+                self.diag.error("variables", "instance skipped: unknown library",
+                                instance=iid, library=lib_id)
                 continue
             if bridge is not None:
                 # Proxy mode: read the library's declared facts (capabilities) straight off

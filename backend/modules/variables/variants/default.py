@@ -24,6 +24,7 @@ from pathlib import Path
 from fastapi import WebSocket, WebSocketDisconnect
 
 from core.framework.contract import CoreServices, Health, HealthStatus
+from core.paths import bundle_root
 from core.services.streaming import StreamHub
 from instrumentlib.registry import build_index
 from modules.variables.api import build_router
@@ -76,7 +77,7 @@ class DefaultVariables:
         needed: every fork's copied drivers show up in the Instruments config UI."""
         paths = list(self.config.get("library_paths", []))
         packages = list(self.config.get("library_packages", []))
-        repo_root = Path(__file__).resolve().parents[4]        # …/backend/modules/variables/variants
+        repo_root = bundle_root()      # source: repo root; frozen: run.dist (core/paths.py, not __file__)
         app_libs = repo_root / "instrument_libs"
         if (app_libs / "__init__.py").is_file():               # source: add the repo root to sys.path
             if str(repo_root) not in paths:
@@ -105,7 +106,15 @@ class DefaultVariables:
         # every instrument command auto-emits to the diag bus (zero per-library effort)
         msg = rec.get("method") or rec.get("state") or "event"
         ctx = {k: v for k, v in rec.items() if k != "kind" and v is not None}
-        self.core.diag.info("instrument", msg, **ctx)
+        # Failures must be visible: `info` sits below the default persist.min_level (warning), so a failed
+        # command used to be seen on the bus and dropped from error_log (LOGS.md section 12).
+        state, outcome = rec.get("state"), rec.get("outcome")
+        if state == "faulted" or outcome == "error":
+            self.core.diag.error("instrument", f"{rec.get('instance_id')}.{msg} {outcome or state}", **ctx)
+        elif state in ("disconnected", "reconnecting") or (outcome is not None and outcome != "ok"):
+            self.core.diag.warning("instrument", f"{rec.get('instance_id')}.{msg} {outcome or state}", **ctx)
+        else:
+            self.core.diag.info("instrument", msg, **ctx)
 
     async def init(self) -> None:
         pass
