@@ -215,9 +215,14 @@ class DefaultRuns:
         horizon = time.time() + 1
         deleted: dict = {}
         for t in targets:
-            if t in self.RESET_DB_TYPES:
+            if t in self.RESET_DB_TYPES and t != "reports":
                 for rt in self.RESET_DB_TYPES[t]:
                     deleted[rt] = await self.core.db.repo.delete(rt, horizon)
+            elif t == "reports":
+                # the pro DB + outbox are the report module's (core.db has no reports): delegate
+                # so the forwarder cannot re-sync what we delete (X9).
+                deleted["report"] = await self.core.db.repo.delete("report", horizon)   # legacy records
+                deleted.update(await self._delegate_reset("report", "reset_data") or {})
             elif t == "recipes":
                 deleted["recipes"] = await self._delegate_reset("recipe", "reset_all")
             elif t == "users":
@@ -225,7 +230,7 @@ class DefaultRuns:
         self.core.diag.warning("runs", "data reset", targets=targets, **deleted)
         return {"deleted": deleted}
 
-    async def _delegate_reset(self, contract: str, method: str) -> int:
+    async def _delegate_reset(self, contract: str, method: str):
         get = getattr(self.core, "get_contract", None)
         if get is None:
             return 0

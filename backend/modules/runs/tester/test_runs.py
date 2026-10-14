@@ -302,3 +302,22 @@ async def test_station_ws_filter_by_station(ctx):
     task.cancel()
     seen = [e.get("station") for e in ws.sent]
     assert seen and all(s == "st2" for s in seen)   # st1 event filtered out
+
+
+async def test_reset_reports_target_delegates_to_the_report_module(ctx):
+    """X9: `reports` lives in the pro DB + outbox, not core.db — the runs module must hand it to the
+    report module (via the contract registry) instead of only deleting a core.db record type."""
+    module, _, db = ctx
+    calls = []
+
+    class _Report:
+        async def reset_data(self):
+            calls.append(1)
+            return {"reports": 4, "outbox": 2}
+
+    module.core.get_contract = lambda name: {"report": _Report()}[name]
+    out = await module.reset_data(["reports"])
+    assert calls == [1] and out["deleted"]["reports"] == 4 and out["deleted"]["outbox"] == 2
+    module.core.get_contract = lambda name: (_ for _ in ()).throw(KeyError(name))
+    out2 = await module.reset_data(["reports"])               # report module not loaded -> no crash
+    assert out2["deleted"].get("reports", 0) == 0

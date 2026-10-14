@@ -25,6 +25,27 @@ Tables are **prefixed `tmf_`** so they never collide with a client's existing ta
   test_name, test_group, expected, measured, result, unit, cycle_time_ms. Indexed on
   run_id / test_name.
 
+**Floating columns are `Double`** (`started_ts`, `finished_ts`, `created_at`, `cycle_time_ms`).
+Never a bare SQLAlchemy `Float()`: on MySQL that is a 4-byte `FLOAT` (~7 significant digits) which
+rounds a 10-digit epoch timestamp by minutes (field defect D4). A test fails if one reappears in
+the schema module.
+
+### Upgrading a database created with the old `FLOAT` columns (v1.31.0)
+- **Widen in place.** `ensure_schema()` and Settings → *Test connection* run an idempotent
+  `ALTER TABLE … MODIFY COLUMN … DOUBLE NULL` for every reflected `FLOAT` column of ours —
+  **MySQL/MariaDB only** (SQL Server's `FLOAT` is already 8 bytes; sqlite is untyped). Foreign
+  columns are never touched. It is logged as a warning naming the columns.
+- **One-time repair.** Rows written before the fix hold rounded timestamps. On first start after
+  upgrade (MySQL only), the report module restores `started_ts`/`finished_ts`/`created_at` from
+  the runs module's `run` records (same `run_id`, full precision) — only where the stored value is
+  within 5 000 s of the truth (the signature of single-precision rounding), never anything wider.
+  A `config` record `report_ts_repair` is the marker so it never rescans; it runs in the
+  background (never blocks start), and a failure leaves the marker unset so the next boot retries.
+  Rows whose run record was already purged cannot be repaired.
+- **CI.** The `report-mysql` job runs `test_store_precision.py` against a real MariaDB service:
+  create with the OLD `FLOAT` DDL → migrate → assert `DOUBLE` → a 10-digit epoch round-trips
+  exactly. Locally: `TMF_TEST_MYSQL_URL=mysql+pymysql://user:pw@host/db pytest modules/report/tester/test_store_precision.py`.
+
 `SQLAlchemy Core` gives a dialect-agnostic schema + query layer; the sync engine runs in
 a thread executor. Drivers are lazy: **MySQL** `mysql+pymysql`, **SQL Server**
 `mssql+pyodbc` (needs the OS *ODBC Driver 18 for SQL Server*). Install per deployment:
@@ -72,6 +93,16 @@ password (+ ODBC driver for SQL Server) → **Test connection** (creates tables)
 If the DB is unreachable, reports queue in the outbox (`/reports` + Analytics show a "not
 configured / queued" state); when the DB returns, the forwarder drains the queue. The
 report module `health()` reports the outbox backlog.
+
+## Reset data (Settings → Data management → Reports, `SYSTEM.RESET_DATA`)
+Reports live in the pro DB, and anything still spooled in the outbox is re-inserted by the
+forwarder — so deleting only one side is silently undone on the next tick (field bug X9). The
+`reports` target is therefore delegated by the runs module to the report module's
+`reset_data()` (contract method), which: takes the forwarder's drain lock (no forward can be
+mid-write), **empties the outbox first**, then purges `tmf_report_result` + `tmf_report`. If the
+DB cannot be purged the outbox is already empty and the error is raised to the operator — a
+visible failure, never a partial wipe that later resurrects. Folder-sink mirrors (CSV/JSON files)
+are operator files and are not deleted. The reply is `{reports, outbox}` (counts).
 
 ## Follow-ups (not built)
 Encryption-at-rest for the stored DB password (station-local for now); a central

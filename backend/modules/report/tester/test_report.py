@@ -206,3 +206,78 @@ async def test_export_gated_and_formats(ctx):
         csv = await c.get("/reports/R1/export?format=csv", headers=exporter)
         assert csv.status_code == 200 and csv.headers["content-type"].startswith("text/csv")
         assert (await c.get("/reports/none/export", headers=exporter)).status_code == 404
+
+
+# --- X9: Settings -> Reset data must purge the pro DB AND the outbox ------------------------
+
+async def test_reset_data_purges_store_and_outbox_and_nothing_reappears(ctx):
+    mod, _, db = ctx
+    await _finish(mod, db, "R1", "PASS")
+    await _finish(mod, db, "R2", "FAIL")
+    # a finished report still spooled (DB was down when it finished) — the outbox would re-sync it
+    await _seed_run(db, "R3", "PASS")
+    await mod._on_event("tmf/st1/event/run-finished",
+                        {"type": "run-finished", "ts": 3.0, "payload": {"run_id": "R3", "result": "PASS"}})
+    assert await mod.outbox.count() == 1
+    out = await mod.reset_data()
+    assert out["reports"] == 2 and out["outbox"] == 1
+    assert await mod.get_report("R1") is None and await mod.get_report("R2") is None
+    assert (await mod.list_reports())["total"] == 0
+    assert await mod.outbox.count() == 0
+    assert await mod._drain() == 0                         # a forwarder tick re-inserts nothing
+    assert await mod.get_report("R3") is None
+    assert (await mod.dashboard())["kpis"]["runs"] == 0
+
+
+async def test_reset_data_waits_for_an_inflight_drain(ctx):
+    import asyncio
+    mod, _, db = ctx
+    await _seed_run(db, "R9", "PASS")
+    await mod._on_event("tmf/st1/event/run-finished",
+                        {"type": "run-finished", "ts": 3.0, "payload": {"run_id": "R9", "result": "PASS"}})
+    real_write = mod.store.write
+    gate = asyncio.Event()
+
+    async def slow_write(rep):
+        await gate.wait()
+        await real_write(rep)
+    mod.store.write = slow_write
+    drain = asyncio.create_task(mod._drain())
+    await asyncio.sleep(0.05)                              # drain is mid-write
+    reset = asyncio.create_task(mod.reset_data())
+    await asyncio.sleep(0.05)
+    assert not reset.done()                                # reset is quiesced behind the drain
+    gate.set()
+    await drain
+    await reset
+    assert await mod.get_report("R9") is None              # the in-flight write did not survive
+    assert await mod.outbox.count() == 0
+
+
+async def test_reset_data_store_unreachable_is_loud_but_clears_outbox(ctx):
+    mod, _, db = ctx
+    await _seed_run(db, "R5", "PASS")
+    await mod._on_event("tmf/st1/event/run-finished",
+                        {"type": "run-finished", "ts": 3.0, "payload": {"run_id": "R5", "result": "PASS"}})
+
+    async def boom():
+        raise RuntimeError("db down")
+    mod.store.purge = boom
+    with pytest.raises(Exception, match="db down"):
+        await mod.reset_data()
+    assert await mod.outbox.count() == 0                   # never leave a re-sync source behind
+
+
+async def test_reset_data_without_a_configured_store_still_clears_outbox(tmp_path):
+    db = Database(":memory:", station="st1", source_version="0.0.0")
+    await db.connect()
+    core = CoreServices(db=db, diag=Diagnostics("st1", "0.0.0", sinks=[lambda e: None]), station="st1")
+    mod = StandardReport.construct(core, {"outbox_path": str(tmp_path / "ob.sqlite")})
+    await mod.outbox.connect()
+    try:
+        await mod.outbox.enqueue({"run_id": "Z", "result": "PASS"})
+        out = await mod.reset_data()
+        assert out == {"reports": 0, "outbox": 1}
+    finally:
+        await mod.outbox.close()
+        await db.close()

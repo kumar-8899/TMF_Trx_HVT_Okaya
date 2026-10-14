@@ -14,7 +14,7 @@ import { UpdatesConfig } from "./config/UpdatesConfig";
 
 const RESET_ITEMS = [
   { key: "runs", label: "Runs & history", desc: "Run records + run events (run history, today's counts)." },
-  { key: "reports", label: "Reports", desc: "Per-run reports + analytics inputs." },
+  { key: "reports", label: "Reports", desc: "Per-run reports in the report database, plus any not-yet-forwarded queue. Analytics inputs." },
   { key: "logs", label: "Logs", desc: "Error and action logs (the Logs page)." },
   { key: "recipes", label: "Recipes", desc: "All recipes and their versions." },
   { key: "users", label: "Users", desc: "All users except the super_admin." },

@@ -22,6 +22,7 @@ from modules.report.sinks.folder import report_to_csv
 from modules.report.store import ReportStore, StoreError
 
 _DB_CFG_ID = "report_db"
+_REPAIR_ID = "report_ts_repair"      # marker: the one-time timestamp repair has run (D4)
 _RETRY_S = 30.0
 
 
@@ -44,7 +45,9 @@ class StandardReport:
             outbox_path = str(_resolved)
         self.outbox = Outbox(outbox_path)
         self._kick = asyncio.Event()
+        self._drain_lock = asyncio.Lock()      # serialises forwarder ticks with reset_data()
         self._forwarder: asyncio.Task | None = None
+        self._repair_task: asyncio.Task | None = None
         self.router = build_router(self)
         self.mqtt_handlers = [("event/#", self._on_event)]
 
@@ -65,8 +68,15 @@ class StandardReport:
             except Exception as exc:  # noqa: BLE001 — DB down at boot must not block start
                 self.core.diag.warning("report", "report DB schema check failed at boot", error=str(exc))
         self._forwarder = asyncio.create_task(self._forward_loop())
+        self._repair_task = asyncio.create_task(self._repair_timestamps_once())   # never blocks start
 
     async def stop(self) -> None:
+        if self._repair_task:
+            self._repair_task.cancel()
+            try:
+                await self._repair_task
+            except asyncio.CancelledError:
+                pass
         if self._forwarder:
             self._forwarder.cancel()
             try:
@@ -82,6 +92,33 @@ class StandardReport:
             return Health(status=HealthStatus.DEGRADED, detail="report DB not configured")
         detail = f"store configured · outbox pending {pending}"
         return Health(status=HealthStatus.DEGRADED if pending else HealthStatus.OK, detail=detail)
+
+    async def _repair_timestamps_once(self) -> None:
+        """D4: restore full-precision timestamps on rows written while the MySQL columns were
+        4-byte FLOAT, from the runs module's `run` records. Runs once per station (marker record);
+        a failure leaves the marker unset so the next boot retries. Off MySQL nothing was ever
+        rounded, so the marker is set without a scan."""
+        try:
+            if not self.store.configured:
+                return                                          # retry when a DB is configured
+            if await self.core.db.repo.get("config", _REPAIR_ID):
+                return
+            fixed = 0
+            if self.store.dialect in ("mysql", "mariadb"):
+                runs = await self.core.db.repo.query("run")
+                truth = [{"run_id": r["data"].get("run_id") or r["id"],
+                          "started_ts": r["data"].get("started_ts"),
+                          "finished_ts": r["data"].get("finished_ts")} for r in runs]
+                fixed = await self.store.repair_timestamps(truth)
+            await self.core.db.repo.put("config", {"done": True, "fixed": fixed, "dialect": self.store.dialect},
+                                        id=_REPAIR_ID, summary="report timestamp repair done")
+            if fixed:
+                self.core.diag.warning("report", "repaired single-precision report timestamps", rows=fixed)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — must never block the app; retried next boot
+            self.core.diag.warning("report", "report timestamp repair deferred",
+                                   error=str(exc).splitlines()[0][:200])
 
     # --- assembly + spool --------------------------------------------------
 
@@ -158,18 +195,38 @@ class StandardReport:
         number forwarded (also called directly by tests)."""
         if not self.store.configured:
             return 0
-        sent = 0
-        for item in await self.outbox.pending():
+        async with self._drain_lock:
+            sent = 0
+            for item in await self.outbox.pending():
+                try:
+                    await self.store.write(item["report"])
+                    await self.outbox.mark_done(item["run_id"])
+                    sent += 1
+                except Exception as exc:  # noqa: BLE001 — keep the report; retry later
+                    await self.outbox.mark_failed(item["run_id"], str(exc))
+                    self.core.diag.warning("report", "forward to report DB failed (queued)",
+                                           run_id=item["run_id"], error=str(exc).splitlines()[0][:200])
+                    break                                   # DB likely down; stop, retry next tick
+            return sent
+
+    async def reset_data(self) -> dict:
+        """Settings -> Reset data, `reports` target (SYSTEM.RESET_DATA, via the runs module).
+
+        Reports live in the pro DB, and the outbox forwarder re-inserts anything still spooled —
+        so deleting only one side is undone on the next tick (X9). Hold the drain lock so no
+        forward is mid-write, empty the outbox FIRST (the re-sync source), then purge the store.
+        If the store cannot be purged the outbox is already empty and the error propagates, so the
+        operator sees the reset did not complete rather than a silent partial wipe."""
+        async with self._drain_lock:
+            spooled = await self.outbox.clear()
             try:
-                await self.store.write(item["report"])
-                await self.outbox.mark_done(item["run_id"])
-                sent += 1
-            except Exception as exc:  # noqa: BLE001 — keep the report; retry later
-                await self.outbox.mark_failed(item["run_id"], str(exc))
-                self.core.diag.warning("report", "forward to report DB failed (queued)",
-                                       run_id=item["run_id"], error=str(exc).splitlines()[0][:200])
-                break                                       # DB likely down; stop, retry next tick
-        return sent
+                removed = await self.store.purge()
+            except Exception as exc:  # noqa: BLE001 — loud: the DB side is NOT reset
+                self.core.diag.error("report", "report DB purge failed during reset",
+                                     error=str(exc).splitlines()[0][:200], outbox_cleared=spooled)
+                raise
+        self.core.diag.warning("report", "reports reset", reports=removed, outbox=spooled)
+        return {"reports": removed, "outbox": spooled}
 
     # --- DB config ---------------------------------------------------------
 
@@ -203,6 +260,8 @@ class StandardReport:
             except Exception as exc:  # noqa: BLE001
                 self.core.diag.warning("report", "schema check failed after config", error=str(exc))
         self._kick.set()
+        if self.store.configured and not (self._repair_task and not self._repair_task.done()):
+            self._repair_task = asyncio.create_task(self._repair_timestamps_once())
         self.core.diag.info("report", "report DB configured", provider=cfg.get("provider"))
         return await self.get_db_config()
 

@@ -74,6 +74,10 @@ expected, not a fault.
 ## Data management
 Select what to permanently delete, then **Reset selected**:
 - Runs & history, Reports, Logs, Recipes, Users (except super_admin).
+- **Reports** clears the report database **and** the local queue of reports waiting to be
+  forwarded to it — otherwise the queue would simply re-send them. If the report database is
+  unreachable the reset reports an error (the queue is already emptied; run it again once the
+  database is back to clear the database side). Exported CSV/JSON files are not deleted.
 
 This is destructive and cannot be undone. The super_admin account is always preserved.
 

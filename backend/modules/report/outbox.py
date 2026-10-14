@@ -60,6 +60,13 @@ class Outbox:
         async with self._conn.execute("SELECT COUNT(*) FROM report_outbox") as cur:
             return (await cur.fetchone())[0]
 
+    async def clear(self) -> int:
+        """Drop every pending report (Settings -> Reset data). Returns how many were dropped."""
+        n = await self.count()
+        await self._conn.execute("DELETE FROM report_outbox")
+        await self._conn.commit()
+        return n
+
     async def mark_done(self, run_id: str) -> None:
         await self._conn.execute("DELETE FROM report_outbox WHERE run_id=?", (run_id,))
         await self._conn.commit()

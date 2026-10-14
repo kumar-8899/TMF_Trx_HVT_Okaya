@@ -3,12 +3,16 @@
 Normalized so per-application test parameters are ROWS, not columns: a `report`
 header + a `report_result` child (one row per test/parameter). No per-app DDL.
 Explicit string lengths so MySQL + SQL Server accept the DDL.
+
+Floating columns are `Double`, NEVER bare `Float`: SQLAlchemy's `Float()` is a 4-byte FLOAT on
+MySQL (~7 significant digits), which rounds a 10-digit epoch timestamp by minutes (field defect
+D4). Existing databases are widened in place by `ReportStore.widen_float_columns`.
 """
 
 from __future__ import annotations
 
 from sqlalchemy import (
-    BigInteger, Column, Float, ForeignKey, Index, Integer, MetaData, String, Table,
+    BigInteger, Column, Double, ForeignKey, Index, Integer, MetaData, String, Table,
 )
 
 metadata = MetaData()
@@ -25,11 +29,11 @@ report = Table(
     Column("recipe_id", String(128)),
     Column("recipe_version", Integer),
     Column("result", String(32)),
-    Column("started_ts", Float),
-    Column("finished_ts", Float),
+    Column("started_ts", Double),
+    Column("finished_ts", Double),
     Column("business_day", String(10)),
     Column("shift_label", String(64)),
-    Column("created_at", Float),
+    Column("created_at", Double),
     Index("ix_report_business_day", "business_day"),
     Index("ix_report_model", "model"),
     Index("ix_report_shift", "shift_label"),
@@ -48,7 +52,7 @@ report_result = Table(
     Column("measured", String(255)),
     Column("result", String(32)),
     Column("unit", String(64)),
-    Column("cycle_time_ms", Float),
+    Column("cycle_time_ms", Double),
     Index("ix_result_run", "run_id"),
     Index("ix_result_test", "test_name"),
 )
