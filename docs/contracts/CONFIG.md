@@ -142,6 +142,17 @@ linkage is the planned next step.)
 | DELETE | `/config/instruments/{id}` | CONFIG.EDIT | delete |
 | POST | `/config/instruments/test` | CONFIG.VIEW | probe a saved id or ad-hoc `{transport, params}` |
 
+### Reads an operator needs without `CONFIG.VIEW` (v1.31.0)
+
+An admin can remove `CONFIG.VIEW` from the operator role. The Test Bench's Start dialog must still load, so two
+reads are **any-of `TEST.RUN` / `CONFIG.VIEW`** (`require_any_permission`): `GET /config/barcode` (the serial-number
+layout) and `GET /config/shift/current`. Everything else under `/config` - shift settings, instruments,
+transports, every write - keeps its `CONFIG.VIEW` / `CONFIG.EDIT` gate. Instrument **connection status**
+(`GET /variables/instances`: id, library, capabilities, state, simulated - no connection params) is open to
+**any signed-in role** (`require_authenticated`), so the Dashboard and Test Bench show hardware state to everyone;
+instrument *configuration* stays `CONFIG.VIEW`. The Runs screen surfaces a failed load of any of these instead of
+silently falling back (it used to hide the serial box).
+
 ## Test connection (the LabVIEW seam)
 
 `POST /config/instruments/test` dispatches bridge op **`instrument.test`**

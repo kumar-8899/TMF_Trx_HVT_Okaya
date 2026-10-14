@@ -92,12 +92,14 @@ How it works (`frontend/src/app/registry.ts`):
 | `recipe-editor` | `screens/RecipeEditor` | `/recipes/new`, `/recipes/:id/edit` |
 | `recipe-detail` | `screens/RecipeDetail` | `/recipes/:id` |
 | `maintenance` | `screens/Maintenance` | `/maintenance` |
+| `portal` | `screens/Portal` | `/portal` (the whole User Portal) |
+| `portal-test-sequence` | `components/portal/TestSequence` (placeholder) | `/portal?tab=sequence` - **the app authors this** (`docs/contracts/PORTAL.md` "Test Sequence tab") |
 
 The permission wrappers (`RequirePermission`/`RequireRole`) stay in the framework `App.tsx` —
 an override replaces only the inner screen, never the gate. Overrides reuse the framework API
 client and run-stream hooks. See `frontend/src/app/overrides/README.md`.
 
-### Adding a brand-new page (not just replacing one of the 5 above)
+### Adding a brand-new page (not just replacing one of the keys above)
 
 The 5 keys above only let a fork *replace* an existing screen — there was no way to *add* a
 new top-level page without editing framework-owned `App.tsx` (routes) and `Layout.tsx` (nav),

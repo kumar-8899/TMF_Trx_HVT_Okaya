@@ -29,6 +29,25 @@ async function openStartDialog() {
 
 afterEach(() => localStorage.clear());
 
+describe("Runs — config load failures are shown, never swallowed (D11)", () => {
+  it("a refused /config/barcode shows a warning and blocks Start instead of falling back to a recipe picker", async () => {
+    localStorage.setItem("tmf.token", "t");
+    globalThis.fetch = (async (url: any) => {
+      const path = String(url).split("?")[0];
+      if (path === "/config/barcode") {
+        return { ok: false, status: 403, text: async () => JSON.stringify({ detail: "requires one of: TEST.RUN, CONFIG.VIEW" }) } as Response;
+      }
+      const route = (baseRoutes(BARCODE_CFG) as Record<string, any>)[`GET ${path}`];
+      return route
+        ? { ok: true, status: 200, text: async () => JSON.stringify(route.body) } as Response
+        : { ok: false, status: 404, text: async () => "" } as Response;
+    }) as any;
+    await openStartDialog();
+    expect(await screen.findByText(/Could not load the barcode settings/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+  });
+});
+
 describe("Runs — Start dialog driven by Config → Barcode", () => {
   it("barcode enabled: shows only the serial field, previews the recipe part, and POSTs {barcode}", async () => {
     localStorage.setItem("tmf.token", "t");

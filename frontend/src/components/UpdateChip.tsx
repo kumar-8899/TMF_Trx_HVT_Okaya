@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 
-/** "Relaunch to update" — shown when a signed update has been applied (staged) and is
+/** NOT RENDERED in the nav since v1.31.0 (the menu foot shows the app version instead; staged updates
+ * apply on the next restart or from Settings → Updates). Kept, unreferenced, for forks that want
+ * the chip back via an override page.
+ *
+ * "Relaunch to update" — shown when a signed update has been applied (staged) and is
  * waiting for a relaunch. Clicking it writes the launcher marker + exits the backend
  * (code 42); the launcher swaps the artifact and restarts. Only meaningful under the
  * launcher (a bare backend just stops).

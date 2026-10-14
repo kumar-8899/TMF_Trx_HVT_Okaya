@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 
-from core.services.security import current_principal, require_permission, require_role
+from core.services.security import current_principal, require_authenticated, require_permission, require_role
 from instrumentlib.errors import InstrumentError, NotConnected, NotSupported
 from modules.variables.engine import VariableError
 
@@ -58,7 +58,9 @@ def build_router(module) -> APIRouter:
     async def capabilities() -> dict:
         return module.capabilities()
 
-    @router.get("/variables/instances", dependencies=_VIEW)
+    # Connection STATUS only (id, library, capabilities, state, simulated - no params) is every
+    # signed-in role's to see, even with CONFIG.VIEW removed (X8); instrument CONFIG stays CONFIG.VIEW.
+    @router.get("/variables/instances", dependencies=[Depends(require_authenticated())])
     async def instances() -> list[dict]:
         await module.refresh_instance_status()
         return module.instance_status()

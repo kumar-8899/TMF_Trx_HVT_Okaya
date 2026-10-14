@@ -91,3 +91,13 @@ def test_step_aborted_is_never_retried():
     with pytest.raises(StepAborted):
         _run(_step(min=0, max=10, retries=3), v)
     assert v.reads == 1                          # aborted on the first read; never retried
+
+
+def test_failing_row_carries_the_cause_message_and_a_passing_row_does_not():
+    """D5: the cause of a FAIL must ride on the test-result row so the Runs record keeps it."""
+    v = _FlakyVars(raises=99)
+    _, ev = _run(_step(min=0, max=10, retries=0), v)
+    row = [p for t, p in ev if t == "test-result"][0]
+    assert row["result"] == FAIL and "connection reset" in row["message"]
+    _, ev2 = _run(_step(min=0, max=10), _FlakyVars(value=5.0))
+    assert "message" not in [p for t, p in ev2 if t == "test-result"][0]

@@ -50,4 +50,25 @@ describe("UserMenu", () => {
     expect(screen.queryByText("Manage users")).not.toBeInTheDocument();
     localStorage.removeItem("tmf.token");
   });
+
+  it("an operator holding SYSTEM.EXIT sees 'Exit station' (it used to be super_admin only)", async () => {
+    localStorage.setItem("tmf.token", "tok");
+    mockFetch({ "GET /auth/me": { body: { username: "op", role: "operator", permissions: ["TEST.RUN", "SYSTEM.EXIT"] } } });
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByLabelText("user menu")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("user menu"));
+    expect(await screen.findByText("Exit station")).toBeInTheDocument();
+    localStorage.removeItem("tmf.token");
+  });
+
+  it("hides 'Exit station' when the role lacks SYSTEM.EXIT, even for the super_admin role name", async () => {
+    localStorage.setItem("tmf.token", "tok");
+    mockFetch({ "GET /auth/me": { body: { username: "root", role: "super_admin", permissions: ["TEST.RUN"] } } });
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByLabelText("user menu")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("user menu"));
+    await screen.findByText("Log out");
+    expect(screen.queryByText("Exit station")).not.toBeInTheDocument();     // gated on the permission, not the role
+    localStorage.removeItem("tmf.token");
+  });
 });

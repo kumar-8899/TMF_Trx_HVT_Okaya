@@ -16,6 +16,13 @@ the fork to edit shared files, so `git merge upstream/<version>` stays clean.
 | `recipe-editor` | `screens/RecipeEditor`   | `/recipes/new`, `/recipes/:id/edit`        |
 | `recipe-detail` | `screens/RecipeDetail`   | `/recipes/:id`                             |
 | `maintenance`   | `screens/Maintenance`    | `/maintenance`                             |
+| `portal`        | `screens/Portal`         | `/portal` (whole User Portal)              |
+| `portal-test-sequence` | `components/portal/TestSequence` (placeholder) | `/portal?tab=sequence` |
+
+`portal-test-sequence` is the one forks are expected to supply: the framework deliberately does not
+generate the Test Sequence tab - its content is authored per application. The no-props component is
+shown inside the Portal's tab (gated `PORTAL.SEQUENCE`). Workflow: `docs/contracts/PORTAL.md`
+"Test Sequence tab".
 
 ## Example (`overrides/runs.tsx`)
 
@@ -36,7 +43,7 @@ Rules:
 
 ## Adding a brand-new page
 
-The 5 keys above only let you *replace* an existing screen. To *add* a new top-level page —
+The keys above only let you *replace* an existing screen. To *add* a new top-level page —
 one framework `App.tsx`/`Layout.tsx` don't already have a route or nav entry for — export a
 named `pages: AppPage[]` from any file here (alongside or instead of a `default` screen
 override). Each entry becomes a route (permission-gated the same way built-in routes are) and

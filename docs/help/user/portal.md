@@ -1,7 +1,9 @@
 # User Portal
 
-The portal is your one place for **how-to information about this station**: the manual, and the hardware
-documents (instrument manuals, wiring drawings) that belong to it. Open it from **Portal** in the side menu.
+The portal is your one place for **how-to information about this station**: the manual, the hardware
+documents (instrument manuals, wiring drawings) that belong to it, and — if your role allows — the
+**Test Sequence** for this product. (It replaces the separate *Help* menu entry; pressing **F1** on any screen
+still opens the quick help panel, whose *Open full help* button lands here.) Open it from **Portal** in the side menu.
 
 ![User Portal — the built-in manual](asset:portal)
 
@@ -10,6 +12,13 @@ documents (instrument manuals, wiring drawings) that belong to it. Open it from 
 The **Manual** tab is the station's built-in manual: the same pages you reach with **F1** on any screen, plus —
 under **This app** — pages written specifically for this bench (wiring, setup notes, procedures). Pages are
 searchable, and links between pages stay inside the portal.
+
+## Test Sequence
+
+Shown only if your role has the **View test sequence** permission. It explains, step by step, what this product's
+test does — what is measured, how it is wired, and what a limit means. This content is written by the people who
+built this application, so it can differ from station to station; if the tab says it hasn't been published yet,
+ask your application developer.
 
 ## Library
 

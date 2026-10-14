@@ -63,6 +63,13 @@ def require_any_permission(*perms: str) -> Callable[[Request], Awaitable[Princip
     return dep
 
 
+def require_authenticated() -> Callable[[Request], Awaitable[Principal]]:
+    """Any signed-in principal (401 without a valid token, never 403). For read-only STATUS that
+    every role needs to do its job and that carries no configuration or secrets - e.g. whether an
+    instrument is connected (field defect X8)."""
+    return require_any_permission()
+
+
 def require_role(*roles: str) -> Callable[[Request], Awaitable[Principal]]:
     """Secondary convenience gate by role name."""
 

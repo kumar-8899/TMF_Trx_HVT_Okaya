@@ -55,6 +55,7 @@ export function App() {
   const RecipeEditorC = screen("recipe-editor", RecipeEditor);
   const RecipeDetailC = screen("recipe-detail", RecipeDetail);
   const MaintenanceC = screen("maintenance", Maintenance);
+  const PortalC = screen("portal", Portal);
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -82,7 +83,7 @@ export function App() {
           <Route path="/permissions" element={<RequirePermission perm="AUTH.MANAGE_ROLES"><Permissions /></RequirePermission>} />
           <Route path="/settings" element={<RequirePermission perm="SYSTEM.RESET_DATA"><Settings /></RequirePermission>} />
           <Route path="/help" element={<RequirePermission perm="HELP.VIEW"><Help /></RequirePermission>} />
-          <Route path="/portal" element={<RequirePermission perm="PORTAL.VIEW"><Portal /></RequirePermission>} />
+          <Route path="/portal" element={<RequirePermission perm="PORTAL.VIEW"><PortalC /></RequirePermission>} />
           {/* App-contributed pages (TEMPLATE.md §1.3) — path always starts with "/app/". */}
           {APP_PAGES.map((p) =>
             p.permission ? (

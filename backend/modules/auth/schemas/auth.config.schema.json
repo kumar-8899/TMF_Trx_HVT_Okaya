@@ -18,6 +18,14 @@
         "max_age_days": { "type": "integer", "minimum": 0 }
       }
     },
+    "login": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "user_picker": { "type": "boolean", "default": false,
+          "description": "Login screen shows a dropdown of ACTIVE usernames instead of a free-text box. Off by default: turning it on exposes the usernames to anyone who can reach the login page." }
+      }
+    },
     "roles": {
       "type": "object",
       "additionalProperties": { "type": "array", "items": { "type": "string" } }

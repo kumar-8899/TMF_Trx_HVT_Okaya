@@ -48,6 +48,11 @@ def build_router(module) -> APIRouter:
         except AuthError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
 
+    @router.get("/auth/login-options")
+    async def login_options() -> dict:
+        # Deliberately unauthenticated (the login screen calls it); see module.login_options.
+        return await module.login_options()
+
     @router.post("/auth/logout")
     async def logout(request: Request) -> dict:
         try:

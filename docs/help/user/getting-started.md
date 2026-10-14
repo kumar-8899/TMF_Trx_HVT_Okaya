@@ -6,14 +6,14 @@ Welcome to the Test & Measurement station. This guide gets you from login to you
 
 ## Sign in
 1. Open the station in your browser.
-2. Enter your **username** and **password**.
+2. Enter your **username** and **password**. (If your station shows a username **dropdown**, pick your name from the list instead of typing it.) The application version is shown at the bottom-right of the sign-in box.
 3. First login with a temporary password forces a **password change** before you can continue.
 
 If you are locked out, ask a super_admin to reset your password.
 
 ## The layout
-- **Top bar** — app logo (click to return to the Dashboard), station-readiness lamp, the **?** help button (this help), full-screen and light/dark toggles, and your **user menu** (avatar, top-right). The user menu holds **Log out** and, for super_admin, **Exit station**.
-- **Side menu** — the screens you have permission to use, grouped into sections (Operations, Health, Config, Administration). What you see depends on your role. When an update is ready, a **Relaunch to update** button appears at the bottom of this menu.
+- **Top bar** — app logo (click to return to the Dashboard), station-readiness lamp, the **?** help button (this help), full-screen and light/dark toggles, and your **user menu** (avatar, top-right). The user menu holds **Log out** and **Exit station** (safely stops the station — available to every role).
+- **Side menu** — the screens you have permission to use, grouped into sections (Operations, Health, Config, Administration). What you see depends on your role. The bottom of the menu shows the **application version** (quote it when you contact support). Documentation lives under **Portal**; the **?** button (or F1) opens quick help for the current screen.
 
 ## Your role
 Each user has one **role** (operator, engineer, maintenance, admin, super_admin). The role decides which screens and actions are available. You only see what you can use.

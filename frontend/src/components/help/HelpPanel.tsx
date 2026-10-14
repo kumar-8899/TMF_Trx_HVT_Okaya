@@ -1,5 +1,7 @@
 /** Context-aware help slide-over. Opens to the doc for the current screen, with
- * search and a link to the full /help page. (DEBUG/Help module.) */
+ * search and a link to the full documentation — the User Portal's Manual tab for anyone who can
+ * open the portal (it is the one user-facing docs surface), else the bare /help page; developer
+ * pages (dev-*) always live on /help. (DEBUG/Help module.) */
 import Close from "@mui/icons-material/Close";
 import Search from "@mui/icons-material/Search";
 import {
@@ -10,15 +12,24 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../../api/client";
-import { Markdown } from "./Markdown";
+import { useAuth } from "../../auth/AuthContext";
+import { HelpLinkBase, Markdown } from "./Markdown";
 import "./widgets/register";
 
 interface Doc { id: string; title: string; markdown: string }
+
+/** Where "Open full help" / in-page `help:` links go. */
+export function fullHelpPath(id: string | undefined, portal: boolean): string {
+  const dev = Boolean(id && id.startsWith("dev-"));
+  if (portal && !dev) return `/portal?tab=manual${id ? `&page=${id}` : ""}`;
+  return id ? `/help?page=${id}` : "/help";
+}
 interface Hit { id: string; title: string; section: string; snippet: string }
 
 export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const loc = useLocation();
   const navigate = useNavigate();
+  const { can } = useAuth();
   const [doc, setDoc] = useState<Doc | null>(null);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
@@ -51,7 +62,7 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
       PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, maxWidth: "100%" } }}>
       <Stack direction="row" alignItems="center" sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>Help</Typography>
-        <Button size="small" onClick={() => { onClose(); navigate(doc ? `/help?page=${doc.id}` : "/help"); }} sx={{ mr: 0.5 }}>Open full help →</Button>
+        <Button size="small" onClick={() => { onClose(); navigate(fullHelpPath(doc?.id, can("PORTAL.VIEW"))); }} sx={{ mr: 0.5 }}>Open full help →</Button>
         <IconButton size="small" onClick={onClose}><Close fontSize="small" /></IconButton>
       </Stack>
       <Box sx={{ p: 1.5, pb: 1 }}>
@@ -71,7 +82,7 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
               ))}
             </List>
           )
-        ) : doc ? <Markdown>{doc.markdown}</Markdown> : <Typography variant="body2" color="text.secondary">Loading…</Typography>}
+        ) : doc ? <HelpLinkBase.Provider value={can("PORTAL.VIEW") ? "/portal?tab=manual" : "/help"}><Markdown>{doc.markdown}</Markdown></HelpLinkBase.Provider> : <Typography variant="body2" color="text.secondary">Loading…</Typography>}
       </Box>
     </Drawer>
   );

@@ -305,8 +305,11 @@ def create_app(
                 "station_refusals": getattr(app.state, "station_refusals", [])}
 
     # ---- station configuration (Settings → Station; SYSTEM.SETTINGS) --------
-    from core.services.security import require_permission
+    from core.services.security import require_any_permission, require_permission
     _SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
+    # Exiting the station is every role's right (SYSTEM.EXIT, default-granted to all roles); the
+    # old SYSTEM.SETTINGS holders keep it. Relaunch / updates / config stay SYSTEM.SETTINGS only.
+    _EXIT = [Depends(require_any_permission("SYSTEM.EXIT", "SYSTEM.SETTINGS"))]
 
     def _running_controller_kind() -> str:
         return "python" if getattr(app.state, "controller", None) is not None else "labview"
@@ -473,7 +476,7 @@ def create_app(
         _exit_relaunch("config change")
         return {"ok": True, "relaunching": True, "note": "station is relaunching to apply configuration"}
 
-    @app.post("/system/shutdown", dependencies=_SETTINGS)
+    @app.post("/system/shutdown", dependencies=_EXIT)
     async def system_shutdown() -> dict:
         """Exit the station SAFELY. Raises SIGINT to trigger the full lifespan shutdown —
         modules stop, the Python controller is gracefully stopped (every instrument driven

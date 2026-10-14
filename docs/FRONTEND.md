@@ -78,12 +78,17 @@ The visual vocabulary every screen reuses:
   issue #7) · Exeliq logo (right) · then, separated by thin dividers,
   **station-readiness lamp** │ **help / full-screen / light-dark** icons │ **`UserMenu`**.
 - **`UserMenu`** — the avatar opens a dropdown with the signed-in identity, **Log out**,
-  and (super_admin) **Exit station** (the graceful `POST /system/shutdown`). This folds
+  and **Exit station** for any role holding `SYSTEM.EXIT` (every role by default; the graceful
+  `POST /system/shutdown`, any-of `SYSTEM.EXIT`/`SYSTEM.SETTINGS`). This folds
   what were separate session + power-icon controls into one, to keep the bar uncluttered.
 - **Drawer** — the nav is grouped into collapsible sections (Dashboard, Runs top-level;
-  then Operations / Health / Config / Administration; Help), permission/role-filtered.
-  **`UpdateChip`** ("Relaunch to update") is pinned at the **foot of the drawer**, shown
-  only when a signed update is staged.
+  then Operations / Health / Config / Administration; Portal), permission/role-filtered. The
+  **foot of the drawer shows the application version** (`/branding` `app_version`, else the framework
+  version). The "Relaunch to update" chip (`UpdateChip`) was removed from the nav in v1.31.0: a staged
+  update applies on the next restart or from Settings → Updates. The separate user *Help* entry is gone
+  too - **Portal** is the one documentation surface (docs/contracts/PORTAL.md); *Developer docs*
+  appears for super_admin on a source checkout only. The **login screen** shows the app version
+  bottom-right and, if `login.user_picker` is on, a username dropdown (docs/contracts/auth.md).
 - **Run lock (#6.5)** — while a run is active the AppBar controls collapse to a
   "TEST IN PROGRESS" label and the brand is inert, so only Abort is reachable.
 - **Full-screen (#6.4)** — an AppBar toggle; `station.py --fullscreen` does the same at
@@ -128,7 +133,8 @@ framework. The framework ships `overrides/` empty. See TEMPLATE.md §1.3.
 | Users | `/users` | table with role **dropdowns** + state chips; New-user modal; super_admin hidden from non-super_admins; **Permissions** button (AUTH.MANAGE_ROLES) |
 | Permissions | `/permissions` | AUTH.MANAGE_ROLES (super_admin); **role × permission matrix** with allow/disallow checkboxes, grouped by domain; super_admin column read-only; Save (per-role PUT) — applies at users' next login |
 | Settings | `/settings` | super_admin only; **Data management** (per-item reset toggles → Reset selected); **Report database** (MySQL/SQL Server provider + connection + Test connection + Save — the pro DB report store); **Remote debugging** (flight-recorder on/off + bind/token + live status → `app.json` `debug.enabled`, applied on relaunch — REMOTE_DEBUG.md) |
-| Help | `/help` + AppBar **?** panel | HELP.VIEW; in-app docs from the `help` module. AppBar **?** (or `F1`) opens a **context-aware** slide-over for the current screen; `/help` is the full page (sidebar tree + search + markdown). super_admin gets a **User/Developer** toggle (dev docs gated HELP.DEV). |
+| Help | AppBar **?** panel (`F1`) + `/help` | HELP.VIEW; in-app docs from the `help` module. The **?** / `F1` slide-over is **context-aware**; its "Open full help" opens the **Portal Manual tab** (`/portal?tab=manual&page=`). `/help` remains for **Developer docs** (super_admin, source checkout; gated HELP.DEV) and as a plain Help entry for a role that has HELP.VIEW but not PORTAL.VIEW. |
+| Portal | `/portal` (overridable: `portal`) | PORTAL.VIEW. Tabs: Manual · Library · **Test Sequence** (PORTAL.SEQUENCE; app-authored via override key `portal-test-sequence`). |
 | Config (cascaded nav group, `CONFIG.VIEW`) | `/config/*` | **Instruments** (`/config/instruments`) — **owner-aware** form engine: pick **Python-owned** (library picker → fields from the library's `connection_params` in the index + `simulated`) or **LabVIEW-owned** (transport picker → fields from `GET /config/transports`); id/label/model, editable resource + preview, **Test connection** (LabVIEW probe / live instance state), family/capabilities; CRUD gated `CONFIG.EDIT`; read-only libraries + live-instances panel. Python instances feed the variable engine (apply on restart). **Shift** (`/config/shift`) — enabled toggle + editable shift list (label + start, 24h contiguous; current-shift chip). **MES** (`/config/mes`). **Barcode** (`/config/barcode`) — enabled toggle + total length + editable parts list (name/start/length) + a recipe-id part designation; drives the Runs Start dialog directly |
 | Health | `/health` | HEALTH.VIEW; **Production Readiness** banner (Ready / Warnings / Blocked), **Operator/Technician/Engineer** view toggle, checks grouped by **business function** (Core Software / Production Systems / Test Equipment / External Systems) with impact + what-to-do + known-issue remedy on failure; per-check & suite Re-test, live progress (WS), **Scheduled runs** (startup/shutdown/30-min/daily), **Trend analysis** (MTBF, fail rate, repeated, flaky), history |
 | Maintenance | `/maintenance` | HEALTH.MAINTENANCE; enter/exit maintenance, variable read/write (write-gated on maintenance), run a check, live values — composed from existing contracts; embeds the capability-driven **instrument test bench** panel for `super_admin` (hands-on control of Python-owned instruments; no standalone route) |

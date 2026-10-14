@@ -352,3 +352,45 @@ async def test_user_management_permission_gated(ctx):
         assert (await c.get("/auth/users", headers=op)).status_code == 403
         # no token -> 401
         assert (await c.get("/auth/users")).status_code == 401
+
+
+# --- X4: login username dropdown (config-gated, default OFF) ----------------
+
+
+async def _picker_module(enabled):
+    module, core, db = await _build()
+    module.config = {**module.config, "login": {"user_picker": enabled}}
+    await module.users.create("gone", "operator", state="INACTIVE")
+    await module.users.create("locked1", "operator", state=LOCKED)
+    return module, core, db
+
+
+async def test_login_options_off_by_default_leaks_no_usernames(ctx):
+    module, core, _ = ctx
+    async with _client(module, core) as c:
+        r = await c.get("/auth/login-options")                   # pre-auth: no token
+    assert r.status_code == 200 and r.json() == {"user_picker": False, "users": []}
+
+
+async def test_login_options_lists_only_active_usernames_when_enabled():
+    module, core, db = await _picker_module(True)
+    try:
+        async with _client(module, core) as c:
+            r = await c.get("/auth/login-options")
+        body = r.json()
+        assert body["user_picker"] is True
+        assert body["users"] == ["admin", "op"]                  # sorted; inactive + locked excluded
+        assert set(body) == {"user_picker", "users"}             # usernames ONLY - no roles, no PII
+    finally:
+        await db.close()
+
+
+async def test_login_works_with_a_username_picked_from_the_list():
+    module, core, db = await _picker_module(True)
+    try:
+        async with _client(module, core) as c:
+            name = (await c.get("/auth/login-options")).json()["users"][1]
+            r = await c.post("/auth/login", json={"username": name, "credential": {"password": "oppass12"}})
+        assert r.status_code == 200 and r.json()["token"]
+    finally:
+        await db.close()

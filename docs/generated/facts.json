@@ -460,6 +460,10 @@
           "path": "/auth/login"
         },
         {
+          "method": "GET",
+          "path": "/auth/login-options"
+        },
+        {
           "method": "POST",
           "path": "/auth/logout"
         },

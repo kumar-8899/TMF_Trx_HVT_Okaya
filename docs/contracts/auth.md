@@ -34,6 +34,8 @@ domain; `*` grants everything. Matching is wildcard-aware
 | `DIAGNOSTICS.VIEW` | diagnostics stream |
 | `SYSTEM.RESET_DATA` | settings: reset run/test/report data (super_admin only) |
 | `SYSTEM.SETTINGS` | settings: MES interlock config + station settings (super_admin) |
+| `SYSTEM.EXIT` | **Exit station** (`POST /system/shutdown`, any-of with `SYSTEM.SETTINGS`); granted to **every role** by default - an operator must be able to close the app. Relaunch/update/config stay `SYSTEM.SETTINGS`. |
+| `PORTAL.SEQUENCE` | the User Portal's **Test Sequence** tab (`docs/contracts/PORTAL.md`); admin by default |
 | `HEALTH.VIEW` | health: read checks/runs/current/issues |
 | `HEALTH.RUN` | health: run non-disruptive checks |
 | `HEALTH.MAINTENANCE` | health: run disruptive checks, enter/exit maintenance (R3) |
@@ -46,6 +48,18 @@ domain; `*` grants everything. Matching is wildcard-aware
 Modules gate routes with `require_permission(*perms)` from
 [core/services/security.py](../../backend/core/services/security.py); they consume
 **permissions, never roles** (roles live only inside Auth).
+
+## Login screen: username picker (opt-in)
+
+By default the login screen is a free-text username box and the API never lists usernames to an
+unauthenticated caller. A station can opt in to a **dropdown of ACTIVE users** (the user picks a name and types
+the password) with `app.json` -> auth module `config.login.user_picker: true` (default `false`).
+
+`GET /auth/login-options` (**unauthenticated** - the login page calls it) returns `{"user_picker": false,
+"users": []}` when off, and `{"user_picker": true, "users": ["admin", "op"]}` when on: sorted usernames of
+`ACTIVE` accounts only - never role, state or any other field; locked, inactive and password-reset-required
+accounts are not listed. It is a deliberate trade-off (anyone who can reach the login page can read the
+names), which is why it is off unless the station owner turns it on. The login request itself is unchanged.
 
 ## Roles
 **One role per user.** Roles → permissions are **data** (config `roles` map); a
