@@ -168,6 +168,14 @@ enforced by the Variable Engine (`VARIABLE_ENGINE.md` §5).
 }
 ```
 
+**Controller-native parameters (v1.31.0)** - the Python controller's `measure_and_compare` schema
+(`controller/step_types/schemas/measure_and_compare.json`) takes `signal`, `name`, `unit`, `min`, `max`,
+`expected` and, new, **`retries`** (integer 0-5, default 0) and **`settle_s`** (number >= 0, default 0.5): a read that
+raises, or is out of limits, is re-read after `settle_s` (abort-aware); only the last attempt is reported; if every
+attempt raised, the step reports one FAIL row with `measured: "ERROR"` and the cause in `message`.
+`retry_count` on the step envelope is different - it re-runs the whole step. Recipes saved before the change keep
+working (no retries until re-saved). Row semantics: `docs/contracts/REPORT.md`.
+
 **Example:**
 ```json
 {

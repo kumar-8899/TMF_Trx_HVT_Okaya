@@ -88,6 +88,9 @@ One JSON document per version. Validated against
     "on_fail": "stop"
   },
 
+  // ── stop on the first failing top-level step (v1.31.0) ────────
+  "stop_on_fail": false,       // strictly boolean `true` stops; absent/false/anything else continues
+
   // ── pre/post hooks ────────────────────────────────────────────
   "setup_steps":    [ /* steps */ ],
   "teardown_steps": [ /* always run, including on abort */ ],
@@ -99,6 +102,27 @@ One JSON document per version. Validated against
   "content_hash": "sha256:9f6c..."
 }
 ```
+
+### 2.1 `stop_on_fail` and what `on_fail` means today
+
+The **controller-native** sequencer reads exactly one failure-handling switch: the recipe-level
+**`stop_on_fail`** (top level of the recipe, next to `steps`).
+
+- **absent / `false` / any non-boolean value** (`"true"`, `1`, ...): the historic behaviour - every step runs, the
+  verdict is FAIL if any final attempt FAILed.
+- **`true`** (strictly the JSON boolean): after the **first top-level step whose final attempt FAILs**, the
+  remaining top-level steps are **skipped** - no `step-started` / `step-completed` / `test-result` for them, one
+  `step.skipped` diagnostic (warning) each - the failing step's own row **is** emitted, the verdict is FAIL, and
+  **teardown still runs** (teardown is owned by the run state machine, not the step walk). Only *top-level* steps
+  are skipped: a failure inside a `group`/`repeat` does not stop that composite's siblings, but does fail the
+  composite, which then stops the top level.
+- Retries first: a step with `retry_count` is only "failed" after its last attempt.
+
+The per-step `on_fail` and `defaults.on_fail` shown in the legacy shape below belong to the retired
+backend step schemas; **the controller does not read them**. Use `stop_on_fail`. The flag is part of the
+*controller contract*: **both engines must honour it** (Python controller: implemented and tested,
+`controller/tester/test_stop_on_fail.py`; the LabVIEW engine must implement the same rule - this repo cannot test
+that engine, so treat it as an open item for the LabVIEW developer until verified on a bench).
 
 Every **step** shares this envelope:
 
@@ -214,6 +238,12 @@ content_hash   sha256 of canonical JSON     stamped at save, immutable
 A run record stores all three. The hash is the proof artifact for "what
 exact bytes ran on this DUT." Compute it at save time and never modify
 the file afterwards.
+
+**`recipe_id` rules (checked when a recipe is CREATED, v1.31.0):** 1-64 characters from `A-Z a-z 0-9 _ -`, first
+character a letter or digit, and not a Windows reserved device name (`CON PRN AUX NUL COM1-9 LPT1-9`,
+case-insensitive; `CONSOLE`, `COM10`, `1400`, `TX-100` are fine). The id becomes a folder name, so `../x`, spaces
+or `CON` used to create unusable (or escaping) directories. Nothing is written on rejection (HTTP 422). Existing
+ids are never re-checked or renamed.
 
 ### 5.2 Save = new version
 

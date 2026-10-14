@@ -72,3 +72,12 @@ def test_stop_on_fail_all_pass_runs_everything():
     r, ev, _ = _run({"stop_on_fail": True, "steps": [_PASS_STEP, _PASS_STEP]}, _Vars({"v": 5}))
     assert r == PASS
     assert len([1 for t, p in ev if t == "step-started"]) == 2
+
+
+def test_failure_inside_a_group_does_not_stop_its_siblings_but_stops_the_top_level():
+    group = {"type": "group", "id": "g", "params": {"steps": [_FAIL_STEP, _PASS_STEP]}}
+    r, ev, diags = _run({"stop_on_fail": True, "steps": [group, {**_PASS_STEP, "id": "after"}]}, _Vars({"v": 5}))
+    assert r == FAIL
+    started = [p["step_id"] for t, p in ev if t == "step-started"]
+    assert started == ["g", "bad", "ok"]                      # the group's own sibling still ran; 'after' did not
+    assert [f["step_id"] for lvl, msg, f in diags if msg == "step.skipped"] == ["after"]

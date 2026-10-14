@@ -5,6 +5,105 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.31.0 — 2026-10-15
+
+**Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).**
+
+Every item below was a real failure in the Okaya Transformer fork (or a request raised while triaging them). Each defect
+has a test that failed before the fix and is kept. Items that were app-specific (not generic) were **not** adopted - see
+"Not adopted".
+
+*Test execution and results*
+
+- **D1 - `recipe_id` validated at creation** (`recipe/variants/filesystem.py`): 1-64 of `A-Za-z0-9_-`, alphanumeric first,
+  no Windows device names (`CON`, `COM1`...). Creation only - existing ids are never re-checked. `RECIPE.md` 5.1.
+- **D2 / X1 - recipe-level `stop_on_fail`** (`controller/sequencer.py`): strictly boolean `true` skips the remaining
+  top-level steps after the first failing one (`step.skipped` diag each, failing row kept, FAIL verdict, teardown
+  unaffected). Absent/false/other = unchanged. The per-step `on_fail` in the old docs was never read by the controller.
+  **Open item:** the LabVIEW engine must implement the same rule (`RECIPE.md` 2.1); not verifiable from this repo.
+- **D5 - a FAIL verdict always has a FAIL row**: a crashed step now yields one row (`measured: "ERROR"`, limits from
+  params, cause in `message`); the failed `step.end` diag is `warning` so it survives `persist.min_level`; the cause rides
+  on the `test-result` and so on the Runs record. `contracts/REPORT.md` (new).
+- **D14 - `measure_and_compare` `retries` (0-5) + `settle_s`**: re-read a flaky signal without re-running the step; last
+  attempt wins; abort-aware; a read that never succeeds is the `ERROR` row.
+- **D6 - INFO rows are not failures**: `set_output`/`prompt_operator` rows no longer top the failure Pareto
+  (`analytics.row_is_failure`, SQL Pareto). PASS/FAIL/INFO semantics are documented in `contracts/REPORT.md`.
+  *Open option (not done, ask first):* omit INFO rows from xlsx/TDMS export and the Full view; cycle time still includes them.
+
+*Calibration, data and operator access*
+
+- **D3 / X2 - calibration overlay + Maintenance calibration panel** (`contracts/CALIBRATION.md`, new): per-station
+  gain/offset overlay (state dir) over the shipped map's scale, baked by the supervisor into an effective map, applied by
+  both read paths through one function, hot-reloaded by the new controller op `calibration.reload` (no relaunch; refused
+  mid-run). REST `/calibration/*` gated `MAINTENANCE.CALIBRATE`. Bad overlay degrades loudly to factory scale.
+- **D4 - report timestamps were 4-byte `FLOAT` on MySQL** (epoch rounded by minutes): columns are `Double`; existing
+  MySQL/MariaDB databases are widened in place (`ALTER ... MODIFY COLUMN ... DOUBLE`), and already-rounded rows are
+  repaired once from the runs records (marker record, background, retried on failure). New CI job `report-mysql` runs
+  the store against a real MariaDB. `REPORT_STORE.md`.
+- **X9 - Settings -> Reset data did not clear Reports**: reports live in the report DB and the outbox forwarder re-inserts
+  what is queued. `reports` now delegates to the report module (`reset_data`: drain lock, outbox first, then purge); a DB
+  failure is reported, not hidden.
+- **D9 - shipped variable map readable on a fresh install**: the backend engine falls back to `app/<slug>/maps/<station>.json`
+  (below app.json and DB bindings; never blocks `/readyz`).
+- **D11 / X8 - an operator without `CONFIG.VIEW` can still run a test**: `/config/barcode` and `/config/shift/current` are
+  any-of `TEST.RUN`/`CONFIG.VIEW`; instrument connection status (`/variables/instances`, status only) is open to every
+  signed-in role; the Runs screen shows a failed config load and blocks Start instead of silently dropping the serial box.
+  New gate helpers `require_any_permission`, `require_authenticated` (`core/services/security.py`).
+
+*Release and packaging*
+
+- **D10 - stale UI could ship**: `build_release.py` always rebuilds the frontend and stamps `build-info.json`
+  (app version, git SHA, hash of every frontend input); the gate (`verify_frontend_stamp.py`) fails on any mismatch and
+  proves the running exe serves that bundle. `-SkipTests` skips tests, never the build. `RELEASE_GATE.md`.
+- **D13 - step-type schemas missing in the frozen build** (`schema: null`, validation silently off): schemas are copied
+  into `run.dist`; the gate fails if any step type has no schema.
+- **D7 - update-swap `WinError`**: **not reproduced from the broker alone** (a running exe does not block renaming its
+  parent folder; a process cwd or open handle does). Hardening anyway: the vendored broker runs from
+  `<deploy root>/data/broker/`, and a failed swap rename now **names the processes running from inside `run.dist`**
+  (`UPDATES.md` 4.1) - collect that message if it recurs.
+- **D8 - optional Authenticode signing** (`deploy/sign-binaries.ps1`; env-configured PFX / store / Trusted Signing): signs
+  `run.exe`, `mosquitto.exe`, `run_station.exe` before the manifest is hashed, and `setup.exe`. No certificate = loud
+  "UNSIGNED" warning; `cut-release.ps1 -RequireSigning` makes it mandatory. `SECURE_DISTRIBUTION.md` 9.
+
+*Login, navigation and portal*
+
+- **X3** the login screen shows the real application version bottom-right (was a hard-coded `v1.0.0`).
+- **X4** opt-in username dropdown: `auth.config.login.user_picker` (default **false**); pre-auth
+  `GET /auth/login-options` returns active usernames only when on (`contracts/auth.md`).
+- **X5** *Exit station* for every role: new `SYSTEM.EXIT` (default to all roles); `/system/shutdown` is any-of
+  `SYSTEM.EXIT`/`SYSTEM.SETTINGS`; the UI gates on the permission, not the role name.
+- **X6** Help and the User Portal are merged: **Portal** is the one user documentation surface; F1 context help stays and
+  opens the Portal's Manual tab; *Developer docs* remain for super_admin on a source checkout.
+- **X7** Portal **Test Sequence** tab (permission `PORTAL.SEQUENCE`, default admin). The framework ships a placeholder
+  and two screen-registry keys, `portal` and `portal-test-sequence`; each app authors the content
+  (`contracts/PORTAL.md`, `TEMPLATE.md` 1.3). Deliberately **not** generated from the live recipe.
+- **X10** the menu footer shows the application version; the in-app "Relaunch to update" chip is no longer in the nav
+  (`UpdateChip.tsx` is kept, unreferenced; a staged update applies on the next restart or from Settings -> Updates).
+
+*Not adopted*
+
+- **D12 - hidden per-model limits** is an app concern: no framework code. The handler-purity exception that lets an app
+  step read its own private data file is documented, with five conditions, in `PYTHON_CONTROLLER.md` section 6.
+
+**Upgrade notes for forks**
+
+- New permissions `SYSTEM.EXIT`, `PORTAL.SEQUENCE` (and `login.user_picker`): run `python -m tools.config_doctor --apply`
+  and **re-login**; without `SYSTEM.EXIT` the operator's *Exit station* stays hidden on a station whose roles were
+  edited in the Permissions UI.
+- MySQL report databases migrate themselves on first start; allow a moment for the one-time timestamp repair.
+- A fork may now supply `frontend/src/app/overrides/` entries with keys `portal` and `portal-test-sequence`.
+- Files that are framework-owned and changed wholesale - **Okaya / HVT may take these as-is and drop their local edits**:
+  `modules/recipe/variants/filesystem.py`, `controller/controller/sequencer.py`, `controller/controller/step_types/core.py`,
+  `controller/controller/step_types/schemas/measure_and_compare.json`, `core/services/controller_supervisor.py`,
+  `core/services/security.py`, `core/services/calibration.py`, `modules/report/{analytics.py,outbox.py,store/schema.py,
+  store/store.py,variants/standard.py}`, `modules/runs/variants/default.py`, `modules/config/api.py`,
+  `modules/variables/{engine.py,api.py,calibration.py,variants/default.py}`, `modules/auth/{api.py,variants/default.py}`,
+  `build_release.py`, `launcher.py`, `station.py`, `deploy/{verify-build.ps1,cut-release.ps1,build-installer.ps1,
+  sign-binaries.ps1,verify_frontend_stamp.py}`, and the frontend `Layout.tsx`, `Login.tsx`, `UserMenu.tsx`, `Portal.tsx`,
+  `Runs.tsx`, `Maintenance.tsx`, `HelpPanel.tsx`. A fork that edited any of them locally should diff before taking it.
+- Known unrelated failure left as-is: `controller/tester/test_instrument_call.py::test_instrument_call_error_is_never_blank_and_carries_cause_and_traceback`
+  (fails on v1.30.0 too).
+
 ## v1.30.0 — 2026-10-09
 
 **Field-debuggability and release safety, from the Okaya Transformer testbench (MINOR).**

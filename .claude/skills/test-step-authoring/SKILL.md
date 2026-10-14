@@ -185,7 +185,12 @@ return StepResult(measurements=[
 - A list, always. One result is a list of one.
 - `name` unique within the step. The report addresses it as
   `step_id.measurement_name`.
-- `limits=None` or `status="INFO"` → recorded, excluded from pass/fail.
+- `limits=None` or `status="INFO"` → recorded, excluded from pass/fail **and from yield/Pareto/analytics** (it is
+  context: `docs/contracts/REPORT.md`). Do not use INFO to hide a real check.
+- If your handler raises, the sequencer FAILs the step and synthesizes one FAIL row (`measured: "ERROR"`, cause in
+  `message`) - but prefer returning a named FAIL `Measurement` with the cause, so the row has your limits and unit.
+- A flaky *read* wants `measure_and_compare`'s `retries`/`settle_s`, not the step envelope's `retry_count` (which re-runs the
+  whole step).
 - Inside a loop, set `sequence` so cycle 1 and cycle 200 do not collide.
 - The sequencer computes `StepResult.status`: FAIL if any measurement
   fails.
