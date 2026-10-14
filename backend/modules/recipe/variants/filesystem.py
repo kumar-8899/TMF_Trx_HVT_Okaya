@@ -7,6 +7,7 @@ Authoring/versioning (R2), validation (R3), execution wire (R4), export/import
 
 from __future__ import annotations
 
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -33,6 +34,33 @@ from modules.recipe.versioning import content_hash
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# A recipe_id becomes a folder name on disk (RECIPE.md §5.1/§5.3), so it must be a safe
+# path component. Validated at CREATION only — ids on existing recipes are never re-checked,
+# so historical recipes stay loadable regardless of this rule.
+_RECIPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_WIN_RESERVED = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+)
+
+
+def _check_recipe_id(rid: str) -> None:
+    """Raise RecipeValidationError if `rid` is not a safe folder name.
+
+    1–64 of [A-Za-z0-9_-], first char alphanumeric, not a Windows reserved device name.
+    """
+    if not rid:
+        raise RecipeValidationError(["recipe_id required"])
+    if not _RECIPE_ID_RE.match(rid):
+        raise RecipeValidationError([
+            f"recipe_id '{rid}' is invalid: use 1–64 of letters, digits, '_' or '-', "
+            "starting with a letter or digit"
+        ])
+    if rid.upper() in _WIN_RESERVED:
+        raise RecipeValidationError([f"recipe_id '{rid}' is a reserved device name on Windows"])
 
 
 class FilesystemRecipe:
@@ -148,8 +176,7 @@ class FilesystemRecipe:
 
     async def create_recipe(self, payload: dict) -> dict:
         rid = payload.get("recipe_id")
-        if not rid:
-            raise RecipeValidationError(["recipe_id required"])
+        _check_recipe_id(rid)
         if self.store.exists(rid):
             raise RecipeExistsError(f"recipe '{rid}' already exists")
         meta = {

@@ -30,8 +30,10 @@ _CATALOG: list[tuple[str, str, str, str]] = [
     ("PORTAL.VIEW",         "Portal",      "Use the user portal", "Open the portal: read the library of manuals + drawings and search it."),
     ("PORTAL.UPLOAD",       "Portal",      "Add portal documents", "Upload PDFs (hardware manuals, drawings) to the portal library and edit their details."),
     ("PORTAL.MANAGE",       "Portal",      "Manage the portal",   "Delete library documents (and, later, review all troubleshooting chats)."),
+    ("PORTAL.SEQUENCE",     "Portal",      "View test sequence",  "Open the Test Sequence tab in the portal (how each test runs)."),
     ("SYSTEM.RESET_DATA",   "System",      "Reset data",          "Purge runs/reports/logs/recipes/users (super_admin)."),
     ("SYSTEM.SETTINGS",     "System",      "Station settings",    "MES + station settings (super_admin)."),
+    ("SYSTEM.EXIT",         "System",      "Exit station",        "Close the station application (Exit station in the user menu)."),
 ]
 
 PERMISSIONS: list[dict] = [

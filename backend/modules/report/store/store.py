@@ -274,8 +274,11 @@ class ReportStore:
                 .where(report.c.station.isnot(None)).where(report.c.station != "")
                 .group_by(report.c.station)).all()]
 
-            # parameter Pareto: failing result rows grouped by test_name (indexed)
-            rr, fail = report_result, report_result.c.result.notlike("PASS%")
+            # parameter Pareto: failing result rows grouped by test_name (indexed). INFO rows
+            # are context (setup/actuation/waits/prompts), never counted as failures (D6).
+            rr = report_result
+            fail = and_(report_result.c.result.notlike("PASS%"),
+                        func.upper(report_result.c.result) != "INFO")
             pareto = [{"name": t or "(unnamed)", "count": int(n)} for t, n in c.execute(
                 select(rr.c.test_name, func.count()).select_from(rr.join(report, rr.c.run_id == report.c.run_id))
                 .where(and_(w, fail)).group_by(rr.c.test_name).order_by(func.count().desc()).limit(50)).all()]

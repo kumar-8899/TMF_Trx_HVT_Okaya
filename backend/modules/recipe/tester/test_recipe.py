@@ -187,6 +187,27 @@ async def test_legacy_cwd_recipes_are_migrated_on_construct(tmp_path, monkeypatc
     await db.close()
 
 
+@pytest.mark.parametrize("rid", ["1400", "TX-100", "COM10", "CONSOLE", "a_b-1"])
+async def test_recipe_id_accepts_ordinary_ids(fsmod, rid):
+    """D1: ids that look like reserved names but aren't (COM10, CONSOLE) and ordinary ids are
+    accepted."""
+    mod, _ = fsmod
+    created = await mod.create_recipe({**PAYLOAD, "recipe_id": rid})
+    assert created["recipe_id"] == rid
+    assert mod.store.exists(rid)
+
+
+@pytest.mark.parametrize("rid", ["../x", "a/b", "a\\b", "CON", "nul", "LPT1", "has space",
+                                 ".hidden", "-lead", "", "x" * 65])
+async def test_recipe_id_rejects_unsafe_ids(fsmod, rid):
+    """D1: path-unsafe / reserved / malformed ids are rejected at creation and nothing is written."""
+    mod, _ = fsmod
+    with pytest.raises(RecipeValidationError):
+        await mod.create_recipe({**PAYLOAD, "recipe_id": rid})
+    if rid:
+        assert not mod.store.exists(rid)
+
+
 async def test_create_save_publish(fsmod):
     mod, db = fsmod
     created = await mod.create_recipe(PAYLOAD)

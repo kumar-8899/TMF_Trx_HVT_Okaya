@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI
 from starlette.testclient import TestClient
 
 from core.services.auth_verify import AuthError, Principal, TokenVerifier, permission_granted
-from core.services.security import require_permission, require_role
+from core.services.security import require_any_permission, require_permission, require_role
 
 
 # --- permission matching ---------------------------------------------------
@@ -74,6 +74,10 @@ def _app():
     async def need_users():
         return {"ok": True}
 
+    @app.get("/any-of", dependencies=[Depends(require_any_permission("TEST.RUN", "CONFIG.VIEW"))])
+    async def any_of():
+        return {"ok": True}
+
     @app.get("/need-admin", dependencies=[Depends(require_role("admin"))])
     async def need_admin():
         return {"ok": True}
@@ -106,3 +110,15 @@ def test_role_dep():
     c = _app()
     assert c.get("/need-admin", headers={"Authorization": "Bearer admin"}).status_code == 200
     assert c.get("/need-admin", headers={"Authorization": "Bearer op"}).status_code == 403
+
+
+def test_any_permission_dep():
+    """D11: any-of gate — 401 without a token, 403 holding none of the listed, 200 holding one."""
+    c = _app()
+    assert c.get("/any-of").status_code == 401
+    assert c.get("/any-of", headers={"Authorization": "Bearer nope"}).status_code == 401
+    # op holds TEST.RUN (one of the two) -> allowed even without CONFIG.VIEW
+    assert c.get("/any-of", headers={"Authorization": "Bearer op"}).status_code == 200
+    # admin holds only AUTH.* -> none of the listed -> 403
+    assert c.get("/any-of", headers={"Authorization": "Bearer admin"}).status_code == 403
+    assert c.get("/any-of", headers={"Authorization": "Bearer super"}).status_code == 200

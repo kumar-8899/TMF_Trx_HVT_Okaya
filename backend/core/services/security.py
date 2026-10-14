@@ -46,6 +46,23 @@ def require_permission(*perms: str) -> Callable[[Request], Awaitable[Principal]]
     return dep
 
 
+def require_any_permission(*perms: str) -> Callable[[Request], Awaitable[Principal]]:
+    """Any-of gate: 401 (no/invalid token) / 403 (holds NONE of the listed permissions).
+
+    The counterpart to `require_permission` (which is all-of). Use when a route serves a
+    job that more than one role legitimately needs — e.g. a Test Bench read an operator
+    (`TEST.RUN`) and an engineer (`CONFIG.VIEW`) both reach.
+    """
+
+    async def dep(request: Request) -> Principal:
+        principal = current_principal(request)
+        if perms and not any(principal.has_permission(p) for p in perms):
+            raise HTTPException(status_code=403, detail=f"requires one of: {', '.join(perms)}")
+        return principal
+
+    return dep
+
+
 def require_role(*roles: str) -> Callable[[Request], Awaitable[Principal]]:
     """Secondary convenience gate by role name."""
 

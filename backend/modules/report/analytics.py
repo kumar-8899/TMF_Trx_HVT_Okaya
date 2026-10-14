@@ -18,8 +18,19 @@ import time
 from datetime import datetime, timezone
 
 
+PASS, FAIL, INFO = "PASS", "FAIL", "INFO"
+
+
 def result_is_pass(result) -> bool:
     return str(result or "").upper().startswith("PASS")
+
+
+def row_is_failure(result) -> bool:
+    """A per-test result ROW is a failure iff it is a measured FAIL. INFO rows are context
+    (setup/actuation/waits/prompts carry no limits) and NEVER count in yield, Pareto, or any
+    analytics (REPORT row semantics / D6). PASS rows are not failures either."""
+    r = str(result or "").upper()
+    return r != INFO and not r.startswith("PASS")
 
 
 def _day(ts: float | None) -> str | None:
@@ -49,7 +60,7 @@ def _cycle_s(r: dict) -> float | None:
 
 def _first_fail_test(r: dict) -> str | None:
     for row in r.get("rows") or []:
-        if not result_is_pass(row.get("result")):
+        if row_is_failure(row.get("result")):      # INFO rows are context, skip them (D6)
             return row.get("test_name") or "(unnamed)"
     return None if result_is_pass(r.get("result")) else "(unknown)"
 
@@ -246,7 +257,7 @@ def build_dashboard(reports, *, since=None, until=None, model=None, operator=Non
         if ff:
             fail_counter[ff] = fail_counter.get(ff, 0) + 1
         for row in r.get("rows") or []:
-            if not result_is_pass(row.get("result")):
+            if row_is_failure(row.get("result")):      # INFO rows never enter the Pareto (D6)
                 name = row.get("test_name") or "(unnamed)"
                 param_counter[name] = param_counter.get(name, 0) + 1
 

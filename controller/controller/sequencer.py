@@ -32,8 +32,22 @@ class Sequencer:
             station=station, run_id=run_id, trace=f"run:{run_id}", run_parameters=run_parameters,
             variables=self._vars, deadline_ts=deadline_ts, aborted_fn=aborted_fn,
             diag_fn=self._diag, child_runner=self._exec)
-        for step in recipe.get("steps", []) or []:
-            self._exec(step, ctx)
+        # stop_on_fail (RECIPE.md §2): strictly boolean true. When set, the top-level walk stops
+        # after the FIRST top-level step whose final attempt FAILs — the remaining top-level steps
+        # are skipped (no step-started/-completed/test-result, one step.skipped diag each). The
+        # failing step's own row is still emitted, the verdict is FAIL, and teardown still runs
+        # (runstate.py owns teardown, unaffected). Absent/false/any other value keeps the historic
+        # "always continue" behaviour.
+        stop_on_fail = recipe.get("stop_on_fail") is True
+        steps = recipe.get("steps", []) or []
+        for i, step in enumerate(steps):
+            result = self._exec(step, ctx)
+            if stop_on_fail and result.status == results.FAIL:
+                for skipped in steps[i + 1:]:
+                    sid = skipped.get("id") or skipped.get("type", "step")
+                    self._diag("warning", "step.skipped", step_id=sid,
+                               reason="stop_on_fail: a prior step failed")
+                break
         return results.FAIL if self._any_fail else results.PASS
 
     def _exec(self, step: dict, ctx: StepContext) -> results.StepResult:
@@ -66,7 +80,10 @@ class Sequencer:
                                           "measurement_count": len(result.measurements),
                                           "message": result.message, "attempt": attempt,
                                           "attempts_allowed": attempts_allowed})
-            self._diag("info", "step.end", step_id=step_id, status=status, attempt=attempt,
+            # A failed step is logged at WARNING so its cause persists (the Logs page keeps
+            # >= warning; step.end was info and was dropped by default). D5.
+            self._diag("warning" if status == results.FAIL else "info", "step.end",
+                       step_id=step_id, status=status, attempt=attempt, message=result.message,
                        elapsed_ms=result.elapsed_ms, measurement_count=len(result.measurements))
             if final:
                 if status == results.FAIL:
@@ -95,6 +112,18 @@ class Sequencer:
         if entry.composite:
             status = result.status                     # handler aggregated its children
         else:
+            if crashed and not result.measurements:
+                # A crashed leaf that emitted nothing still gets ONE synthesized FAIL row, so a
+                # FAIL verdict ALWAYS has at least one FAIL row (the failure is never invisible to
+                # the report / yield). Name from params.name, else the read/signal param, else the
+                # step id; value ERROR; limits from the step's min/max/expected when present; the
+                # cause is already on result.message. Composites never synthesize — their children
+                # do. (PYTHON_CONTROLLER.md §8.2.)
+                p = step.get("params", {}) or {}
+                syn_name = p.get("name") or p.get("signal") or p.get("read") or step_id
+                lim = results.Limits(min=p.get("min"), max=p.get("max"), expected=p.get("expected"))
+                result.measurements = [results.Measurement(
+                    syn_name, "ERROR", p.get("unit"), limits=lim, status=results.FAIL)]
             for m in result.measurements:             # stamp the loop index (sweep/repeat)
                 if m.sequence is None:
                     m.sequence = ctx.sequence
