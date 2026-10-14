@@ -94,6 +94,26 @@ class StationVariables:
         self._loop = loop
         self._timeout = call_timeout
 
+    def reload(self, varmap: dict) -> dict:
+        """Swap in a re-read map (calibration apply/reset) WITHOUT a restart. The dicts are
+        mutated in place, so every holder of `variables.signals` sees the new scale. Only `scale`
+        may change here: a changed binding (instance/read/write/args/clamp) needs a restart and
+        is refused, so a calibration reload can never silently rewire hardware."""
+        new_sigs = varmap.get("signals", {}) or {}
+        for name, new in new_sigs.items():
+            old = self.signals.get(name)
+            if old is None:
+                continue
+            for k in ("instance", "read", "write", "args", "clamp"):
+                if old.get(k) != new.get(k):
+                    raise VariableError(f"reload refused: '{name}'.{k} changed — restart to rewire")
+        if set(new_sigs) != set(self.signals):
+            raise VariableError("reload refused: the signal set changed — restart to apply")
+        for name, new in new_sigs.items():
+            self.signals[name].clear()
+            self.signals[name].update(new)
+        return {"reloaded": len(new_sigs)}
+
     def _sig(self, name: str) -> dict:
         v = self.signals.get(name)
         if v is None:

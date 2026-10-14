@@ -1172,9 +1172,34 @@
       "contract_dependencies": [],
       "permissions_used": [
         "CONFIG.VIEW",
-        "HEALTH.MAINTENANCE"
+        "HEALTH.MAINTENANCE",
+        "MAINTENANCE.CALIBRATE"
       ],
       "routes": [
+        {
+          "method": "POST",
+          "path": "/calibration/fit"
+        },
+        {
+          "method": "GET",
+          "path": "/calibration/signals"
+        },
+        {
+          "method": "DELETE",
+          "path": "/calibration/{name}"
+        },
+        {
+          "method": "POST",
+          "path": "/calibration/{name}/apply"
+        },
+        {
+          "method": "POST",
+          "path": "/calibration/{name}/drive"
+        },
+        {
+          "method": "POST",
+          "path": "/calibration/{name}/raw"
+        },
         {
           "method": "GET",
           "path": "/variables"
@@ -1464,6 +1489,12 @@
       "description": "Delete library documents (and, later, review all troubleshooting chats)."
     },
     {
+      "key": "PORTAL.SEQUENCE",
+      "domain": "Portal",
+      "label": "View test sequence",
+      "description": "Open the Test Sequence tab in the portal (how each test runs)."
+    },
+    {
       "key": "SYSTEM.RESET_DATA",
       "domain": "System",
       "label": "Reset data",
@@ -1474,6 +1505,12 @@
       "domain": "System",
       "label": "Station settings",
       "description": "MES + station settings (super_admin)."
+    },
+    {
+      "key": "SYSTEM.EXIT",
+      "domain": "System",
+      "label": "Exit station",
+      "description": "Close the station application (Exit station in the user menu)."
     }
   ],
   "roles": {
@@ -1493,7 +1530,9 @@
       "HELP.VIEW",
       "PORTAL.VIEW",
       "PORTAL.UPLOAD",
-      "PORTAL.MANAGE"
+      "PORTAL.MANAGE",
+      "PORTAL.SEQUENCE",
+      "SYSTEM.EXIT"
     ],
     "engineer": [
       "TEST.RUN",
@@ -1508,7 +1547,8 @@
       "CONFIG.EDIT",
       "HELP.VIEW",
       "PORTAL.VIEW",
-      "PORTAL.UPLOAD"
+      "PORTAL.UPLOAD",
+      "SYSTEM.EXIT"
     ],
     "maintenance": [
       "MAINTENANCE.CALIBRATE",
@@ -1519,7 +1559,8 @@
       "CONFIG.VIEW",
       "CONFIG.EDIT",
       "HELP.VIEW",
-      "PORTAL.VIEW"
+      "PORTAL.VIEW",
+      "SYSTEM.EXIT"
     ],
     "operator": [
       "TEST.RUN",
@@ -1529,7 +1570,8 @@
       "HEALTH.VIEW",
       "CONFIG.VIEW",
       "HELP.VIEW",
-      "PORTAL.VIEW"
+      "PORTAL.VIEW",
+      "SYSTEM.EXIT"
     ],
     "super_admin": [
       "AUTH.*",
@@ -1652,6 +1694,19 @@
           },
           "expected": {
             "title": "Expected (exact match)"
+          },
+          "retries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 0,
+            "title": "Re-read attempts on a failed/out-of-limit read"
+          },
+          "settle_s": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0.5,
+            "title": "Pause between re-reads (s)"
           }
         }
       }
@@ -1941,6 +1996,12 @@
     }
   ],
   "controller_ops": [
+    {
+      "op": "calibration.reload",
+      "group": "calibration",
+      "blocking": false,
+      "doc": ""
+    },
     {
       "op": "daq.ai.read",
       "group": "daq",

@@ -184,6 +184,26 @@ def register_run_ops(client: StationClient, engine) -> None:
     client.serve("sequencer.list_test_classes", lambda a: {"test_classes": step_registry.list_test_classes()})
 
 
+def register_calibration_ops(client: StationClient, variables, engine, map_path) -> None:
+    """`calibration.reload` (docs/contracts/CALIBRATION.md): re-read this station's EFFECTIVE map
+    (the supervisor-baked shipped map + overlay) and swap the scales in place — no relaunch. Refused
+    mid-run (a scale change inside a sequence would corrupt its readings); the app retries after the
+    run. A bad file leaves the live scales untouched and replies a structured error."""
+    from controller.instruments.variables import load_variable_map
+
+    def calibration_reload(args: dict) -> dict:
+        if engine is not None and engine.state != "idle":
+            return {"ok": False, "error": {"code": "Busy", "message":
+                    f"station {client.station} is {engine.state} — reload after the run",
+                    "detail": None}}
+        try:
+            return {"ok": True, "result": variables.reload(load_variable_map(map_path))}
+        except Exception as exc:  # noqa: BLE001 — structured error; live scales stay as they were
+            return {"ok": False, "error": error_reply(exc)}
+
+    client.serve("calibration.reload", calibration_reload)
+
+
 def register_maintenance_ops(client: StationClient, state: dict) -> None:
     """Maintenance mode (PYTHON_CONTROLLER.md §8). The app's health module proxies
     `maintenance.enter/exit` to the controller and reads the state from the retained

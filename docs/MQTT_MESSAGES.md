@@ -50,7 +50,7 @@ Error reply:
 
 **Index of ops** (details below): Py→LV `hello.echo, run.start, run.abort,
 instrument.test, maintenance.enter, maintenance.exit, variable.read, variable.write,
-sequencer.list_test_classes, health.check.<id>` · LV→Py queries `recipe.fetch,
+calibration.reload (Python controller only), sequencer.list_test_classes, health.check.<id>` · LV→Py queries `recipe.fetch,
 variable.read, variable.write, variable.read_many, variable.write_many,
 capability.request` · LV→Py publishes `event/<type>, value/<name>, status, diag,
 state/maintenance`.
@@ -116,6 +116,19 @@ Topic: `tmf/st1/cmd/maintenance.enter` / `…/maintenance.exit`
 { "id": "…", "ok": true, "accepted": true }
 // exit request args
 { "operator": "admin" }
+```
+
+### 1.5b `calibration.reload` — re-read the station's effective variable map (Python controller)
+Purpose: after the backend saves a calibration overlay and re-bakes `<state dir>/controller.maps/<station>.json`
+(`docs/contracts/CALIBRATION.md`), swap the new `scale` in without a relaunch. Served by the
+**Python** controller only; a LabVIEW engine is not required to serve it.
+Topic: `tmf/st1/cmd/calibration.reload`
+```json
+// request args: {}
+// reply (idle station)
+{ "id": "…", "ok": true, "result": { "reloaded": 12 } }
+// reply (run in progress / bad file / rewired binding)
+{ "id": "…", "ok": false, "error": { "code": "Busy", "message": "st1 is running — reload after the run", "detail": null } }
 ```
 
 ### 1.6 `variable.read` / `variable.write` — a LabVIEW-owned variable (DAQ module)

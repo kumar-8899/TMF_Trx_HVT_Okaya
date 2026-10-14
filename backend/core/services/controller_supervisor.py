@@ -191,9 +191,43 @@ class ControllerSupervisor:
                                "with none; add them on the Instruments page and restart")
         if not cfg.get("stations"):                        # file listed none → use the app's
             cfg["stations"] = [{"station": s} for s in self._stations]
+        self._bake_calibrated_maps(cfg)
         path = self._data_dir / "controller.generated.json"
         path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
         return path
+
+    def _bake_calibrated_maps(self, cfg: dict) -> None:
+        """CALIBRATION.md: point each station's `variable_map` at an EFFECTIVE map
+        (`<data>/controller.maps/<station>.json` = shipped map + the station's calibration
+        overlay). The shipped map is never modified. A fresh bench (no overlay) bakes an identical
+        copy; a bad overlay degrades loudly to the shipped scale; an unreadable shipped map is left
+        for the controller to report exactly as before."""
+        from core.services import calibration as cal
+
+        def log(level: str, msg: str, **f) -> None:
+            getattr(self._diag, level, self._diag.warning)("controller", msg, **f)
+
+        index: dict[str, dict] = {}
+        for st in cfg.get("stations", []):
+            vm, sid = st.get("variable_map"), st.get("station")
+            if not vm or not sid:
+                continue
+            shipped = Path(vm)
+            out = cal.effective_path(self._data_dir, sid)
+            ovl = cal.overlay_path(self._data_dir, sid)
+            try:
+                res = cal.bake_effective_map(shipped, ovl, out, log=log)
+            except Exception as exc:  # noqa: BLE001 — keep the shipped map; controller reports it
+                log("warning", "calibration bake skipped — controller uses the shipped map",
+                    station=sid, map=str(shipped), error=str(exc))
+                continue
+            st["variable_map"] = str(out)
+            index[sid] = {"shipped": str(shipped), "effective": str(out), "overlay": str(ovl)}
+            if res["signals_calibrated"]:
+                self._diag.info("controller", "calibration overlay applied", station=sid,
+                                signals=res["signals_calibrated"])
+        if index:
+            cal.write_index(self._data_dir, index)
 
     def _pump_logs(self) -> None:
         proc = self._proc

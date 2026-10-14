@@ -28,6 +28,7 @@ from core.paths import bundle_root
 from core.services.streaming import StreamHub
 from instrumentlib.registry import build_index
 from modules.variables.api import build_router
+from modules.variables.calibration import CalibrationService
 from modules.variables.engine import VariableEngine
 from modules.variables.instances import InstanceRegistry
 
@@ -62,6 +63,7 @@ class DefaultVariables:
         self._static_vars: dict = dict(config.get("variables", {}) or {})
         self._db_vars: set[tuple[str, str]] = set()   # (station, name)
         self._instance_stations: dict[str, list[str]] = {}   # id -> sockets (no-lease rule)
+        self.calibration = CalibrationService(self, data_dir=config.get("data_dir"))
         self.router = build_router(self)
         self._values_hub = StreamHub()            # value/{name} -> /instruments/values/ws
         self._values: dict[tuple, dict] = {}       # (station, name) -> latest frame (snapshot)
@@ -141,6 +143,7 @@ class DefaultVariables:
                              bridge=proxy_bridge, station=self._default_station)
         await self.instances.connect_all()
         await self._load_db_bindings()
+        self.calibration.load_overlays()    # CALIBRATION.md: overlay > map scale, both read paths
         self._validate_no_lease()      # §9.3 shared-instrument rule, loud at startup
         b = self.core.bridge
         if b is not None:

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState, PageHeader, Section, StatusChip } from "../components/ui";
+import { CalibrationPanel } from "../components/testing/CalibrationPanel";
 import { InstrumentControlPanel } from "../components/testing/InstrumentControlPanel";
 import { LiveVariablesPanel } from "../components/testing/LiveVariablesPanel";
 import { useValues } from "../hooks/useValues";
@@ -15,7 +16,8 @@ import { MONO_STACK } from "../theme/theme";
 /** Maintenance Console — hands-on hardware operation, composed from existing
  * contracts (Variable Engine writes, health one-check, LabVIEW maintenance mode).
  * The hard rule: commands (writes, disruptive checks) only when maintenance == on;
- * otherwise read-only (HEALTH_CHECK.md §9). No new backend module. */
+ * otherwise read-only (HEALTH_CHECK.md §9). The Calibration panel (analog in/out, gated
+ * MAINTENANCE.CALIBRATE, docs/contracts/CALIBRATION.md) rides the variables module. */
 export function Maintenance() {
   const [maint, setMaint] = useState<{ state: string; by?: string; reason?: string } | null>(null);
   const [reason, setReason] = useState("");
@@ -26,7 +28,7 @@ export function Maintenance() {
   const [result, setResult] = useState("");
   const [error, setError] = useState<string | null>(null);
   const values = useValues("/instruments/values/ws");
-  const { principal } = useAuth();
+  const { principal, can } = useAuth();
 
   const refresh = () => api.get("/health/maintenance").then(setMaint).catch(() => setMaint(null));
   useEffect(() => {
@@ -99,6 +101,11 @@ export function Maintenance() {
         <Grid item xs={12}>
           {Object.keys(values).length ? <LiveVariablesPanel variables={[]} values={values} /> : <Section title="Live values"><EmptyState message="No live values streaming." /></Section>}
         </Grid>
+        {can("MAINTENANCE.CALIBRATE") && (
+          <Grid item xs={12}>
+            <CalibrationPanel maintenanceOn={on} />
+          </Grid>
+        )}
         {principal?.role === "super_admin" && (
           <Grid item xs={12}>
             <Section title="Instrument test bench" subtitle="capability-driven manual control · Python-owned instruments">

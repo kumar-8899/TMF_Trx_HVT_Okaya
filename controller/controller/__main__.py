@@ -26,8 +26,9 @@ from controller.loop import AsyncLoopThread
 from controller.packages import load_step_type_packages, validate_app_step_types
 from controller.runstate import RunEngine
 from controller.safety import SafetyConfigError, SafetyController, SafetyMap, parse_monitors
-from controller.serve import (instrument_diag_sink, register_core_ops, register_maintenance_ops, register_run_ops,
-                              register_safety_ops, register_station_ops)
+from controller.serve import (instrument_diag_sink, register_calibration_ops, register_core_ops,
+                              register_maintenance_ops, register_run_ops, register_safety_ops,
+                              register_station_ops)
 
 
 def _log(level: str, message: str) -> None:
@@ -148,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
                            diag=_diag(c), abort_grace_ms=cfg.abort_grace_ms,
                            teardown_timeout_ms=cfg.teardown_timeout_ms)
         register_run_ops(c, engine)
+        if st.variable_map:
+            register_calibration_ops(c, variables, engine, cfg_dir / st.variable_map)
         daq = DaqController(st.station, (lambda sub, p, qos, _c=c: _c.publish(sub, p, qos=qos)),
                             config=cfg.daq, simulation=cfg.simulation)
         register_daq_ops(c, daq)

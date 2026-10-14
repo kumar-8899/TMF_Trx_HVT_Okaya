@@ -148,6 +148,7 @@ def controller_ops() -> list[dict]:
         ("instruments", serve.register_station_ops, (None, None, None)),
         ("runs", serve.register_run_ops, (None,)),
         ("maintenance", serve.register_maintenance_ops, ({},)),
+        ("calibration", serve.register_calibration_ops, (None, None, None)),
         ("safety", serve.register_safety_ops, (None,)),
         ("daq", register_daq_ops, (None,)),
     ):

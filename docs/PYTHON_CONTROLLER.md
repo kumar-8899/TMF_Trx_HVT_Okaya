@@ -229,6 +229,7 @@ run.start | run.abort | sequencer.list_test_classes
 daq.ai.stream.start | daq.ai.stream.stop | daq.ai.read
 daq.di.stream.start | daq.di.stream.stop | daq.di.read
 safety.trip | safety.clear | safety.status
+calibration.reload
 ```
 
 Controller → app queries: `recipe.fetch`. Events published on
@@ -251,6 +252,14 @@ name — `NotConnected`/`NotSupported`/`DeviceError`/`CommandTimeout`/`GarbageRe
 one); `instrument.status {ids?}` is this process's `InstrumentRegistry.status()`, optionally
 filtered. Under `controller.kind == "labview"` there is no controller subprocess and these
 are unused — the backend connects to owner=python instruments directly, exactly as before.
+
+**`calibration.reload`** (v1.31.0, `docs/contracts/CALIBRATION.md`): the supervisor points each
+station's `variable_map` at an *effective* map (shipped map + the station's calibration overlay,
+baked into `<state dir>/controller.maps/`). This op re-reads that file and swaps each signal's
+`scale` in place, so a Maintenance-screen calibration takes effect with no relaunch. Only `scale`
+may change (a changed binding or signal set is refused — restart to rewire), and it is refused
+while the station is not idle (`Busy`) because a scale change inside a sequence would corrupt its
+readings. Reply: `{ok, result:{reloaded:n}}` or `{ok:false, error:{code, message}}`.
 
 ---
 
