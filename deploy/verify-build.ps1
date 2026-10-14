@@ -125,6 +125,38 @@ try {
       }
     }
 
+    # 3b. framework probes (every app, no probes file needed)
+    #  - D13: every step type in the BUILT exe must carry its JSON schema. `--collect-submodules`
+    #    bundles Python only; a missing schemas/*.json makes /recipes/step-types return schema=null
+    #    and recipe validation silently skips - invisible in source mode.
+    #  - D10: the SPA the exe serves must be the one built from THIS tree (sources + version + commit).
+    $fwToken = $null
+    try {
+      $fwLogin = Invoke-RestMethod "$base/auth/login" -Method Post -ContentType "application/json" `
+        -Body '{"username":"admin","credential":{"password":"admin"}}' -TimeoutSec 10
+      $fwToken = $fwLogin.token
+      if (-not $fwToken) { $fwToken = $fwLogin.access_token }
+    } catch { Fail "framework probes: login as the seeded admin failed: $($_.Exception.Message)" }
+    if ($fwToken) {
+      $stModule = $null
+      if ($st) { $stModule = $st.modules | Where-Object { $_.id -eq "recipe" } }
+      if ($stModule -and $stModule.status -eq "loaded") {
+        try {
+          $types = Invoke-RestMethod "$base/recipes/step-types" -Headers @{ Authorization = "Bearer $fwToken" } -TimeoutSec 15
+          $noSchema = @($types | Where-Object { -not $_.schema } | ForEach-Object { $_.type_id })
+          if (@($types).Count -eq 0) { Fail "step-type catalog is empty in the built exe" }
+          elseif ($noSchema.Count -gt 0) { Fail "step type(s) with NO schema in the built exe (schemas not bundled): $($noSchema -join ', ')" }
+          else { Pass "step-type schemas present: $(@($types).Count) type(s)" }
+        } catch { Fail "step-type catalog probe: $($_.Exception.Message)" }
+      } else { Write-Host "  note: recipe module not loaded - step-type schema probe skipped" -ForegroundColor Yellow }
+    }
+    if (-not $SourceMode) {
+      $stampOut = & python (Join-Path $PSScriptRoot "verify_frontend_stamp.py") $distPath $Slug --url $base 2>&1
+      foreach ($l in $stampOut) { Write-Host "  $l" }
+      if ($LASTEXITCODE -ne 0) { Fail "UI bundle check failed (stale or unstamped frontend - see lines above)" }
+      else { Pass "UI bundle is current (sources + version + commit)" }
+    }
+
     # 4. app probes against the live API
     if ($probes -and $probes.probes) {
       $token = $null

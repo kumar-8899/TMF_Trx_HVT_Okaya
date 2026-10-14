@@ -28,6 +28,10 @@ class VariableEngine:
         # Per-station calibration overlays (CALIBRATION.md): overlay > map scale, applied at
         # read/write time through the SAME rules as the supervisor's baked controller map.
         self.overlays: dict[str, dict] = {}
+        # Signals the APP ships in app/<slug>/maps/<station>.json (D9): a read-only fallback below
+        # app.json + DB bindings. Kept apart from `maps` so a shipped signal whose instrument is
+        # not configured yet never blocks /readyz (unbound()) - it just fails loudly when read.
+        self.shipped: dict[str, dict] = {}
 
     # ---- station resolution ----------------------------------------------
 
@@ -36,6 +40,9 @@ class VariableEngine:
 
     def map_for(self, station: str | None) -> dict:
         return self.maps.setdefault(self._station(station), {})
+
+    def set_shipped(self, station: str | None, signals: dict | None) -> None:
+        self.shipped[self._station(station)] = signals or {}
 
     def set_overlay(self, station: str | None, overlay: dict | None) -> None:
         self.overlays[self._station(station)] = overlay or {}
@@ -50,11 +57,20 @@ class VariableEngine:
 
     def list(self, station: str | None = None) -> list[dict]:
         out = []
-        for name, v in self.map_for(station).items():
+        own = self.map_for(station)
+        for name, v in own.items():
             out.append({
                 "name": name, "instance": v["instance"], "units": v.get("units"),
                 "readable": bool(v.get("read")), "writable": bool(v.get("write")),
                 "bound": self.instances.has(v["instance"]),
+            })
+        for name, v in self.shipped.get(self._station(station), {}).items():
+            if name in own or not v.get("instance"):
+                continue
+            out.append({
+                "name": name, "instance": v["instance"], "units": v.get("units"),
+                "readable": bool(v.get("read")), "writable": bool(v.get("write")),
+                "bound": self.instances.has(v["instance"]), "source": "shipped",
             })
         return sorted(out, key=lambda x: x["name"])
 
@@ -74,6 +90,8 @@ class VariableEngine:
 
     def _var(self, name: str, station: str | None) -> dict:
         v = self.map_for(station).get(name)
+        if v is None:
+            v = self.shipped.get(self._station(station), {}).get(name)
         if v is None:
             raise VariableError(f"unknown variable '{name}' on station '{self._station(station)}'",
                                 method="read")

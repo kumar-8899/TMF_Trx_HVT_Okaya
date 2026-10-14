@@ -243,3 +243,34 @@ gitignored; CI secrets hold tokens; the signing key lives in the issuer, not her
   code-signing cert (ops; see Keystation runbook `windows-packaging.md`).
 - Deferred (explicit): secrets-at-rest (DPAPI), MQTT/web hardening, telemetry consent,
   LabVIEW-side licensing (`sdk-labview` A7 launcher shell — parallel effort).
+
+## 9. Code signing and Windows Smart App Control (optional)
+
+**The problem.** Windows 11 *Smart App Control* (and SmartScreen) block an unsigned executable from an unknown
+publisher, with **no per-application allow-list** - an operator cannot "allow this app". Unsigned `setup.exe`,
+`run_station.exe`, `run.exe` and the vendored `mosquitto.exe` are therefore refused on such a PC.
+
+**The supported way through is a signed build** from a certificate Windows trusts (an OV/EV code-signing cert,
+or Microsoft *Trusted Signing*). Signing is **optional** in this repo: with no certificate configured every step
+prints `UNSIGNED: ...` and carries on, so lab builds keep working.
+
+**Configure by environment only** (secrets never go on a command line or into the repo) - pick one:
+
+| Method | Variables |
+|---|---|
+| PFX file | `TMF_SIGN_PFX`, `TMF_SIGN_PFX_PASSWORD` |
+| Certificate store / HSM token | `TMF_SIGN_THUMBPRINT` |
+| Microsoft Trusted Signing | `TMF_SIGN_TRUSTED_DLIB`, `TMF_SIGN_TRUSTED_METADATA` |
+
+Optional: `TMF_SIGN_TIMESTAMP` (RFC 3161 URL, default DigiCert), `TMF_SIGNTOOL` (path to `signtool.exe`; else PATH,
+else the Windows SDK). Pass `-RequireSigning` to `cut-release.ps1` (or set `TMF_SIGN_REQUIRED=1`) to make a missing
+certificate a hard failure for a customer release.
+
+**Where it runs** (`deploy/sign-binaries.ps1`, which also runs `signtool verify /pa` on every file):
+`build_release.py` signs `run.exe`, the vendored `mosquitto.exe` and `run_station.exe` **before** `manifest()` -
+the manifest hashes `run.dist` and the `.ksupdate` signs the zip, so signing afterwards would invalidate both -
+and `build-installer.ps1` signs the finished `setup.exe`. A configured-but-failing signature fails the build.
+
+**What it is not.** This tooling never changes a PC's security settings (no turning Smart App Control off, no
+registry edits). For fleets you control, the alternative to buying a cert is a **WDAC** (App Control for
+Business) supplemental policy, written and deployed by your IT admin; that is an IT task outside this repo.

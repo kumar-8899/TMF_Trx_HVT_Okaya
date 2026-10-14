@@ -49,10 +49,12 @@ param(
   [switch]$SkipTests,
   [switch]$AllowDirty,
   [switch]$DryRun,
-  [switch]$BuildUpdatePackage
+  [switch]$BuildUpdatePackage,
+  [switch]$RequireSigning
 )
 
 $ErrorActionPreference = "Stop"
+if ($RequireSigning) { $env:TMF_SIGN_REQUIRED = "1" }   # missing certificate = hard failure (docs/SECURE_DISTRIBUTION.md section 9)
 function Info($m) { Write-Host "[cut-release] $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "[cut-release] $m" -ForegroundColor Yellow }
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Green }
@@ -129,7 +131,7 @@ if (-not $BuildOnly) {
 
 # --- 2. Test locally (same commands as release.yml's Test step) -------------------------------
 Step "2/10  test (backend pytest + frontend vitest/build)"
-if ($SkipTests) { Warn "skipped (-SkipTests)" }
+if ($SkipTests) { Warn "tests skipped (-SkipTests) - the UI is still rebuilt + stamped by build_release.py and checked by verify-build.ps1" }
 else {
   Push-Location backend; python -m pytest -q; if ($LASTEXITCODE) { Pop-Location; throw "backend pytest failed" }; Pop-Location
   Push-Location frontend

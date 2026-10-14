@@ -146,4 +146,9 @@ Info "compiling with $Iscc ..."
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit $LASTEXITCODE)" }
 
 $out = Join-Path $deploy "Output\$AppShort-Setup-$version.exe"
-if (Test-Path $out) { Info "built: $out" } else { Warn "ISCC finished but $out not found - check the [Setup] OutputDir." }
+if (Test-Path $out) {
+  Info "built: $out"
+  # Optional Authenticode signing of setup.exe (no-op + loud warning when no certificate is configured).
+  & (Join-Path $deploy "sign-binaries.ps1") -Paths $out
+  if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { throw "signing setup.exe failed (exit $LASTEXITCODE)" }
+} else { Warn "ISCC finished but $out not found - check the [Setup] OutputDir." }

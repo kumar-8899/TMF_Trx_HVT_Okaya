@@ -78,6 +78,24 @@ def _release_version(dist: Path) -> str | None:
         return None
 
 
+def lock_holders(path: Path) -> list[str]:
+    """Best-effort `pid N name` of every running process whose executable lives under `path`
+    (Windows only; [] elsewhere or on any error). A running exe pins its whole directory, so this
+    names what blocked a swap rename - e.g. an orphaned vendored mosquitto.exe (field defect D7)."""
+    if os.name != "nt":
+        return []
+    try:
+        ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and "
+              "$_.ExecutablePath.StartsWith($env:TMF_LOCK_PATH, [StringComparison]::OrdinalIgnoreCase) } | "
+              "ForEach-Object { 'pid ' + $_.ProcessId + ' ' + $_.Name }")
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                           capture_output=True, text=True, timeout=15,
+                           env={**os.environ, "TMF_LOCK_PATH": str(path).rstrip("\\/") + os.sep})
+        return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+    except Exception:  # noqa: BLE001 - diagnostics must never turn a swap failure into a crash
+        return []
+
+
 def _rename_with_retry(src: Path, dst: Path, *, attempts: int = 6, base_delay: float = 0.4) -> None:
     """`Path.rename` with a bounded backoff. On Windows a just-exited process can keep its
     executable image (or a data file) open for a short, non-deterministic window after it
@@ -90,6 +108,10 @@ def _rename_with_retry(src: Path, dst: Path, *, attempts: int = 6, base_delay: f
             return
         except OSError as exc:
             if i == attempts:
+                holders = lock_holders(src)
+                if holders:
+                    raise OSError(getattr(exc, "errno", None), f"{exc.strerror or exc} - "
+                                  f"{src} has process(es) running from inside it (likely the lock holder): {'; '.join(holders)}") from exc
                 raise
             log(f"rename {src.name} -> {dst.name} blocked ({exc}); retry {i}/{attempts - 1}")
             time.sleep(base_delay * i)
