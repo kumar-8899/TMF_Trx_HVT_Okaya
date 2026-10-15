@@ -305,7 +305,7 @@ def create_app(
                 "station_refusals": getattr(app.state, "station_refusals", [])}
 
     # ---- station configuration (Settings → Station; SYSTEM.SETTINGS) --------
-    from core.services.security import require_any_permission, require_permission
+    from core.services.security import require_any_permission, require_authenticated, require_permission
     _SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
     # Exiting the station is every role's right (SYSTEM.EXIT, default-granted to all roles); the
     # old SYSTEM.SETTINGS holders keep it. Relaunch / updates / config stay SYSTEM.SETTINGS only.
@@ -468,6 +468,15 @@ def create_app(
             app.state.diag.info("core", "child controller stopped before relaunch",
                                 reason=reason, confirmed_dead=dead)
         threading.Timer(0.6, lambda: os._exit(42)).start()
+
+    @app.get("/system/odbc-drivers", dependencies=[Depends(require_authenticated())])
+    async def odbc_drivers() -> dict:
+        """SQL Server ODBC drivers installed on THIS PC, newest first, for the report-DB / MES
+        settings dropdown (the driver is a per-station OS prerequisite, docs/REPORT_STORE.md). An
+        empty list means pyodbc/ODBC is unavailable here - the UI falls back to free text."""
+        from core.services import dbconn
+        drivers = await asyncio.get_running_loop().run_in_executor(None, dbconn.odbc_drivers)
+        return {"drivers": drivers, "default": drivers[0] if drivers else None}
 
     @app.post("/system/relaunch", dependencies=_SETTINGS)
     async def system_relaunch() -> dict:

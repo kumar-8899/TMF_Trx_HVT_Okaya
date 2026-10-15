@@ -41,6 +41,18 @@ def main() -> int | None:
         # Offline diagnostics bundle for an air-gapped bench: `run.exe --debug-export [out.zip]`.
         from debug_server.export import main as export_main
         return export_main(argv[1:])
+    if argv and argv[0] == "--check-db-drivers":
+        # Release gate (deploy/verify-build.ps1): import every report/MES database driver the way
+        # SQLAlchemy does, INSIDE the built exe. mssql+pyodbc imports pyodbc dynamically, which
+        # PyInstaller cannot see - a build without it looks fine until "driver not installed" in the
+        # field. Prints one JSON line per provider; exit 1 if any cannot be imported.
+        import json
+
+        from core.services import dbconn
+        results = [dbconn.check_dbapi(p) for p in dbconn.PROVIDERS]
+        for r in results:
+            print(json.dumps(r))
+        return 0 if all(r["ok"] for r in results) else 1
     from core.app import app
     from core.serve import serve
     # TMF_PORT: private port for the release gate (deploy/verify-build.ps1) so it can boot the built exe

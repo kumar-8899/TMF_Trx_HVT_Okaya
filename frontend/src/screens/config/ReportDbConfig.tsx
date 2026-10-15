@@ -65,8 +65,8 @@ export function ReportDbConfig() {
               {test && <Typography variant="body2" color="text.secondary">{test.detail}</Typography>}
             </Stack>
             <Typography variant="caption" color="text.secondary">
-              Test creates the report tables if missing. SQL Server also needs the OS "ODBC Driver 18 for
-              SQL Server". Reports are spooled locally and forwarded, so a DB outage never blocks testing.
+              Test creates the report tables if missing. SQL Server needs an ODBC driver installed on this PC
+              (the built-in "SQL Server" driver works; "ODBC Driver 17/18" is recommended). Reports are spooled locally and forwarded, so a DB outage never blocks testing.
             </Typography>
           </>
         )}

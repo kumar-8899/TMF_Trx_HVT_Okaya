@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.31.0"
+version = "1.31.1"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -28,6 +28,8 @@ release = [
     "pyinstaller>=6.6",    # freezes both run.exe and run_station.exe (onefile) — no compile
                             # step, no IP protection
     "pywebview>=5.0",       # bundled into the frozen run_station.exe (build_run_station_exe)
+    "PyMySQL>=1.1",         # the frozen exe must carry BOTH report-db drivers (build_release.report_db_drivers
+    "pyodbc>=5.0",          # fails the build when either is missing)
 ]
 # Native desktop window for the one-click launcher (station.py). WebView2 on Win11.
 desktop = [

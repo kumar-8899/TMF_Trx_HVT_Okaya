@@ -160,3 +160,17 @@ async def test_exit_station_is_open_to_any_role_holding_system_exit(config_dir, 
             r2 = await c.post("/auth/login", json={"username": "ollie", "credential": {"password": made["temp_password"]}})
             op2 = {"Authorization": f"Bearer {r2.json()['token']}"}
             assert (await c.post("/system/shutdown", headers=op2, json={})).status_code == 403
+
+
+async def test_odbc_drivers_endpoint_lists_installed_drivers_for_any_signed_in_role(config_dir, monkeypatch):
+    from core.services import dbconn
+    monkeypatch.setattr(dbconn, "odbc_drivers", lambda: ["ODBC Driver 18 for SQL Server", "SQL Server"])
+    app = _app(config_dir)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            assert (await c.get("/system/odbc-drivers")).status_code == 401          # signed-in only
+            r = await c.get("/system/odbc-drivers", headers=await _admin(c))
+            assert r.json() == {"drivers": ["ODBC Driver 18 for SQL Server", "SQL Server"],
+                                "default": "ODBC Driver 18 for SQL Server"}
+            monkeypatch.setattr(dbconn, "odbc_drivers", lambda: [])
+            assert (await c.get("/system/odbc-drivers", headers=await _admin(c))).json() == {"drivers": [], "default": None}

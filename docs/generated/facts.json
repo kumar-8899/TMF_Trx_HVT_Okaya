@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.31.0"
+    "version": "1.31.1"
   },
   "releases": [
+    {
+      "version": "1.31.1",
+      "date": "2026-10-15",
+      "bump": "PATCH",
+      "summary": "SQL Server in a packaged app, from the Okaya fork (PATCH).",
+      "body": "**SQL Server in a packaged app, from the Okaya fork (PATCH).**\n\n- **pyodbc was never bundled (Okaya C8).** `mssql+pyodbc` imports its DBAPI dynamically, so PyInstaller dropped `pyodbc`\n  although the build PC had it (MySQL worked). Reproduced with a 4-line frozen script (fails plain, works with\n  `--hidden-import`). `build_release.py` now forces `pymysql` + `pyodbc` in and **fails the build** if either is missing\n  on the build PC (the `release` extra installs them); the release gate runs the new `run.exe --check-db-drivers`\n  inside the built exe and fails if any provider's driver cannot be imported.\n- **The legacy \"SQL Server\" ODBC driver failed every bound statement with `HY104` (Okaya C9).** SQLAlchemy 2.x's\n  `setinputsizes()` declares strings `NVARCHAR(MAX)`; `dbconn` now turns it off for `mssql+pyodbc` (all engines).\n- **Settings lists the ODBC drivers installed on that PC** (`GET /system/odbc-drivers`, any signed-in role) and defaults to\n  the newest; the backend uses the same default when the field is blank. Free text remains where ODBC is unavailable.\n- Docs: `REPORT_STORE.md` (SQL Server prerequisites - the OS ODBC driver is a per-station prerequisite), `RELEASE_GATE.md`\n  (3c), user Settings help.\n- **Not verified against a live SQL Server** (none available here): run Test connection -> Check/Create table -> a test run\n  with both the legacy driver and ODBC Driver 17/18 on a real server before relying on it.\n- Fork files to take as-is: `core/services/dbconn.py`, `build_release.py`, `run.py`, `deploy/verify-build.ps1`,\n  `core/app.py`, frontend `components/DbServerForm.tsx`, `screens/config/ReportDbConfig.tsx`, `backend/pyproject.toml`\n  (the Okaya `--hidden-import` and `use_setinputsizes` patches can be dropped)."
+    },
     {
       "version": "1.31.0",
       "date": "2026-10-15",
@@ -1319,6 +1326,10 @@
       {
         "method": "PUT",
         "path": "/system/debug-config"
+      },
+      {
+        "method": "GET",
+        "path": "/system/odbc-drivers"
       },
       {
         "method": "POST",

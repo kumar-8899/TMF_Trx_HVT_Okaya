@@ -84,6 +84,24 @@ if ($probes -and $probes.forbid_in_dist_root -and -not $SourceMode) {
   }
 }
 
+# 1d. database drivers (Okaya C8): SQLAlchemy imports the DBAPI by NAME at connect time (mssql+pyodbc does
+#     __import__("pyodbc")), which PyInstaller cannot see - a build can ship without pyodbc while MySQL works,
+#     and the field shows "driver not installed: No module named 'pyodbc'". Import every provider's driver the
+#     way SQLAlchemy does, INSIDE the built exe (run.exe --check-db-drivers).
+if (-not $SourceMode) {
+  $dbOut = Join-Path ([IO.Path]::GetTempPath()) ("tmf-dbdrv-" + [guid]::NewGuid().ToString("N").Substring(0, 8) + ".txt")
+  $dbProc = Start-Process -FilePath $exe -ArgumentList "--check-db-drivers" -WorkingDirectory $distPath `
+              -WindowStyle Hidden -PassThru -Wait -RedirectStandardOutput $dbOut -RedirectStandardError "$dbOut.err"
+  $dbLines = @(Get-Content $dbOut -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\{' })
+  if ($dbLines.Count -eq 0) { Fail "db driver check printed nothing (exit $($dbProc.ExitCode)); stderr: $((Get-Content "$dbOut.err" -ErrorAction SilentlyContinue | Select-Object -First 3) -join ' ')" }
+  foreach ($l in $dbLines) {
+    $r = $l | ConvertFrom-Json
+    if ($r.ok) { Pass "db driver importable in the built exe: $($r.provider) ($($r.detail))" }
+    else { Fail "db driver NOT importable in the built exe: $($r.provider) - $($r.detail) (add --hidden-import / install backend[report-db] on the build PC)" }
+  }
+  Remove-Item $dbOut, "$dbOut.err" -ErrorAction SilentlyContinue
+}
+
 # 2. first-boot start on a private port with an empty state dir
 $state = Join-Path ([IO.Path]::GetTempPath()) ("tmf-verify-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $state | Out-Null

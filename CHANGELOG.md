@@ -5,6 +5,27 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.31.1 — 2026-10-15
+
+**SQL Server in a packaged app, from the Okaya fork (PATCH).**
+
+- **pyodbc was never bundled (Okaya C8).** `mssql+pyodbc` imports its DBAPI dynamically, so PyInstaller dropped `pyodbc`
+  although the build PC had it (MySQL worked). Reproduced with a 4-line frozen script (fails plain, works with
+  `--hidden-import`). `build_release.py` now forces `pymysql` + `pyodbc` in and **fails the build** if either is missing
+  on the build PC (the `release` extra installs them); the release gate runs the new `run.exe --check-db-drivers`
+  inside the built exe and fails if any provider's driver cannot be imported.
+- **The legacy "SQL Server" ODBC driver failed every bound statement with `HY104` (Okaya C9).** SQLAlchemy 2.x's
+  `setinputsizes()` declares strings `NVARCHAR(MAX)`; `dbconn` now turns it off for `mssql+pyodbc` (all engines).
+- **Settings lists the ODBC drivers installed on that PC** (`GET /system/odbc-drivers`, any signed-in role) and defaults to
+  the newest; the backend uses the same default when the field is blank. Free text remains where ODBC is unavailable.
+- Docs: `REPORT_STORE.md` (SQL Server prerequisites - the OS ODBC driver is a per-station prerequisite), `RELEASE_GATE.md`
+  (3c), user Settings help.
+- **Not verified against a live SQL Server** (none available here): run Test connection -> Check/Create table -> a test run
+  with both the legacy driver and ODBC Driver 17/18 on a real server before relying on it.
+- Fork files to take as-is: `core/services/dbconn.py`, `build_release.py`, `run.py`, `deploy/verify-build.ps1`,
+  `core/app.py`, frontend `components/DbServerForm.tsx`, `screens/config/ReportDbConfig.tsx`, `backend/pyproject.toml`
+  (the Okaya `--hidden-import` and `use_setinputsizes` patches can be dropped).
+
 ## v1.31.0 — 2026-10-15
 
 **Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).**

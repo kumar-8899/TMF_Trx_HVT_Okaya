@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.31.0**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.31.1**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.31.1** (2026-10-15, PATCH) — SQL Server in a packaged app, from the Okaya fork (PATCH).
 - **v1.31.0** (2026-10-15, MINOR) — Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).
 - **v1.30.0** (2026-10-09, MINOR) — Field-debuggability and release safety, from the Okaya Transformer testbench (MINOR).
 - **v1.29.0** (2026-10-06, MINOR) — MES overhaul: a database transport (inbound status lookup + outbound one-table write), instant and loud on failure (MINOR).
@@ -13,7 +14,6 @@ Super_Test_App **v1.31.0**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.27.2** (2026-10-03, PATCH) — A fresh install no longer boots with the station offline (PATCH).
 - **v1.27.1** (2026-09-29, PATCH) — run_station.exe: also replace Nuitka with PyInstaller (PATCH).
 - **v1.27.0** (2026-09-29, MINOR) — Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).
-- **v1.26.1** (2026-09-29, PATCH) — `cut-release.ps1 -Scope`: an app-payload update is now cuttable as its own release (PATCH).
 
 ## Modules
 

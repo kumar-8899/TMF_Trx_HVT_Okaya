@@ -20,6 +20,13 @@ import pytest
 import build_release as br
 
 
+@pytest.fixture(autouse=True)
+def _drivers_present(monkeypatch):
+    """build_backend now requires the report-db drivers on the build PC; most tests here are about
+    something else, so pretend they are installed (the dedicated tests below exercise the check)."""
+    monkeypatch.setattr(br, "report_db_drivers", lambda: list(br.REPORT_DB_DRIVERS))
+
+
 # --- _WEBVIEW_NOFOLLOW: win32 must stay includable ------------------------
 
 def test_webview_nofollow_excludes_only_genuinely_irrelevant_platforms():
@@ -621,3 +628,46 @@ def test_main_signs_before_the_manifest_hashes_the_tree():
     src = (br.BACKEND / "build_release.py").read_text(encoding="utf-8")
     body = src[src.index("def main()"):]
     assert body.index("sign_release_binaries()") < body.index("RELEASE.json must ride")   # manifest() sits between
+
+
+# --- report/MES database drivers must be in the frozen exe (Okaya C8) -----------------------------
+
+def test_report_db_drivers_fails_the_build_when_one_is_missing(monkeypatch):
+    import importlib.util as iu
+    real = iu.find_spec
+    monkeypatch.undo()                      # drop the autouse stub: test the real function
+    monkeypatch.setattr(iu, "find_spec", lambda n, *a, **k: None if n == "pyodbc" else real(n, *a, **k))
+    with pytest.raises(SystemExit) as ei:
+        br.report_db_drivers()
+    msg = str(ei.value)
+    assert "pyodbc" in msg and "report-db" in msg and "BUILD FAILED" in msg
+
+
+def test_report_db_drivers_returns_both_when_installed(monkeypatch):
+    import importlib.util as iu
+    monkeypatch.undo()
+    monkeypatch.setattr(iu, "find_spec", lambda n, *a, **k: object())
+    assert br.report_db_drivers() == ["pymysql", "pyodbc"]
+
+
+def test_build_backend_forces_both_db_drivers_in_as_hidden_imports(monkeypatch, tmp_path):
+    """SQLAlchemy imports mssql's pyodbc dynamically - invisible to PyInstaller - so it must be named."""
+    seen = {}
+    monkeypatch.setattr(br, "OUT", tmp_path / "out")
+    monkeypatch.setattr(br, "DIST", tmp_path / "out" / "run.dist")
+    monkeypatch.setattr(br, "BACKEND", tmp_path / "backend")
+    (tmp_path / "backend").mkdir()
+
+    def fake_run(cmd, cwd, env=None):
+        seen["cmd"] = cmd
+        (tmp_path / "out" / "run").mkdir(parents=True)
+    monkeypatch.setattr(br, "_run", fake_run)
+    br.build_backend("framework")
+    assert "--hidden-import=pyodbc" in seen["cmd"] and "--hidden-import=pymysql" in seen["cmd"]
+
+
+def test_gate_runs_the_driver_check_inside_the_built_exe():
+    """run.exe --check-db-drivers is the entry the release gate calls; verify-build.ps1 must call it."""
+    run_py = (br.BACKEND / "run.py").read_text(encoding="utf-8")
+    gate = (br.REPO / "deploy" / "verify-build.ps1").read_text(encoding="utf-8")
+    assert "--check-db-drivers" in run_py and "--check-db-drivers" in gate

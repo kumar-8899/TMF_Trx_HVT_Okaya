@@ -214,6 +214,23 @@ def _driver_metadata_packages(product: str) -> list[str]:
     return list(wanted)
 
 
+REPORT_DB_DRIVERS = ("pymysql", "pyodbc")     # MySQL, SQL Server (pyproject extra `report-db`)
+
+
+def report_db_drivers() -> list[str]:
+    """The report/MES DBAPI modules to force into the frozen exe. Raises SystemExit (fails the
+    release) when any is not installed on the build PC: install them with
+    `pip install -e backend[report-db]`."""
+    import importlib.util
+    missing = [m for m in REPORT_DB_DRIVERS if importlib.util.find_spec(m) is None]
+    if missing:
+        raise SystemExit(
+            f"BUILD FAILED: database driver(s) not installed on this build PC: {', '.join(missing)}.\n"
+            "  The report store and MES outbound talk to MySQL (PyMySQL) and SQL Server (pyodbc); a build "
+            "without them cannot reach the customer's database.\n  Fix: pip install -e backend[report-db]")
+    return list(REPORT_DB_DRIVERS)
+
+
 def build_backend(track: str = "framework", product: str = "super_test_app") -> None:
     """Freeze the backend with PyInstaller (onedir, flat layout) into DIST = OUT/"run.dist".
     PyInstaller ties --name to both the output folder AND the exe stem, so this always produces
@@ -270,6 +287,13 @@ def build_backend(track: str = "framework", product: str = "super_test_app") -> 
     # `run.exe --debug-server` (flight recorder, FRAMEWORK CR A2) is loaded by name from run.py's
     # dual entry, so static analysis would miss it; `tmf_debug` is the laptop CLI and not needed here.
     cmd.append("--collect-submodules=debug_server")
+    # Report / MES database drivers (docs/REPORT_STORE.md). SQLAlchemy imports the DBAPI by NAME at
+    # connect time (mssql+pyodbc: `__import__("pyodbc")`), which static analysis cannot see - the
+    # build PC can have pyodbc installed and the frozen exe still ships without it ("driver not
+    # installed: No module named 'pyodbc'" in the field, MySQL fine). Force them in, and FAIL the
+    # build when one is missing rather than ship a station that cannot reach its database.
+    for mod in report_db_drivers():
+        cmd.append(f"--hidden-import={mod}")
     env = None
     if track == "app":
         # The recipe module builds its catalog via `from controller.packages import …`

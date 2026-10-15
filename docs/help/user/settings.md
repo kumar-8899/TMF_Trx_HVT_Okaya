@@ -82,6 +82,10 @@ Select what to permanently delete, then **Reset selected**:
 This is destructive and cannot be undone. The super_admin account is always preserved.
 
 ## Report database
+> **SQL Server:** the ODBC driver is installed on each PC separately. The **ODBC driver** box lists the ones this PC
+> actually has (newest first); leave it on *Newest installed* unless your IT team says otherwise. The built-in
+> *SQL Server* driver works, *ODBC Driver 17/18 for SQL Server* is recommended.
+
 Reports are stored on a **professional DB server (MySQL or SQL Server)**, not the local
 station. Pick the **provider**, enter the connection details (host, port, database, user,
 password; SQL Server also needs the ODBC driver name), press **Test connection** (this

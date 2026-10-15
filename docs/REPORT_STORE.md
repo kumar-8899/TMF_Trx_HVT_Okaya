@@ -46,6 +46,31 @@ the schema module.
   create with the OLD `FLOAT` DDL → migrate → assert `DOUBLE` → a 10-digit epoch round-trips
   exactly. Locally: `TMF_TEST_MYSQL_URL=mysql+pymysql://user:pw@host/db pytest modules/report/tester/test_store_precision.py`.
 
+### SQL Server prerequisites (v1.31.1)
+
+- **The OS ODBC driver is a per-station prerequisite** - it is not part of the app. Any of "ODBC Driver 18 / 17 for
+  SQL Server" (recommended; download from Microsoft) or the **built-in "SQL Server" driver** that every Windows PC
+  ships works. Settings -> Report database and Config -> MES now **list the drivers actually installed on that PC**
+  (`GET /system/odbc-drivers`, from `pyodbc.drivers()`, newest first) and a blank choice means "the newest
+  installed" - the backend resolves it the same way when the field is empty. Where pyodbc/ODBC is unavailable the
+  field stays free text.
+- **The built-in "SQL Server" driver needed a fix**: SQLAlchemy 2.x calls `cursor.setinputsizes()` and declares every
+  bound string `NVARCHAR(MAX)` (precision 0); the legacy driver has no MAX types and failed every parameterised
+  statement with `HY104 Invalid precision value (0) (SQLBindParameter)` (server/database/table pickers passed because
+  they use parameterless SQL; checking/creating the table and every insert failed). `core/services/dbconn.py` now
+  sets `use_setinputsizes=False` for `mssql+pyodbc` on every engine (including the server-level engine that creates
+  the database). ODBC Driver 17/18 behave the same with it off.
+- **The driver modules are forced into the frozen exe.** SQLAlchemy imports the DBAPI by name at connect time
+  (`mssql+pyodbc` does `__import__("pyodbc")`), which PyInstaller cannot see, so a build could silently omit pyodbc
+  while MySQL worked ("driver not installed: No module named 'pyodbc'"). `build_release.py` passes
+  `--hidden-import=pymysql --hidden-import=pyodbc` and **fails the build** when either is not installed on the build
+  PC (`pip install -e backend[report-db]`; the `release` extra includes them). The release gate runs
+  `run.exe --check-db-drivers`, which imports every provider's driver through `dbconn` inside the built exe.
+- Not verified against a live SQL Server from this repo (none available in CI or on the dev PC): the SQL Server leg
+  of the report/MES flows has only been exercised with fakes and the SQLAlchemy dialect settings. Before relying on it,
+  run Test connection -> Check/Create table -> a test run with **both** the legacy "SQL Server" driver and an
+  ODBC Driver 17/18 on a real server.
+
 `SQLAlchemy Core` gives a dialect-agnostic schema + query layer; the sync engine runs in
 a thread executor. Drivers are lazy: **MySQL** `mysql+pymysql`, **SQL Server**
 `mssql+pyodbc` (needs the OS *ODBC Driver 18 for SQL Server*). Install per deployment:

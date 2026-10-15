@@ -54,7 +54,8 @@ def _patch_engine(monkeypatch, answers):
 
 # --- URLs ---------------------------------------------------------------------------------------
 
-def test_build_url_per_provider_and_database_override():
+def test_build_url_per_provider_and_database_override(monkeypatch):
+    monkeypatch.setattr(dbconn, "odbc_drivers", lambda: [])       # the default depends on what this PC has installed
     my = dbconn.build_url({"provider": "mysql", "host": "h", "user": "u", "password": "p", "database": "d"})
     assert my.drivername == "mysql+pymysql" and my.port == 3306 and my.database == "d"
     assert dbconn.build_url({"provider": "mysql", "host": "h", "database": "d"}, database="x").database == "x"
@@ -168,3 +169,66 @@ def test_short_error_is_one_line_and_flags_missing_drivers():
     assert dbconn.short_error(RuntimeError("first line\nsecond line")) == "first line"
     assert dbconn.short_error(ModuleNotFoundError("No module named 'pymysql'")).startswith("driver not installed")
     assert len(dbconn.short_error(RuntimeError("x" * 1000))) == 300
+
+
+# --- SQL Server: legacy ODBC driver + driver discovery (Okaya C8/C9) ---------------------------------
+
+def test_sql_server_engines_skip_setinputsizes_so_the_legacy_odbc_driver_works(monkeypatch):
+    """SQLAlchemy 2.x calls cursor.setinputsizes() and declares bound strings NVARCHAR(MAX) (size 0);
+    the legacy "SQL Server" driver rejects every bound statement with HY104. bind_typing must be NONE
+    for mssql+pyodbc - for the engine AND for the server-level engine ensure_database() opens."""
+    from sqlalchemy.dialects.mssql.base import MSDialect
+    from sqlalchemy.engine.interfaces import BindTyping
+
+    from core.services.dbconn import _dialect_kwargs, build_url
+    cfg = {"provider": "sqlserver", "host": "h", "odbc_driver": "SQL Server"}
+    eng = dbconn.make_engine(cfg)
+    assert isinstance(eng.dialect, MSDialect) and eng.dialect.bind_typing is BindTyping.NONE
+    srv = build_url(cfg, database="master")
+    assert _dialect_kwargs(srv) == {"use_setinputsizes": False}
+    assert _dialect_kwargs(build_url({"provider": "mysql", "host": "h"})) == {}
+    assert _dialect_kwargs(build_url({"provider": "sqlite", "path": ":memory:"})) == {}
+    seen = {}
+    monkeypatch.setattr(dbconn, "create_engine", lambda url, **kw: seen.update(kw) or _patch_engine_obj())
+    dbconn.ensure_database(cfg, "app_db")
+    assert seen.get("use_setinputsizes") is False
+
+
+def _patch_engine_obj():
+    return FakeEngine({})
+
+
+def test_odbc_drivers_sorted_newest_first_and_filtered_to_sql_server(monkeypatch):
+    import types
+    fake = types.SimpleNamespace(drivers=lambda: [
+        "MySQL ODBC 9.4 ANSI Driver", "SQL Server", "ODBC Driver 17 for SQL Server",
+        "SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server", "Microsoft Access Driver (*.mdb)"])
+    monkeypatch.setitem(__import__("sys").modules, "pyodbc", fake)
+    got = dbconn.odbc_drivers()
+    assert got[:3] == ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server"]
+    assert "MySQL ODBC 9.4 ANSI Driver" not in got and "Microsoft Access Driver (*.mdb)" not in got
+    assert dbconn.default_odbc_driver() == "ODBC Driver 18 for SQL Server"
+
+
+def test_default_driver_is_the_newest_installed_not_a_hardcoded_one(monkeypatch):
+    monkeypatch.setattr(dbconn, "odbc_drivers", lambda: ["ODBC Driver 17 for SQL Server", "SQL Server"])
+    url = dbconn.build_url({"provider": "sqlserver", "host": "h"})
+    assert url.query["driver"] == "ODBC Driver 17 for SQL Server"
+    assert dbconn.build_url({"provider": "sqlserver", "host": "h", "odbc_driver": "SQL Server"}).query["driver"] == "SQL Server"
+    monkeypatch.setattr(dbconn, "odbc_drivers", lambda: [])          # none installed -> a named, modern default
+    assert dbconn.build_url({"provider": "sqlserver", "host": "h"}).query["driver"] == "ODBC Driver 18 for SQL Server"
+
+
+def test_odbc_drivers_is_empty_not_an_error_when_pyodbc_is_unusable(monkeypatch):
+    import types
+    def boom():
+        raise RuntimeError("no driver manager")
+    monkeypatch.setitem(__import__("sys").modules, "pyodbc", types.SimpleNamespace(drivers=boom))
+    assert dbconn.odbc_drivers() == []
+
+
+def test_check_dbapi_reports_each_provider_and_a_missing_driver(monkeypatch):
+    assert dbconn.check_dbapi("sqlite")["ok"] is True
+    monkeypatch.setitem(__import__("sys").modules, "pyodbc", None)   # `import pyodbc` -> ImportError
+    r = dbconn.check_dbapi("sqlserver")
+    assert r["ok"] is False and "pyodbc" in r["detail"]
