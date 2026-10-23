@@ -2308,5 +2308,55 @@
       "name": "test-step-authoring",
       "description": "Author a new test step type for the Python Test Controller — the handler, its parameter schema, a simulated DUT, and the tests that exercise both. Use this skill whenever the user wants to add a test to a test bench, describes a measurement or DUT behaviour they need automated (\"ramp the AC until it trips and check recovery\", \"measure standby current\", \"cycle the relay 500 times and watch for weld\"), asks for a step type, step handler, or test step, or mentions adding a test to an application package such as inverter-eol-steps or motor-tester-steps. Trigger this even when the user only describes the physical test in plain language without naming a step type — turning a described test into a step type is exactly this skill's job. Do NOT use this for authoring recipes, which are data authored by engineers in the UI against the schemas this skill produces."
     }
-  ]
+  ],
+  "ownership": {
+    "app_rules": [
+      {
+        "pattern": "^app/[^/]+(/|$)",
+        "rule": "app/<name>/ — the app payload (step types, variable maps, recipes, controller.json, specs)"
+      },
+      {
+        "pattern": "^instrument_libs(/|$)",
+        "rule": "instrument_libs/ — drivers this app copied from the central Instrument_Library"
+      },
+      {
+        "pattern": "^frontend/src/app/overrides(/|$)",
+        "rule": "frontend/src/app/overrides/ — per-app screens and pages"
+      },
+      {
+        "pattern": "^labview/App(/|$)",
+        "rule": "labview/App/ — application LabVIEW (test cases, HAL)"
+      },
+      {
+        "pattern": "^backend/config/(app|license)\\.json$",
+        "rule": "live station config + license (gitignored; the framework ships *.example.json)"
+      },
+      {
+        "pattern": "^backend/config/known_issues(/|$)",
+        "rule": "site data"
+      },
+      {
+        "pattern": "^backend/data(/|$)",
+        "rule": "runtime data (gitignored)"
+      },
+      {
+        "pattern": "^\\.github/workflows/",
+        "rule": "the fork's own CI/release workflows (copied from docs/templates/)"
+      },
+      {
+        "pattern": "^(CLAUDE|README|APP_SETUP|CONTRIBUTING)\\.md$",
+        "rule": "fork-level documents"
+      },
+      {
+        "pattern": "^\\.mcp\\.json$",
+        "rule": "the fork's MCP client config (no secrets)"
+      },
+      {
+        "pattern": "^docs/framework-cr(/|$)",
+        "rule": "framework change requests this fork has raised"
+      }
+    ],
+    "framework_advice": "Framework-owned. Don't patch it in the fork — change it in the framework repo and cut a release, then `git fetch upstream --tags && git merge vX.Y.Z`. A downstream patch makes every later merge conflict.",
+    "app_advice": "Yours — edit freely; framework merges never touch it."
+  }
 }

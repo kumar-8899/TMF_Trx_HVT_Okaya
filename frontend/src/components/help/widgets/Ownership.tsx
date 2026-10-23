@@ -4,9 +4,12 @@ import { Alert, Box, Chip, Stack, TextField, Typography } from "@mui/material";
 import { useState } from "react";
 
 import { useFacts } from "./facts";
+import type { OwnershipFacts } from "./facts";
 
 export interface Verdict { owner: "app" | "framework"; rule: string; advice: string }
 
+/** Built-in fallback — the SAME rules as tools/ownership.py, used only until /help/facts answers (or when the
+ * facts predate v1.32.0). The facts copy is authoritative; `ownershipCases.json` keeps both honest. */
 const APP_RULES: [RegExp, string][] = [
   [/^app\/[^/]+(\/|$)/, "app/<name>/ — the app payload (step types, variable maps, recipes, controller.json, specs)"],
   [/^instrument_libs(\/|$)/, "instrument_libs/ — drivers this app copied from the central Instrument_Library"],
@@ -16,11 +19,15 @@ const APP_RULES: [RegExp, string][] = [
   [/^backend\/config\/known_issues(\/|$)/, "site data"],
   [/^backend\/data(\/|$)/, "runtime data (gitignored)"],
   [/^app\/[^/]+\/help(\/|$)/, "app-owned help pages"],
+  [/^\.github\/workflows\//, "the fork's own CI/release workflows (copied from docs/templates/)"],
+  [/^(CLAUDE|README|APP_SETUP|CONTRIBUTING)\.md$/, "fork-level documents"],
+  [/^\.mcp\.json$/, "the fork's MCP client config (no secrets)"],
+  [/^docs\/framework-cr(\/|$)/, "framework change requests this fork has raised"],
 ];
 
 /** `frameworkModules` = ids of the standard framework modules; any OTHER backend/modules/<x>/ is an
  * app module (TEMPLATE.md: prefix app modules with the app name so upstream can never collide). */
-export function classifyPath(raw: string, frameworkModules: string[]): Verdict | null {
+export function classifyPath(raw: string, frameworkModules: string[], rules?: OwnershipFacts): Verdict | null {
   const path = raw.trim().replace(/\\/g, "/").replace(/^\.?\//, "");
   if (!path) return null;
   const mod = /^backend\/modules\/([^/]+)(\/|$)/.exec(path);
@@ -28,7 +35,9 @@ export function classifyPath(raw: string, frameworkModules: string[]): Verdict |
     return { owner: "app", rule: `backend/modules/${mod[1]}/ — an app-specific backend module`,
       advice: "Yours. Keep the app-name prefix (e.g. acme_eol) so a later framework module can never collide." };
   }
-  for (const [re, rule] of APP_RULES) {
+  const table: [RegExp, string][] = rules?.app_rules?.length
+    ? rules.app_rules.map((r) => [new RegExp(r.pattern), r.rule] as [RegExp, string]) : APP_RULES;
+  for (const [re, rule] of table) {
     if (re.test(path)) {
       return { owner: "app", rule, advice: "Yours — edit freely; framework merges never touch it." };
     }
@@ -52,7 +61,7 @@ export function OwnershipWidget() {
   const { facts } = useFacts();
   const [path, setPath] = useState("");
   const fw = facts?.modules.map((m) => m.id) ?? ["auth", "config", "health", "help", "logs", "mes", "recipe", "report", "runs", "variables"];
-  const v = classifyPath(path, fw);
+  const v = classifyPath(path, fw, facts?.ownership);
   return (
     <Box sx={{ my: 2, p: 2, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Who owns this path?</Typography>

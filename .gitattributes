@@ -1,0 +1,78 @@
+# Line endings (v1.32.0).
+#
+# The repository stores LF. Scripted edits on Windows (Python open(...,'w'), Path.write_text) rewrite LF
+# files as CRLF, which turns a 3-line change into a whole-file diff and breaks merges for forks. With these
+# rules git normalises text files back to LF on commit, so that cannot reach history.
+#
+# Files that were ALREADY committed with CRLF are listed under `-text` below and left exactly as they are, so
+# introducing this file produces no renormalisation diff. To convert one deliberately: remove its line,
+# run `git add --renormalize <file>`, and commit that on its own.
+# `python tools/doctor.py` reports tracked LF files whose working copy has drifted to CRLF.
+
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.tsx text eol=lf
+*.ts text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.ps1 text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.svg text eol=lf
+*.conf text eol=lf
+*.template text eol=lf
+*.example text eol=lf
+*.spec text eol=lf
+
+# Binary / LabVIEW project files: never touched.
+*.lvclass -text
+*.lvlib -text
+*.lvproj -text
+*.lvlps -text
+*.aliases -text
+*.vi binary
+*.ctl binary
+
+# Already stored with CRLF - left as is (see above).
+CHANGELOG.md -text
+backend/core/__init__.py -text
+backend/core/services/audit.py -text
+backend/core/services/config.py -text
+backend/core/services/controller_supervisor.py -text
+backend/debug_server/config.py -text
+backend/debug_server/entry.py -text
+backend/instrumentlib/base.py -text
+backend/instrumentlib/conformance.py -text
+backend/instrumentlib/errors.py -text
+backend/instrumentlib/interfaces.py -text
+backend/instrumentlib/tester/test_instrumentlib.py -text
+backend/modules/help/catalog.py -text
+backend/modules/logs/tester/test_logs.py -text
+backend/modules/logs/variants/db.py -text
+backend/modules/variables/instances.py -text
+backend/modules/variables/tester/test_variables.py -text
+backend/pyproject.toml -text
+backend/run.py -text
+backend/run_debug_server.py -text
+backend/tests/test_audit.py -text
+backend/tests/test_serve_selector.py -text
+backend/tests/test_updates.py -text
+controller/controller/serve.py -text
+controller/tester/test_instrument_call.py -text
+deploy/build-installer.ps1 -text
+deploy/cut-release.ps1 -text
+deploy/fetch-mosquitto.ps1 -text
+deploy/release-probes.schema.json -text
+deploy/verify-build.ps1 -text
+docs/RELEASE_GATE.md -text
+docs/REMOTE_DEBUG.md -text
+docs/contracts/LOGS.md -text
+docs/help/dev/guide/gotchas.md -text
+docs/help/user/settings.md -text
+docs/help/user/troubleshooting.md -text
+docs/templates/release-probes.example.json -text
+tmf_debug/cli.py -text
+tools/screenshots/capture.mjs -text

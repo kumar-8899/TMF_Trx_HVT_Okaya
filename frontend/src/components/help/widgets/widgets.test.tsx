@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../../api/client";
+import cases from "../../../test/ownershipCases.json";
 import { ChecklistWidget } from "./Checklist";
 import { DiagramWidget } from "./Diagrams";
 import { ChangelogWidget, FactsWidget, PermissionsMatrixWidget } from "./FactsWidgets";
@@ -39,22 +40,15 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
 describe("classifyPath — the TEMPLATE.md §1 ownership boundary", () => {
-  const fw = ["auth", "recipe", "runs"];
-  it.each([
-    ["app/acme_eol/recipes/main.json", "app"],
-    ["instrument_libs/power/tenma.py", "app"],
-    ["frontend/src/app/overrides/runs.tsx", "app"],
-    ["labview/App/x.vi", "app"],
-    ["backend/config/app.json", "app"],
-    ["backend/modules/acme_eol/api.py", "app"],
-    ["backend/modules/recipe/api.py", "framework"],
-    ["backend/core/app.py", "framework"],
-    ["frontend/src/screens/Runs.tsx", "framework"],
-    ["controller/controller/serve.py", "framework"],
-    ["backend\\core\\app.py", "framework"],               // Windows separators
-    ["./app/acme/VERSION", "app"],
-  ])("%s -> %s-owned", (path, owner) => {
+  // Shared with tools/ownership.py's tests: backend/tests/test_ownership.py asserts the two copies are identical.
+  const fw: string[] = cases.framework_modules;
+  it.each(cases.cases as [string, string][])("%s -> %s-owned", (path, owner) => {
     expect(classifyPath(path, fw)?.owner).toBe(owner);
+  });
+  it("uses the rules from the generated facts when present (they win over the built-in copy)", () => {
+    const rules = { app_rules: [{ pattern: "^custom/", rule: "custom rule" }], framework_advice: "", app_advice: "" };
+    expect(classifyPath("custom/x", fw, rules)?.owner).toBe("app");
+    expect(classifyPath("app/acme/VERSION", fw, rules)?.owner).toBe("framework");   // not in the supplied table
   });
   it("returns null for empty input", () => expect(classifyPath("  ", fw)).toBeNull());
   it("tells you what to do for a framework file", () => {

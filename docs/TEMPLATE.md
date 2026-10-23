@@ -27,6 +27,7 @@ framework repo and release — never patch it in the app fork.
 | `instrument_libs/` (repo root) | instrument **drivers this app uses**, COPIED from the central `Instrument_Library` repo — the app is self-contained, it does not reference the central repo at runtime. See §1.2. |
 | `labview/App/` | application LabVIEW: test-case VIs, HAL, station wiring (see §4) |
 | `frontend/src/app/overrides/` | app **screen overrides** — per-app Runs/Recipe/Maintenance UI — **and app-contributed pages**, new top-level routes/nav entries. The framework ships this dir empty; a fork drops `*.tsx` files here to replace a screen or add a page without editing framework `screens/*`, `App.tsx`, or `Layout.tsx`. See §1.3. |
+| `.github/workflows/`, `CLAUDE.md`, `README.md`, `APP_SETUP.md`, `CONTRIBUTING.md`, `.mcp.json`, `docs/framework-cr/` | **fork-local files** (v1.32.0) — the fork's own CI/release workflows (copied from `docs/templates/`), its own top-level documents, its MCP client config (no secrets), and the framework change requests it has raised. The framework repo has its own versions of some of these; downstream they are yours. |
 | branding block + `controller` block in `app.json` | name/product shown in the UI; controller selection (labview\|python) + `config_file` (no source edits) |
 
 ### Framework-owned (read-only in an application)
@@ -37,6 +38,8 @@ engine — app step types are added under `app/<name>/`, never by editing `contr
 `frontend/` (**except** `frontend/src/app/overrides/` — see §1.3), `docs/`,
 `labview/Source/` framework modules (MQTT Bridge, Sequence Engine),
 `dev.ps1`, `debug.ps1`.
+
+This table is machine-readable: `tools/ownership.py` is the single source (the Developer Hub widget and `tools/fork_check.py` read it), and `tools/ownership_cases.json` pins the cases. Change a rule there and here together.
 
 Custom recipes, users, instruments, variable maps, health suites, MES settings,
 permissions — **all data/config**, not code. That is the point of the design

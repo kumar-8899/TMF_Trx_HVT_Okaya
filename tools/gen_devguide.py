@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))     # ownership.py lives beside this file
 OUT_DIR = REPO / "docs" / "generated"
 FACTS_JSON = OUT_DIR / "facts.json"
 FACTS_MD = OUT_DIR / "facts.md"
@@ -202,6 +203,7 @@ def build_facts() -> dict:
         "controller_ops": controller_ops(),
         "frontend_routes": frontend_routes(),
         "skills": skills(),
+        "ownership": __import__("ownership").facts(),
     }
 
 

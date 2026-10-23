@@ -24,6 +24,10 @@ export interface OpFact { op: string; group: string; blocking: boolean; doc: str
 export interface FrontendRoute { path: string; permission: string | null; role: string | null }
 export interface SkillFact { name: string; description: string }
 
+export interface OwnershipFacts {
+  app_rules: { pattern: string; rule: string }[]; framework_advice: string; app_advice: string;
+}
+
 export interface Facts {
   schema_version: number;
   framework: { name: string; version: string };
@@ -37,6 +41,8 @@ export interface Facts {
   controller_ops: OpFact[];
   frontend_routes: FrontendRoute[];
   skills: SkillFact[];
+  /** The ownership boundary, from tools/ownership.py (absent in facts generated before v1.32.0). */
+  ownership?: OwnershipFacts;
 }
 
 let factsPromise: Promise<Facts> | null = null;
