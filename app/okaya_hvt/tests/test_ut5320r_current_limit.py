@@ -157,3 +157,21 @@ def test_visa_drain_reads_until_the_line_is_quiet_and_restores_the_timeout():
     t._inst = Inst()
     assert _run(t.drain()) == 24 + 3
     assert t._inst.timeout == 5000
+
+
+def test_last_acw_result_reports_the_testers_own_token():
+    class ArcTransport(FakeTransport):
+        async def query(self, cmd):
+            if cmd == "FETCh?":
+                self.log.append(("q", cmd))
+                n = sum(1 for k, c in self.log if c == "FETCh?")
+                return "1,AC,1.000,0.340" if n == 1 else "1,AC,1.000,0.340,ARC"
+            return await super().query(cmd)
+
+    d = Ut5320r("hipot", simulated=True)
+    d.simulated = False
+    d.transport = ArcTransport()
+    assert _run(d.last_acw_result()) == ""                        # nothing measured yet
+    leak, brk = _run(d.measure_acw(1500, 3.0, 1))
+    assert (leak, brk) == (0.34, True)                            # low mA, still a breakdown ...
+    assert _run(d.last_acw_result()) == "ARC"                     # ... and now we can say which

@@ -39,7 +39,10 @@ _PARAMS = {
 class FakeCtx:
     """Records writes/waits/diags; returns or raises whatever the test scripts for invoke()."""
 
-    def __init__(self, invoke_result=None, invoke_error=None, wait_error=None):
+    def __init__(self, invoke_result=None, invoke_error=None, wait_error=None,
+                 reason="ARC", reason_error=None):
+        self.reason = reason                 # what last_acw_result() reports
+        self.reason_error = reason_error
         self.writes: list[tuple[str, float]] = []
         self.waited: list[float] = []
         self.diags: list[tuple[str, str, dict]] = []
@@ -58,6 +61,10 @@ class FakeCtx:
             raise self._wait_error
 
     def invoke(self, action, method, args=None):
+        if method == "last_acw_result":      # the explanation lookup, not the measurement
+            if self.reason_error is not None:
+                raise self.reason_error
+            return self.reason
         self.invoked_with = (action, method, args)
         if self._invoke_error is not None:
             raise self._invoke_error
@@ -110,6 +117,23 @@ def test_breakdown_fails_even_when_leakage_reads_within_limits():
     assert leakage.status == FAIL                      # ... and 2.0 <= 5.0 can't mask the breakdown
     assert "breakdown" in result.message
     assert _route_states(ctx)[-1] == ("hipot_route_pri_sec", 0)
+
+
+def test_breakdown_message_and_diag_name_the_testers_own_reason():
+    ctx = FakeCtx(invoke_result=(0.34, True), reason="ARC")
+    result = HipotAcw().execute(_PARAMS, ctx)
+    assert "(ARC)" in result.message and "0.34 mA at the trip" in result.message
+    assert "limit 5.0 mA" in result.message
+    warn = [f for lvl, m, f in ctx.diags if m == "hipot_acw.breakdown"]
+    assert warn and warn[0]["result"] == "ARC" and warn[0]["leakage_ma"] == 0.34
+
+
+def test_breakdown_still_fails_when_the_reason_cannot_be_read():
+    ctx = FakeCtx(invoke_result=(0.34, True), reason_error=RuntimeError("link"))
+    result = HipotAcw().execute(_PARAMS, ctx)          # best-effort explanation, never raises
+    finalize(result.measurements)
+    assert result.measurements[0].status == FAIL
+    assert "breakdown reported by tester" in result.message and "(" not in result.message.split("—")[0]
 
 
 # ---- boundary: leakage exactly at the limit --------------------------------
@@ -220,6 +244,8 @@ class _Vars:
         return {"written": value}
 
     def invoke(self, action, method, args=None):
+        if method == "last_acw_result":      # explanation lookup after a breakdown, not a measurement
+            return "ARC"
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply

@@ -71,6 +71,11 @@ _AC_LIMIT_MIN_MA, _AC_LIMIT_MAX_MA = 0.001, 20.0     # UT5320 series, manual §1
 
 
 class Ut5320r(InstrumentBase, ISafetyTester):
+    # The tester's sorting-result token of the LAST measure_acw (PASS, ARC, SHORT, GFI, HI-Limit...).
+    # measure_acw's return value is only (leakage_mA, breakdown), so the step type reads the WHY
+    # through last_acw_result() when it has to explain a breakdown FAIL.
+    _last_acw_result = ""
+
     # No IDN? string confirmed live yet (see module docstring) — identity is reported, not gated.
     EXPECTED_IDN = None
 
@@ -148,10 +153,16 @@ class Ut5320r(InstrumentBase, ISafetyTester):
         if current_limit_ma is not None:
             await self._program_ac_current_limit(step, float(current_limit_ma))
         leakage_ma, result = await self._run_and_fetch(step, "AC", "measure_acw")
+        self._last_acw_result = result            # recorded BEFORE validation: unknown tokens are kept too
         if result not in _ACW_RESULTS:
             raise DeviceError(f"unexpected ACW sorting result {result!r} on step {step}",
                               instance_id=self.instance_id, method="measure_acw")
         return leakage_ma, result in _ACW_BREAKDOWN
+
+    async def last_acw_result(self) -> str:
+        """Sorting-result token the tester gave for the most recent measure_acw (e.g. "ARC"),
+        "" if none yet. Read-only; lets a step explain WHY a low-mA test still failed."""
+        return self._last_acw_result
 
     # ---- mandatory base surface (RESET cuts the HV output immediately) ------
 

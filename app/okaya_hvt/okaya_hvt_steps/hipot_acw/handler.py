@@ -23,8 +23,9 @@ the leakage current in mA, judged against `max_current_ma`. A test that FAILS is
 as a FAIL row, never as a missing one — this step does not raise for a test failure:
   * over-limit leakage            -> the reading, FAIL (judged by the framework from the limit);
   * dielectric breakdown reported  -> the reading, FAIL asserted explicitly (a low reading can't
-    by the tester (arc/short/GFI/    mask a breakdown); the dedicated `breakdown` flag is still not
-    overvoltage)                     a separate report row (recipe choice, 2026-09);
+    by the tester (arc/short/GFI/    mask a breakdown); the step message + a diag event name the
+    overvoltage)                     tester's own token (ARC/SHORT/GFI/VOLT ERR, via
+                                     last_acw_result()); still no separate report row;
   * tester/link error or a         -> value "ERROR", FAIL (a non-numeric value against numeric
     malformed reply                  limits is a FAIL by the framework's own rule), with the error
                                      text in the step message + a diag event.
@@ -110,8 +111,21 @@ class HipotAcw:
                 message=f"{name}: tester error — {detail}",
             )
         if breakdown:
+            # The reading is the current at the instant the tester tripped (it cuts the HV), so a
+            # FAIL at a low mA is expected — say WHICH trip it was (ARC / SHORT / GFI / VOLT ERR).
+            reason = ""
+            try:
+                reason = str(ctx.invoke(action, "last_acw_result") or "")
+            except StepAborted:
+                raise
+            except Exception:  # noqa: BLE001 — the explanation is best-effort; the FAIL stands either way
+                pass
+            detail = f" ({reason})" if reason else ""
+            ctx.diag("warning", "hipot_acw.breakdown", step_name=name, result=reason or None,
+                     leakage_ma=leakage_ma, limit_ma=limits.max)
             return StepResult(
                 measurements=[Measurement(name, leakage_ma, "mA", limits=limits, status=FAIL)],
-                message=f"{name}: dielectric breakdown reported by tester",
+                message=(f"{name}: dielectric breakdown reported by tester{detail} — "
+                         f"{leakage_ma} mA at the trip, limit {limits.max} mA"),
             )
         return StepResult(measurements=[Measurement(name, leakage_ma, "mA", limits=limits)])

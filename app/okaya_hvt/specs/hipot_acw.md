@@ -50,7 +50,10 @@ of these six against live hardware (see `maps/st1.json`'s `//relay_modules` note
    visible FAIL row, never a missing one** (this step does not raise for a test failure):
    - leakage above `max_current_ma` → the reading, FAIL;
    - the tester reports a dielectric breakdown → the reading, FAIL (asserted explicitly, so a low
-     reading cannot mask it); the step message says "dielectric breakdown reported by tester";
+     reading cannot mask it); the step message says "dielectric breakdown reported by tester (<ARC|SHORT|GFI|VOLT ERR>) — 
+     <mA> mA at the trip, limit <max> mA" (the token is read from the driver's `last_acw_result()`; the
+     mA is the current at the instant the tester cut the HV, so it can be far below the limit) and a
+     `hipot_acw.breakdown` diag event carries the same;
    - the tester call fails or returns a malformed reply → value `ERROR`, FAIL (a non-numeric
      value against numeric limits is a FAIL by the framework's rule); the error text is in the
      step message and a `hipot_acw.measure_failed` diag event.
