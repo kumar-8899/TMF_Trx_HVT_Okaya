@@ -152,6 +152,38 @@ def test_debug_tool_json_is_validated(tmp_path):
     assert "not valid JSON" in doctor.check_debug_tool(_ctx(tmp_path))[0].detail
 
 
+def test_debug_tool_pin_is_checked_against_the_shipped_schema_and_a_bundle_pin_needs_a_cached_zip(tmp_path):
+    (tmp_path / "app" / "acme").mkdir(parents=True)
+    f = tmp_path / "app" / "acme" / "debug-tool.json"
+    f.write_text(json.dumps({"delivery": "bundle", "version": "latest"}))
+    c = _by_id(doctor.check_debug_tool(_ctx(tmp_path)))["debug_tool_json_acme"]
+    assert not c.ok and c.severity == "error" and "version" in c.detail
+    f.write_text(json.dumps({"delivery": "bundle", "version": "1.x"}))
+    got = _by_id(doctor.check_debug_tool(_ctx(tmp_path)))
+    assert got["debug_tool_json_acme"].ok
+    zip_check = got["debug_tool_zip_acme"]
+    assert not zip_check.ok and zip_check.severity == "warning" and "debug_tool_delivery.py fetch --slug acme" in zip_check.fix
+    cache = tmp_path / "tools" / "debug-tool"
+    cache.mkdir(parents=True)
+    (cache / "tmf-debug-tool-1.0.0.zip").write_bytes(b"PK")
+    assert "debug_tool_zip_acme" not in _by_id(doctor.check_debug_tool(_ctx(tmp_path)))
+    f.write_text(json.dumps({"delivery": "on-demand"}))                    # nothing to ship, nothing to cache
+    assert "debug_tool_zip_acme" not in _by_id(doctor.check_debug_tool(_ctx(tmp_path)))
+
+
+def test_debug_tool_extra_is_an_info_not_a_failure(tmp_path):
+    (tmp_path / "app" / "acme").mkdir(parents=True)
+    (tmp_path / "app" / "acme" / "debug-tool.json").write_text(json.dumps({"delivery": "none"}))
+    miss = _by_id(doctor.check_debug_tool(_ctx(tmp_path, find_origin=lambda n: None if n == "mcp" else str(tmp_path / "x.py"))))["debug_tool_extra"]
+    assert not miss.ok and miss.severity == "info" and "debug-tool" in miss.fix
+    assert _by_id(doctor.check_debug_tool(_ctx(tmp_path)))["debug_tool_extra"].ok
+    assert "debug_tool_extra" not in _by_id(doctor.check_debug_tool(_ctx(tmp_path / "nopins")))      # no pin, no noise
+
+
+def test_debug_tool_is_not_an_editable_install(tmp_path):
+    assert "debug_tool" not in doctor.EDITABLE                              # it runs as `python -m debug_tool`; there is no package to install
+
+
 def test_mcp_json_benches_are_probed_when_a_prober_is_given(tmp_path):
     (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"bench1": {"url": "http://10.0.0.5:8010/mcp"}}}))
     seen = []

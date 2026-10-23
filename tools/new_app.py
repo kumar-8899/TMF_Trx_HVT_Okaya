@@ -316,6 +316,19 @@ def main() -> int:
         (out / ".github" / "workflows" / "ci.yml").write_text(ci.read_text(encoding="utf-8"), encoding="utf-8")
     (out / "APP_SETUP.md").write_text(_sub(SETUP_MD, tok), encoding="utf-8")
 
+    # TMF Debug Tool (docs/DEBUG_TOOL.md): how this app delivers it (app-owned pin; on-demand = the engineer carries it, nothing is
+    # shipped) and an MCP client config that holds only environment references - a token must never be committed.
+    appdir = out / "app" / mod
+    appdir.mkdir(parents=True, exist_ok=True)
+    pin = {"delivery": "on-demand", "version": "1.x"}
+    (appdir / "debug-tool.json").write_text(json.dumps(pin, indent=2) + "\n", encoding="utf-8", newline="\n")
+    mcp_json = out / ".mcp.json"
+    if not mcp_json.exists():
+        client = {"mcpServers": {f"bench-{mod.replace('_', '-')}": {
+            "type": "http", "url": "${TMF_BENCH_URL:-http://127.0.0.1:8010/mcp}",
+            "headers": {"Authorization": "Bearer ${TMF_DEBUG_TOKEN}", "X-Core-Token": "${TMF_CORE_TOKEN}"}}}}
+        mcp_json.write_text(json.dumps(client, indent=2) + "\n", encoding="utf-8", newline="\n")
+
     print(f"scaffolded {args.customer} ({args.slug}) into {out}")
     print(f"  module: backend/modules/{mod}/  - product pins framework {args.framework_tag}")
     print("  next: read APP_SETUP.md (remotes -> secrets -> register product -> tag a release)")

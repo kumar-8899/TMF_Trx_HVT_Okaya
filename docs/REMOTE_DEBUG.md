@@ -530,3 +530,31 @@ PC did nothing - no `data/debug`, nothing on :8001 - on exactly the machines thi
   zip). Read-only on the station: the DB is opened `mode=ro`.
 - The error/action logs it packs are no longer empty: see `contracts/LOGS.md` section 12 (central request audit,
   instrument failures, run aborts).
+
+**v1.32.0 additions to the export (Export v2).** Still stdlib-only and read-only on the station (so `run.exe --debug-export` and
+`tmf-debug export` get them too): `system/processes.json` (relevant processes with PID + command line), `system/ports.json` (who
+listens on 8000/1883/8001/8010/5173), `system/odbc.json` (installed SQL Server ODBC drivers), `system/health.json` (localhost
+`/healthz`, `/readyz`, `/variables/instances` when the app is up, else a note), `install/integrity.json` (every `run.dist` file vs the
+hashes in `RELEASE.json` - catches a half-applied update or an antivirus quarantine) and `logs/instrument_events.jsonl`. **The zip is
+now read back**: `tmf-debug analyze <bundle.zip>` (library `tmf_debug.bundle`) writes `analysis.md` + `analysis.json` + `digest.json` -
+first fault, recent errors, the instrument table, port/process/driver/integrity findings, `MANIFEST.missing` as warnings, script output
+when the zip came from a script kit, and a "look here first" list. The passive instrument digest (`tmf_debug.instrument`, `tmf-debug
+instrument`) is built from the same captured events and sends nothing to any instrument.
+
+---
+
+## 15. The TMF Debug Tool (v1.32.0) - the next step after the sidecar
+
+The sidecar's weaknesses on a client PC: it exists only in builds >= 1.30, dies with the app, is configured inside the app, and has no
+consent UI. The **TMF Debug Tool** (`DEBUG_TOOL.md`, repo-root `debug_tool/`) is its evolution as a **separate, installable program**:
+
+- it reuses this document's engine (`debug_server` ring/rolling sink/snapshots/log discipline/export, `tmf_debug` digest and analysis) - nothing is rewritten;
+- it **hosts the MCP server itself** (`/mcp`), so Claude Code connects as a remote MCP server and the developer installs nothing;
+- it reads the running app live over MQTT for **every station** and from the app's own logs (station DB read-only, `launcher.log`), not just the recorder;
+- the operator controls it from a window: sharing on/off with an expiry, and a queue where **a human approves every action** (script, instrument probe, file read, log-level change, capture, export);
+- it works with any app version (it only reads files and MQTT), and when the in-app recorder is already running it switches to **attach mode** so there is exactly one writer in `data/debug/`;
+- air-gapped benches get a one-click bundle, a collect kit and a script kit, and the analyser above.
+
+The in-app sidecar and `station.py`'s supervision of it are **unchanged**; new work should prefer the tool. Locked: direct connection only
+(no relay); no new roles or permissions (instrument probes reuse the Test Bench endpoint and the caller's core token); the tool is never part
+of `run.dist` or the app release gate. Threat model, consent layers, packaging and the staged rollout: `DEBUG_TOOL.md` §2, §10-§12.

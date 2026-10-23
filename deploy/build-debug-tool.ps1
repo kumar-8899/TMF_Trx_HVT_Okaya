@@ -8,7 +8,7 @@
   database drivers) and the bundled python.org embeddable interpreter -> sign (deploy\sign-binaries.ps1; unsigned is loudly
   reported) -> run the frozen selftest (deploy\verify-debug-tool.ps1) -> zip + SHA256SUMS.txt.
 
-  Run it on an interactive desktop, like run_station.exe. Prereqs: Python 3.11/3.12 with `pip install -e "backend[dev,debug-tool]"`.
+  Run it on an interactive desktop, like run_station.exe. Prereqs: Python 3.11/3.12 with `pip install -e "backend[dev,debug-tool,release]"` (`release` brings PyInstaller).
 
   The bundled interpreter (what lets a client PC with no Python run Python scripts):
     -EmbedZip <file>    the python.org "Windows embeddable package (64-bit)" zip, matching this Python's minor version

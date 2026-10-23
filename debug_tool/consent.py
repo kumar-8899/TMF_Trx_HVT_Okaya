@@ -206,7 +206,7 @@ class ApprovalQueue:
         except asyncio.TimeoutError:
             decision = Decision(False, "timeout", rid)
         finally:
-            p = self._pending.pop(rid, None)
+            self._pending.pop(rid, None)
         if not fut.done():
             fut.set_result(decision)
         self._record(rid, kind, summary, decision)

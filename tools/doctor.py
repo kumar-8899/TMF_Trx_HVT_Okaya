@@ -31,7 +31,7 @@ from typing import Callable
 REPO = Path(__file__).resolve().parent.parent
 PORTS = {8000: "the app (backend)", 1883: "the MQTT broker", 8001: "the in-app Debug Server",
          8010: "the TMF Debug Tool", 5173: "the Vite dev server"}
-EDITABLE = ("core", "controller", "instrumentlib", "tmf_debug", "debug_tool")
+EDITABLE = ("core", "controller", "instrumentlib", "tmf_debug")      # debug_tool runs as `python -m debug_tool` (no package to install)
 MOSQUITTO_FALLBACKS = (r"D:\tools\mosquitto\mosquitto.exe", r"C:\Program Files\mosquitto\mosquitto.exe",
                        r"C:\Program Files (x86)\mosquitto\mosquitto.exe")
 
@@ -162,7 +162,7 @@ def check_editable(ctx: Ctx) -> Check:
     bad, missing = [], []
     for name in EDITABLE:
         dir_name = {"core": "backend/core", "instrumentlib": "backend/instrumentlib", "controller": "controller/controller",
-                    "tmf_debug": "tmf_debug", "debug_tool": "debug_tool"}[name]
+                    "tmf_debug": "tmf_debug"}[name]
         if not (ctx.repo / dir_name).is_dir():
             continue                                            # this checkout does not carry it (yet)
         origin = ctx.find_origin(name)
@@ -337,21 +337,41 @@ def check_odbc(ctx: Ctx) -> Check | None:
                  "no SQL Server ODBC driver installed (only needed if a report/MES database is SQL Server)")
 
 
+def _delivery():
+    spec = importlib.util.spec_from_file_location("debug_tool_delivery", Path(__file__).resolve().parent / "debug_tool_delivery.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def check_debug_tool(ctx: Ctx) -> list[Check]:
     out = []
+    dd = _delivery()
+    pins = False
     for slug in _apps(ctx):
         f = ctx.repo / "app" / slug / "debug-tool.json"
         if not f.is_file():
             continue
+        pins = True
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except ValueError as exc:
+            cfg = dd.load_config(slug, ctx.repo)
+        except dd.DeliveryError as exc:
             out.append(Check(f"debug_tool_json_{slug}", False, "error", f"app/{slug}/debug-tool.json is not valid JSON: {exc}"))
             continue
-        bad = data.get("delivery") not in ("bundle", "on-demand", "none")
-        out.append(Check(f"debug_tool_json_{slug}", not bad, "error" if bad else "info",
-                         f"app/{slug}/debug-tool.json: delivery={data.get('delivery')!r}, version={data.get('version')!r}"
-                         if not bad else f"app/{slug}/debug-tool.json: `delivery` must be bundle | on-demand | none"))
+        problems = dd.validate(cfg)                                     # the shipped deploy/debug-tool.schema.json
+        out.append(Check(f"debug_tool_json_{slug}", not problems, "error" if problems else "info",
+                         f"app/{slug}/debug-tool.json: delivery={cfg.get('delivery')!r}, version={cfg.get('version')!r}" if not problems
+                         else f"app/{slug}/debug-tool.json: " + "; ".join(problems)))
+        if not problems and cfg.get("delivery") == "bundle" and dd.find_zip(cfg["version"], ctx.repo) is None:
+            out.append(Check(f"debug_tool_zip_{slug}", False, "warning",
+                             f"delivery=bundle pins Debug Tool {cfg['version']} but no tmf-debug-tool-*.zip is cached - cut-release.ps1 will stop at step 7b",
+                             f"python tools/debug_tool_delivery.py fetch --slug {slug}"))
+    if pins:
+        has_mcp = ctx.find_origin("mcp") is not None
+        out.append(Check("debug_tool_extra", has_mcp, "info",
+                         "the `mcp` package is installed (python -m debug_tool serve / mcp-stdio / its tests work)" if has_mcp else
+                         "the `mcp` package is not installed - only needed to run the Debug Tool from source, `mcp-stdio` or its tests",
+                         "cd backend && pip install -e \".[dev,debug-tool]\""))
     mcp = ctx.repo / ".mcp.json"
     if mcp.is_file() and ctx.http_ok is not None:
         try:
@@ -414,8 +434,7 @@ def apply_fixes(checks: list[Check], ctx: Ctx, say: Callable[[str], None] = prin
         say("     create/activate this repo's .venv first, then re-run `python tools/doctor.py --fix`")
         done.append("editable installs skipped: not inside a virtualenv")
     elif failed & {"editable_installs", "extras"}:
-        for target, cwd in (("backend/instrumentlib", None), ("backend[dev,report-db]", None), ("controller", None), ("tmf_debug", None),
-                            ("debug_tool", None)):
+        for target, cwd in (("backend/instrumentlib", None), ("backend[dev,report-db]", None), ("controller", None), ("tmf_debug", None)):
             path = repo / target.split("[")[0]
             if path.is_dir():
                 spec = f"./{target}" if "[" not in target else f"./{target}"

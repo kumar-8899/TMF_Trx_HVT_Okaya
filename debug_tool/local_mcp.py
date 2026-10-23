@@ -7,7 +7,6 @@ the zip that comes back. The analysis text is built from bench data and is label
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 

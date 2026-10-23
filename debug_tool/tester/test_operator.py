@@ -1,6 +1,5 @@
 """The operator's page and the endpoints behind it: served only to the PC itself, key-protected, and each action works."""
 
-import asyncio
 import sys
 import zipfile
 

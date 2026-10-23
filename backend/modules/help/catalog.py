@@ -64,6 +64,7 @@ PAGES: list[Page] = [
     Page("user-settings", "Settings", "user", "Administration", "help/user/settings.md", "/settings"),
     Page("user-portal", "User Portal", "user", "Help", "help/user/portal.md", "/portal"),
     Page("user-troubleshooting", "Troubleshooting", "user", "Help", "help/user/troubleshooting.md"),
+    Page("user-support-session", "Support session (Debug Tool)", "user", "Help", "help/user/support-session.md"),
     Page("user-glossary", "Glossary", "user", "Help", "help/user/glossary.md"),
 
     # ---------- DEV (super_admin; source checkout only — never in a built station) ----------
@@ -102,6 +103,7 @@ PAGES: list[Page] = [
     Page("dev-updates", "Updates, rollback & AMC", "dev", "How-to", "UPDATES.md"),
     Page("dev-secure-distribution", "Secure distribution", "dev", "How-to", "SECURE_DISTRIBUTION.md"),
     Page("dev-remote-debug", "Remote debugging", "dev", "How-to", "REMOTE_DEBUG.md"),
+    Page("dev-debug-tool", "Debug Tool (client PC)", "dev", "How-to", "DEBUG_TOOL.md"),
     Page("dev-core", "CORE contract", "dev", "Contracts", "CORE.md"),
     Page("dev-step-types", "Step types", "dev", "Contracts", "contracts/STEP_TYPES.md"),
     Page("dev-recipe", "Recipe", "dev", "Contracts", "contracts/RECIPE.md"),

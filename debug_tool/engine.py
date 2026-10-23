@@ -22,7 +22,7 @@ import json
 import socket
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from debug_server.capture import CapturedRecord
@@ -31,7 +31,7 @@ from debug_server.ingest import Ingestor
 from debug_tool import compat, tails
 from debug_tool.appinfo import AppInfo
 from debug_tool.live import run_all_stations
-from tmf_debug.api import select_run, why as api_why
+from tmf_debug.api import why as api_why
 from tmf_debug.instrument import instrument_digest
 
 LEVELS = ("debug", "info", "warning", "error", "critical")

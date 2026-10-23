@@ -298,6 +298,9 @@ blocking warning:
 - [ ] No `instruments`/`simulation` in `controller.json` — instances live on the
       Instruments page (per-instrument Simulated), documented in INSTRUMENT_DRIVERS.md
 - [ ] Limits come from the product spec, not invented
+- [ ] `tools/new_app.py` wrote `app/<name>/debug-tool.json` (`on-demand` by default - change to `bundle` only with the customer's
+      consent, `docs/DEBUG_TOOL.md` §12) and a **token-free** `.mcp.json` (env references only); `.debug/` is gitignored.
+      Debugging a client bench later: skill `debug-client-bench`.
 - [ ] A `specs/<test>.md` per test; `spec_lint.py` green (spec↔code in sync)
 - [ ] Backend deps installed; **`npm install` run inside `frontend/`** (not repo root)
 - [ ] `run_sim` PASS + a negative case fails; sim runs with no hardware

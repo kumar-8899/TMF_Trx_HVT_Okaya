@@ -15,7 +15,6 @@ import asyncio
 import contextlib
 import getpass
 import json
-import os
 import platform
 import shutil
 import socket

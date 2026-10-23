@@ -95,7 +95,8 @@ def test_happy_path_merges_reinstalls_verifies_and_reports_whats_new(world, monk
     assert [s["version"] for s in new["changelog"]] == ["1.1.0"]
     assert new["contract_changes"] == [{"module": "recipe", "from": 1, "to": 2}]
     assert new["overrides"] and "runs.tsx" in new["overrides"][0]["override"]
-    assert new["debug_tool"] == {"file": "app/acme/debug-tool.json", "pinned": "1.0.0", "newest": "1.2.0"}
+    assert new["debug_tool"] == {"file": "app/acme/debug-tool.json", "pinned": "1.0.0", "newest": "1.2.0", "in_pin": False,
+                                 "advice": "bump `version` in app/acme/debug-tool.json"}
     text = upgrade.render_new(new)
     assert "LOG IN AGAIN" in text and "contract" in text.lower() and "Debug Tool" in text
 
@@ -222,3 +223,26 @@ def test_cli_json_output(world, capsys, monkeypatch):
     out = json.loads(capsys.readouterr().out)
     # doctor runs for real here; if THIS machine has doctor errors the upgrade correctly refuses - both are valid outcomes
     assert rc in (0, 1) and set(out) == {"ok", "target", "error", "steps", "new"} and (rc == 0) == out["ok"]
+
+
+def test_a_floating_debug_tool_pin_only_reports_releases_the_fork_does_not_have_yet(world):
+    up, fork = world
+    from fork_check import Git
+    write(fork, "app/acme/debug-tool.json", json.dumps({"delivery": "bundle", "version": "1.x"}))
+    git(fork, "fetch", "-q", "upstream", "--tags")
+    g = Git(fork)
+    news = upgrade.newer_debug_tool(fork, g)                                  # 1.2.0 exists, nothing cached: fetch it
+    assert news["newest"] == "1.2.0" and news["in_pin"] is True and "debug_tool_delivery.py fetch --slug acme" in news["advice"]
+    cache = fork / "tools" / "debug-tool"
+    cache.mkdir(parents=True)
+    (cache / "tmf-debug-tool-1.2.0.zip").write_bytes(b"PK")
+    assert upgrade.newer_debug_tool(fork, g) is None                          # already cached: no news
+    git(up, "tag", "debug-tool-v2.0.0")
+    git(fork, "fetch", "-q", "upstream", "--tags")
+    major = upgrade.newer_debug_tool(fork, Git(fork))
+    assert major["newest"] == "2.0.0" and major["in_pin"] is False and "bump `version`" in major["advice"]
+
+
+def test_the_upgrade_never_tries_to_pip_install_the_debug_tool_dir():
+    text = (REPO / "tools" / "upgrade.py").read_text(encoding="utf-8")
+    assert './debug_tool' not in text                                          # runs as `python -m debug_tool`; no pyproject to install

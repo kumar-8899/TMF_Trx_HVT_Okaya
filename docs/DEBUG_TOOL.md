@@ -148,7 +148,7 @@ Honest limit: an approved script is arbitrary code on a machine that drives inst
 - **Version** `debug_tool/VERSION`; **`COMPAT.json`** states the framework range it was tested with. A newer/older app is **never an error**: the tool serves what it understands, and `bench_health` + the Status page say "newer than tested".
 - **Build** `deploy/build-debug-tool.ps1` — PyInstaller onedir → payload (COMPAT, README-FIRST, wheelhouse incl. `tmf_support`, bundled embeddable Python) → sign (`deploy/sign-binaries.ps1`; unsigned is reported loudly) → **gate** `deploy/verify-debug-tool.ps1`
   (package layout, version agreement, signature, and the frozen exe's own `selftest`) → `release-build-tool/tmf-debug-tool-<ver>.zip` + `SHA256SUMS.txt`. A release must bundle the **genuine python.org package** (`-EmbedZip`/`-FetchEmbed`, pinned with `-EmbedSha256`).
-- **Not in `cut-release.ps1`'s gate**; published by hand as release `debug-tool-v<ver>` (zip + SHA256SUMS.txt). Dependencies: `pip install -e "backend[dev,debug-tool]"` (the `starlette>=0.41,<0.42` pin is deliberate: FastAPI 0.115 needs it).
+- **Not in `cut-release.ps1`'s gate**; published by hand as release `debug-tool-v<ver>` (zip + SHA256SUMS.txt). Dependencies: `pip install -e "backend[dev,debug-tool]"` to run it or its tests, plus `release` (PyInstaller) to build it (the `starlette>=0.41,<0.42` pin is deliberate: FastAPI 0.115 needs it).
 - **Tests** `python -m pytest debug_tool/tester -q` (~2 min); `backend/tests/test_debug_tool_*.py` for the delivery/support-wheel pieces.
 
 ## 12. Deployment: framework → forks → client builds

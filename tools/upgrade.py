@@ -155,17 +155,29 @@ def overrides_affected(repo: Path, git: fork_check.Git, old: str, new: str) -> l
 
 
 def newer_debug_tool(repo: Path, git: fork_check.Git) -> dict | None:
+    """A Debug Tool release newer than what this fork has pinned / cached. `1.x` pins float within the major: only a release the
+    fork does not have yet (not in its cache) is news; a release outside the pin (a new MAJOR) says to bump `version`."""
+    import debug_tool_delivery as dd
+    tags = [t for t in git.run("tag", "-l", "debug-tool-v*").split()]
+    versions = [semver(t.replace("debug-tool-", "")) for t in tags if re.match(r"^debug-tool-v\d+\.\d+\.\d+$", t)]
+    if not versions:
+        return None
+    newest = max(versions)
     for f in sorted((repo / "app").glob("*/debug-tool.json")) if (repo / "app").is_dir() else []:
         try:
             pinned = str(json.loads(f.read_text(encoding="utf-8")).get("version") or "")
         except ValueError:
             continue
-        tags = [t for t in git.run("tag", "-l", "debug-tool-v*").split()]
-        if not tags:
-            return None
-        newest = max(tags, key=lambda t: semver(t.replace("debug-tool-", "")))
-        if pinned and semver(newest.replace("debug-tool-", "")) > semver(pinned if pinned.count(".") >= 2 else pinned + ".0"):
-            return {"file": f.relative_to(repo).as_posix(), "pinned": pinned, "newest": newest.replace("debug-tool-v", "")}
+        if not re.match(r"^\d+(\.(\d+|x))?(\.(\d+|x))?$", pinned):
+            continue
+        floor = tuple(int(x) if x != "x" else 0 for x in (pinned.split(".") + ["0", "0"])[:3])
+        cached = dd.find_zip(pinned, repo)
+        have = max(floor, dd._ver(cached.name) or (0, 0, 0)) if cached else floor
+        if newest > have:
+            in_pin = dd.matches(pinned, newest)
+            return {"file": f.relative_to(repo).as_posix(), "pinned": pinned, "newest": ".".join(map(str, newest)), "in_pin": in_pin,
+                    "advice": (f"python tools/debug_tool_delivery.py fetch --slug {f.parent.name}" if in_pin and "x" in pinned
+                               else f"bump `version` in {f.relative_to(repo).as_posix()}")}
     return None
 
 
@@ -272,7 +284,7 @@ def run_upgrade(repo: Path, to: str, *, allow_major=False, dry_run=False, skip_t
     py = sys.executable
     if _in_venv():
         for target_dir, spec in (("backend/instrumentlib", "./backend/instrumentlib"), ("backend", "./backend[dev,report-db]"),
-                                 ("controller", "./controller"), ("tmf_debug", "./tmf_debug"), ("debug_tool", "./debug_tool")):
+                                 ("controller", "./controller"), ("tmf_debug", "./tmf_debug")):
             if (repo / target_dir).is_dir():
                 rc, out = runner([py, "-m", "pip", "install", "-e", spec])
                 if not step(f"install {spec}", rc == 0, "" if rc == 0 else out.strip()[-200:]):
@@ -321,7 +333,7 @@ def render_new(new: dict) -> str:
         L += [f"  - {o['override']} <- {o['framework_screen']}" for o in new["overrides"]]
     if new["debug_tool"]:
         d = new["debug_tool"]
-        L.append(f"\nA newer TMF Debug Tool is available: {d['pinned']} -> {d['newest']} (bump `version` in {d['file']}).")
+        L.append(f"\nA newer TMF Debug Tool is available: pinned {d['pinned']}, newest {d['newest']} ({d['advice']}).")
     L.append("\nNext: restart the app and LOG IN AGAIN (permissions and modules resolve at login/boot). Nothing was pushed.")
     return "\n".join(L)
 

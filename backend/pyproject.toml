@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.31.1"
+version = "1.32.0"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -41,7 +41,6 @@ debug-tool = [
     "mcp>=1.12,<2",
     "starlette>=0.41,<0.42",
     "pywebview>=5.0",
-    "pyinstaller>=6.6",
 ]
 dev = [
     "pytest>=8.0",

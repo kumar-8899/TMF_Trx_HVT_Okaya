@@ -1,9 +1,10 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.31.1**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.32.0**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.32.0** (2026-10-24, MINOR) — Developer experience: setup, staying mergeable, and the TMF Debug Tool (MINOR). Motivated by the Okaya/HVT work: forks lost time to a shared Python pointing at the wrong fork, stray processes on `:8000/:1883/:8001`, LF→CRLF churn, hand-patched framework files, a ten-step manual upgrade, and bench failures that could only be diagnosed by asking an engineer to run commands by hand.
 - **v1.31.1** (2026-10-15, PATCH) — SQL Server in a packaged app, from the Okaya fork (PATCH).
 - **v1.31.0** (2026-10-15, MINOR) — Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).
 - **v1.30.0** (2026-10-09, MINOR) — Field-debuggability and release safety, from the Okaya Transformer testbench (MINOR).
@@ -13,7 +14,6 @@ Super_Test_App **v1.31.1**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.27.3** (2026-10-03, PATCH) — new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).
 - **v1.27.2** (2026-10-03, PATCH) — A fresh install no longer boots with the station offline (PATCH).
 - **v1.27.1** (2026-09-29, PATCH) — run_station.exe: also replace Nuitka with PyInstaller (PATCH).
-- **v1.27.0** (2026-09-29, MINOR) — Replace Nuitka with PyInstaller for the backend; always bundle app packages; drop dual-scope updates (MINOR).
 
 ## Modules
 
@@ -158,6 +158,7 @@ Super_Test_App **v1.31.1**. Regenerate: `python tools/gen_devguide.py`.
 - **add-bench-test** — Guided workflow to add or build a test (or a whole test sequence) IN AN EXISTING forked test application on the Super_Test_App framework, in
 - **clone-test-app** — Start a new test application by cloning an EXISTING forked app (on the Super_Test_App framework) that is similar to what's needed, instead o
 - **create-instrument-library** — Author a new Python instrument library into the Instrument_Library repo (a local clone at $TMF_INSTRUMENT_LIBRARY) against a capability inte
+- **debug-client-bench** — Debug a RUNNING test bench on a client PC (or an air-gapped one) through the TMF Debug Tool - read the live app over MCP (health, why a run 
 - **framework-change-request** — Raise a change to the Super_Test_App FRAMEWORK from inside a forked application, without patching the framework file in the fork. Use when t
 - **new-test-app** — Fork the Super_Test_App test-and-measurement framework into a new, self-contained test application. Use when the user wants to create/scaffo
 - **system-blueprint** — Turn a filled "System Blueprint" Excel workbook into a test application's canonical I/O artifacts — the controller-side variable map (app/<n

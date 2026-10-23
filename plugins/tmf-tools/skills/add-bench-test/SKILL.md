@@ -157,4 +157,6 @@ shipped map, and set `"calibratable": false` on a signal that must not appear th
 - [ ] Recipe fills params + limits against those schemas — `dry_run` PASS
 - [ ] `run_sim` gives the intended verdict; a negative case FAILs
 - [ ] `specs/<test>.md` written for every test; `spec_lint.py` green (spec↔code in sync)
+- [ ] If this test exists because of a **field failure**, start from the evidence: `bench_why` / `bench_logs` (or the analysed bundle) via skill
+      `debug-client-bench` - quote the first fault in the spec, and add the failing case as a negative `run_sim` test
 - [ ] Only app-owned paths touched (TEMPLATE.md §1)

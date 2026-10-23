@@ -196,4 +196,6 @@ remaining manual items. Commit the payload on the new fork's `main`; if it was l
       none silently carried over unconfirmed
 - [ ] Fresh installer product GUID (won't collide with the source app's installed product)
 - [ ] `run_sim` PASS, `pytest` green, `spec_lint.py` clean after the copy + rename
+- [ ] `app/<new>/debug-tool.json` re-confirmed for the NEW customer (the donor's `delivery` choice is not theirs) and `.mcp.json` holds
+      env references only (no token copied from anywhere)
 - [ ] Only app-owned paths touched (TEMPLATE.md §1)
