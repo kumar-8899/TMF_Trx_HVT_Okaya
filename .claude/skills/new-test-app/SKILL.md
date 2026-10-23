@@ -222,11 +222,25 @@ optional hand-off notes.** A fresh clone has no `node_modules` and no editable i
 so the app cannot build, boot, or run `station.py` until they complete. Do them before any
 verify/run step, and before telling the user the app is ready.
 
+**Give the fork its OWN virtualenv first.** Several forks on one PC share one global Python, and
+`pip install -e` then points `core`, `controller` and `instrumentlib` at whichever fork installed last, so a
+test run can silently import another fork's code. In the new fork:
+```pwsh
+python -m venv .venv ; .\.venv\Scripts\Activate.ps1
+```
+Then run the installs below in that environment, and finish with `python tools\doctor.py` (see "Doctor" below).
+
 Backend deps + editable installs (run from `backend/`). The `desktop` extra pulls **pywebview** —
 needed for the `python station.py` native window (else it falls back to the browser):
 ```pwsh
 cd backend ; pip install -e instrumentlib ; pip install -e ".[dev,report-db,desktop]" ; cd ..
 ```
+
+**Doctor — the last step of verify.** `python tools\doctor.py` (add `--json` to parse it, `--fix` for the safe
+fixes) checks the virtualenv, that the editable installs resolve to THIS fork, the extras, `node_modules`,
+Mosquitto, stray processes on :8000/:1883/:8001/:5173, the env vars, stale live config (new permissions!) and the
+`upstream` remote. Report any `error` to the user and fix it before saying the app is ready; never "fix" a port
+holder by killing a process by name.
 
 **Frontend deps — ALWAYS run `npm install` inside `frontend/`** (the only `package.json`
 is there; running `npm` at the repo root fails `ENOENT: package.json`). Without it `tsc`/

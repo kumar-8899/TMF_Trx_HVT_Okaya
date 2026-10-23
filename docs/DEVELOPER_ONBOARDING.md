@@ -119,6 +119,21 @@ A window opens with the app. Log in with `admin` / `admin`. Set up your instrume
 
 (For live UI development with instant reload, use `python station.py --dev` instead.)
 
+### Check the machine: `python tools/doctor.py`
+
+Run it after setup and whenever something behaves oddly (`--json` for scripts, `--fix` for the safe fixes). It checks:
+Python version; that you are in **this fork's** `.venv` (several forks sharing one global Python overwrite each
+other's `pip install -e`, so a test run can silently import another fork's code); that `core`, `controller`,
+`instrumentlib` resolve to THIS repo; the `dev`/`report-db` extras; `frontend/node_modules`; Mosquitto; who holds
+ports 8000/1883/8001/8010/5173 (it names the PID and command line); the env vars from step 4; missing or **stale
+live config** (new permissions you have not applied yet); the `upstream` remote (present, push-disabled);
+line-ending drift; installed SQL Server ODBC drivers. `--fix` creates `.venv`, re-runs the editable installs (only
+inside a virtualenv — it refuses to touch the global interpreter), copies missing live config from the examples,
+runs `npm install` and `config_doctor --apply`. It never kills a process and never edits a global environment
+variable; it prints the command for you to run.
+
+Give every fork its own virtualenv: `python -m venv .venv` then `.\.venv\Scripts\Activate.ps1`.
+
 ---
 
 ## Step 7 — Keep the app up to date

@@ -157,6 +157,9 @@ straight `git clone` of the source app would let slide silently:
 
 ## Phase 6 — Install + verify (identical gate to `new-test-app` Phase 5)
 
+Give the clone its own `.venv` first (`python -m venv .venv ; .\.venv\Scripts\Activate.ps1`) - forks that share one
+global Python overwrite each other's editable installs. Finish with `python tools\doctor.py` (see `new-test-app`).
+
 ```pwsh
 cd backend ; pip install -e instrumentlib ; pip install -e ".[dev,report-db,desktop]" ; cd ..
 cd frontend ; npm install ; cd ..

@@ -24,6 +24,14 @@ everything else under `app/<name>/` (`maps/`, `<name>_steps/`, `recipes/`, `cont
 
 ---
 
+## Step -1 — Is this machine set up? (30 seconds)
+
+Run `python tools\doctor.py --json` first. Stop and tell the user about any `error` (typically: an editable
+install importing ANOTHER fork's code, a stale live config missing new permissions, a stray process on
+:8000/:1883). Warnings can wait; errors make every later verify step meaningless.
+
+---
+
 ## Step 0 — Pin the spec (do not build until answered)
 
 For each test: what it drives/reads, the pass/fail logic, and the **limits + parameters from

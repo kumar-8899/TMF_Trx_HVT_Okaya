@@ -5,14 +5,15 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
 
 ## Setup & environment
 
-- **`npm install` goes inside `frontend/`.** The only `package.json` is there; at the repo root it fails
+- **Run `python tools/doctor.py` first** — it checks every item in this section that a program can check and tells you the exact fix (`--fix` does the safe ones). The ids below are its check ids.
+- **`npm install` goes inside `frontend/`.** *(doctor: `frontend_deps`)* The only `package.json` is there; at the repo root it fails
   with `ENOENT`. Without it `station.py`'s auto-build fails with `'tsc' is not recognized`.
-- **Several forks on one PC share one Python.** `pip install -e` points `core`, `instrumentlib` and
+- **Several forks on one PC share one Python.** *(doctor: `venv`, `editable_installs`)* `pip install -e` points `core`, `instrumentlib` and
   `controller` at whichever fork installed *last* — so a test run can silently import another fork's code.
   Use a virtualenv per fork, or re-run the editable installs in the fork you're working on.
 - **Git Bash mangles Windows flags** like `taskkill /PID 123` (it becomes a path). Use PowerShell for
   `taskkill`.
-- **A stray process on `:8000` or `:1883` looks like your app.** Check what's listening before trusting a
+- **A stray process on `:8000` or `:1883` looks like your app.** *(doctor: `port_*`)* Check what's listening before trusting a
   health check.
 - **The station is `offline` and the log says `NotImplementedError` from `add_reader`.** The MQTT client needs
   a selector event loop, and newer uvicorn builds its own (Proactor on Windows), ignoring the loop policy.
@@ -38,7 +39,7 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
 
 ## Config & permissions
 
-- **Permissions resolve at login/boot.** After adding a permission or changing roles: run
+- **Permissions resolve at login/boot.** *(doctor: `config_drift`)* After adding a permission or changing roles: run
   `python -m tools.config_doctor --apply` **and log in again**.
 - **Instrument instances have one source: Config → Instruments.** A `controller.json` `instruments` list is
   ignored under app supervision. Ids must match the `instance` names in your variable map.
