@@ -7,6 +7,7 @@
     tmf-debug snapshots --host bench1 [--get <id>]                 (PR-E)
     tmf-debug digest <file.jsonl>                                  (PR-B)
     tmf-debug why    --host bench1 --last-run                      (PR-G)
+    tmf-debug instrument --host bench1 [--id psu1]                  passive instrument history
     tmf-debug export [out.zip] [--state-dir <deploy root>]          (air-gapped bench: one zip)
 
 Everything lands in `.debug/` at the app-repo root (gitignored). The app CLAUDE.md
@@ -22,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 
+from tmf_debug.api import run_id_of, select_run, why, write_jsonl
 from tmf_debug.client import DEFAULT_PORT, DebugClient
 
 OUT_DIR = Path(".debug")
@@ -38,57 +40,10 @@ def _out_dir() -> Path:
     return OUT_DIR
 
 
-def _run_id_of(rec: dict) -> str | None:
-    """Best-effort run id from a captured record: an explicit run_id anywhere in the
-    payload tree, else a `run:*` trace."""
-    def dig(v):
-        if isinstance(v, dict):
-            for key in ("run_id", "runId"):
-                if v.get(key):
-                    return str(v[key])
-            for sub in v.values():
-                got = dig(sub)
-                if got:
-                    return got
-        return None
-
-    rid = dig(rec.get("payload"))
-    if rid:
-        return rid
-    trace = rec.get("trace")
-    return trace if isinstance(trace, str) and trace.startswith("run") else None
-
-
-def _select_run(records: list[dict], *, run: str | None = None, last: bool = False):
-    """Return (subset, label). A run is scoped by its TIME WINDOW — every record between
-    its run-started and run-finished — so diag/value frames (which carry no run_id) are
-    included, not just the events tagged with the run id."""
-    target = run
-    if target is None and last:
-        starts = [r for r in records if r.get("type") == "run-started"]
-        if starts:
-            target = _run_id_of(starts[-1])
-        else:
-            target = next((rid for rid in reversed([_run_id_of(r) for r in records]) if rid), None)
-    if target is None:
-        return records, "ring"
-    t0 = t1 = None
-    for r in records:
-        rid = _run_id_of(r)
-        if r.get("type") == "run-started" and rid == target:
-            t0 = r.get("ts")
-        elif r.get("type") == "run-finished" and rid == target:
-            t1 = r.get("ts")
-    if t0 is not None:
-        hi = t1 if t1 is not None else max((r.get("ts") or 0 for r in records), default=t0)
-        return [r for r in records if r.get("ts") is not None and t0 <= r["ts"] <= hi], target
-    return [r for r in records if _run_id_of(r) == target], target   # fallback: tag match
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    with path.open("w", encoding="utf-8") as fh:
-        for r in records:
-            fh.write(json.dumps(r) + "\n")
+# The run selection / why logic is shared with the TMF Debug Tool and its MCP server (tmf_debug/api.py).
+_run_id_of = run_id_of
+_select_run = select_run
+_write_jsonl = write_jsonl
 
 
 # --- commands --------------------------------------------------------------
@@ -163,21 +118,22 @@ def cmd_digest(args: argparse.Namespace) -> int:
 
 def cmd_why(args: argparse.Namespace) -> int:
     """pull the last run + digest it + print the first fault (REMOTE_DEBUG.md §8)."""
-    from tmf_debug.digest import digest_file
     client = _client(args)
-    records = client.events(limit=args.limit)
-    records, label = _select_run(records, run=args.run, last=True)
-    if not records:
+    out = why(client.events(limit=args.limit), out_dir=_out_dir(), prefix=args.host, run=args.run, last=True)
+    if out is None:
         print("no run found in the current ring", file=sys.stderr)
         return 1
-    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in str(label))
-    path = _out_dir() / f"{args.host}-{safe}.jsonl"
-    _write_jsonl(path, records)
-    out = digest_file(path)
-    data = json.loads(out.read_text(encoding="utf-8"))
-    ff = data.get("first_fault")
+    ff = out["first_fault"]
     print(json.dumps(ff, indent=2) if ff else "no fault found in this run")
-    print(f"\ndigest: {out}\nraw:    {path}")
+    print(f"\ndigest: {out['digest_path']}\nraw:    {out['raw_path']}")
+    return 0
+
+
+def cmd_instrument(args: argparse.Namespace) -> int:
+    """passive instrument history from the captured events (sends nothing to any device)."""
+    from tmf_debug.instrument import instrument_digest
+    records = _client(args).events(subsystem="instrument", limit=args.limit)
+    print(json.dumps(instrument_digest(records, instance_id=args.id), indent=2))
     return 0
 
 
@@ -256,6 +212,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--since", type=int, default=None, help=argparse.SUPPRESS)
     sp.add_argument("--limit", type=int, default=20000)
     sp.set_defaults(func=cmd_why)
+
+    sp = sub.add_parser("instrument", help="passive instrument history (state timeline, failures, latency) - sends nothing")
+    host_args(sp)
+    sp.add_argument("--id", default=None, help="one instrument instance id (default: all)")
+    sp.add_argument("--limit", type=int, default=20000)
+    sp.set_defaults(func=cmd_instrument)
 
     sp = sub.add_parser("export", help="pack a bench's diagnostics (recorder + logs + config) into one zip")
     sp.add_argument("out", nargs="?", default=None, help="output zip")
