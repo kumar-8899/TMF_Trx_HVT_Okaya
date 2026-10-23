@@ -56,7 +56,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"app:   {app_info.product or 'app'} {app_info.app_version or '?'} at {app_info.state_root}  ({app_info.source})")
     else:
         print(f"app:   NOT FOUND ({app_info.source}) - running with defaults (broker 127.0.0.1:1883); pass --state-dir <deploy root>")
-    cfg = EngineConfig(app=app_info, data_dir=data_dir, bind_host=args.bind, port=args.port, force_mode=args.mode)
+    tool_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    cfg = EngineConfig(app=app_info, data_dir=data_dir, bind_host=args.bind, port=args.port, force_mode=args.mode, tool_dir=tool_dir)
     rt = create_runtime(cfg, approval_timeout_s=args.approval_timeout)
     app = build_app(rt, bind_host=args.bind, port=args.port)
     of = operator_file(data_dir)

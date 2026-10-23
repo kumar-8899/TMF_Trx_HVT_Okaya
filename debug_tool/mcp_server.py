@@ -165,7 +165,12 @@ class Host:
             self.log.write(event="action_not_run", tool=tool, decision="stopped_after_approval", summary=summary)
             return {"ok": False, "decision": "stopped", "approval_id": d.id,
                     "message": "sharing ended before the approved request could run"}
-        data = await run(d)
+        try:
+            data = await run(d)
+        except Exception as exc:                                                   # noqa: BLE001 - approved, but it could not be done
+            self.log.write(event="action_failed", tool=tool, error=f"{type(exc).__name__}: {exc}", approval_id=d.id)
+            extra = {"untrusted_content": UNTRUSTED} if untrusted else {}
+            return self.fail(type(exc).__name__, str(exc), decision="approved", approved_by=d.by, approval_id=d.id, **extra)
         return self.ok(data, untrusted=untrusted, decision="approved", approved_by=d.by, approval_id=d.id)
 
     # ------------------------------------------------------------------ registration
@@ -403,7 +408,10 @@ def build_mcp(engine: Engine, sharing: SharingState, approvals: ApprovalQueue, l
     h = Host(engine, sharing, approvals, log, heartbeat_s=heartbeat_s)
     h.mcp = mcp
     register_tools(h)
-    for reg in extra or []:
+    if extra is None:
+        from debug_tool.actions import register as register_actions
+        extra = [register_actions]
+    for reg in extra:
         reg(h)
 
     @mcp.resource("tmf://bench/health", title="Bench health", mime_type="application/json")
@@ -425,5 +433,6 @@ def build_mcp(engine: Engine, sharing: SharingState, approvals: ApprovalQueue, l
 PASSIVE_TOOLS = ("bench_health", "bench_why", "bench_events", "bench_traces", "bench_trace", "bench_requests", "bench_liveness",
                  "bench_violations", "bench_follow", "bench_logs", "bench_snapshots", "bench_snapshot", "bench_instruments",
                  "bench_instrument_history", "bench_level_get")
-ACTION_TOOLS = ("bench_level_set", "bench_capture_start", "bench_capture_stop", "bench_capture_export", "bench_export")
+ACTION_TOOLS = ("bench_level_set", "bench_capture_start", "bench_capture_stop", "bench_capture_export", "bench_export",
+                "bench_run_script", "bench_read_file", "bench_instrument_probe", "bench_instrument_poll")
 __all__ = ["build_mcp", "Host", "cap", "UNTRUSTED", "PASSIVE_TOOLS", "ACTION_TOOLS", "VERSION"]

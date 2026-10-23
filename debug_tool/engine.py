@@ -56,6 +56,7 @@ class EngineConfig:
     ring_capacity: int = 50_000
     force_mode: str | None = None           # "own" | "attach" | None = auto-detect
     in_app_probe: Callable[[int], bool] = lambda port: tcp_listening("127.0.0.1", port)   # noqa: E731
+    tool_dir: Path | None = None            # where the tool lives: python-embed*.zip and wheelhouse/ are looked up here
 
 
 def normalise(rec: CapturedRecord | dict) -> dict:
@@ -124,6 +125,12 @@ class Engine:
         self.min_ttl_minutes = 1.0                          # a debug level never lingers: 1 min .. 240 min (tests shorten it)
         self.downloads: dict[str, Path] = {}               # id -> file created by an APPROVED export
         self.notes: list[str] = []
+        from debug_tool.probe import InstrumentProbe
+        from debug_tool.pyenv import PythonEnv
+        from debug_tool.scripts import ScriptRunner
+        self.pyenv = PythonEnv(cfg.tool_dir, cfg.data_dir / "python")
+        self.scripts = ScriptRunner(cfg.data_dir / "scripts", self.pyenv.resolve, clock=clock)
+        self.probe = InstrumentProbe(self)
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -191,6 +198,10 @@ class Engine:
                 "level_reverts_pending": {k: {"previous": v["previous"], "due_in_s": max(0, int(v["due"] - self._clock()))}
                                           for k, v in self.level_reverts.items()},
                 "notes": self.notes}
+
+    def run_active(self) -> bool:
+        """A test run is in progress (from run-started/finished events seen since the tool started)."""
+        return bool(self.ingestor and self.ingestor._active)
 
     def events(self, *, since=None, level=None, subsystem=None, topic=None, trace=None, kind=None, text=None, limit=500) -> list[dict]:
         return [r.to_dict() for r in self.ingestor.ring.query(since=since, level=level, subsystem=subsystem, topic=topic,
