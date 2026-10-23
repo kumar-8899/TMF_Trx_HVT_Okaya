@@ -1,0 +1,47 @@
+# APP-REPO CI (v1.32.0). Copy to `.github/workflows/ci.yml` in a forked application repo (tools/new_app.py writes it
+# for you). The FRAMEWORK repo has its own ci.yml; this one is the fork's.
+#
+# Two jobs:
+#   fork-check  fails the PR when a FRAMEWORK-owned file was modified/deleted downstream (TEMPLATE.md section 1,
+#               tools/ownership.py). You learn on the pull request, not at the next framework merge. The fix is a
+#               framework change request (skill `framework-change-request`), never a local patch.
+#   backend     the app's own tests.
+#
+# Needs the repo variable FRAMEWORK_REMOTE (the framework's git URL) so the framework tags can be fetched.
+
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  fork-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Fetch the framework tags (the base to compare with)
+        shell: bash
+        run: |
+          git remote add upstream "${{ vars.FRAMEWORK_REMOTE }}" 2>/dev/null || true
+          git fetch upstream --tags
+      - name: No framework-owned file was edited downstream
+        run: python tools/fork_check.py
+
+  backend:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install
+        run: |
+          pip install -e instrumentlib
+          pip install -e ".[dev,report-db]"
+          pip install -e ../controller
+      - name: Test
+        run: python -m pytest -q

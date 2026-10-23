@@ -5,6 +5,7 @@ An application forks a framework **tag** (editable source) and adds only app-own
 
   - backend/config/app.json          product identity + branding + update source
   - backend/modules/<mod>/           a prefixed, collision-proof app module stub
+  - .github/workflows/ci.yml         fork-check (no framework-owned file edited) + tests
   - .github/workflows/release.yml    the APP-track CI (build → sign → publish, uses the
                                      framework tools it inherited)
   - APP_SETUP.md                     the do-this checklist (remotes, secrets, first release)
@@ -22,6 +23,8 @@ import argparse
 import json
 import re
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # ---- templates (token = __NAME__; str.replace, so GitHub's ${{ }} survives) ----
 
@@ -307,6 +310,10 @@ def main() -> int:
     # app-track CI + setup checklist
     (out / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
     (out / ".github" / "workflows" / "release.yml").write_text(_sub(RELEASE_YML, tok), encoding="utf-8")
+    # the fork's own CI: fork-check (no framework-owned file edited downstream) + tests (docs/templates/ci.yml)
+    ci = REPO_ROOT / "docs" / "templates" / "ci.yml"
+    if ci.is_file():
+        (out / ".github" / "workflows" / "ci.yml").write_text(ci.read_text(encoding="utf-8"), encoding="utf-8")
     (out / "APP_SETUP.md").write_text(_sub(SETUP_MD, tok), encoding="utf-8")
 
     print(f"scaffolded {args.customer} ({args.slug}) into {out}")

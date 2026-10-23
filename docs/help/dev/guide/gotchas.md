@@ -36,6 +36,9 @@ Real mistakes, each one already made once. **When you hit a new one, add it here
   any drift. Use the `clone-test-app` skill.
 - **Never hand-patch framework files in a fork** (e.g. `backend/build_release.py`). Two forks patched
   independently diverge from each other and from upstream. Fix it upstream, release, merge.
+  `python tools/fork_check.py` lists every framework-owned file your fork has changed since its base framework tag
+  (modified/deleted = will conflict; added = warning), and the fork CI (`docs/templates/ci.yml`, written by
+  `new_app.py`) fails the pull request on one. Raise the fix as a framework change request instead.
 
 ## Config & permissions
 

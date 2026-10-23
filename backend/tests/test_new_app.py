@@ -95,3 +95,21 @@ def test_bad_slug_rejected(tmp_path):
                         "--framework-tag", "v1.0.0", "--app-repo", "o/r", "--out", str(tmp_path)],
                        capture_output=True, text=True)
     assert r.returncode != 0
+
+
+def test_new_fork_gets_a_ci_with_fork_check_and_its_own_files_are_app_owned(tmp_path):
+    """v1.32.0: the scaffold writes the fork's CI (fork-check + tests); both workflow files are fork-local
+    (tools/ownership.py), so fork_check never flags them as edits to a framework file."""
+    import sys
+    out = _scaffold(tmp_path)
+    ci = (out / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "tools/fork_check.py" in ci and "FRAMEWORK_REMOTE" in ci and "pytest" in ci
+    sys.path.insert(0, str(REPO / "tools"))
+    import ownership
+    for rel in (".github/workflows/ci.yml", ".github/workflows/release.yml", "APP_SETUP.md"):
+        assert ownership.owner_of(rel, ownership.framework_modules()) == "app", rel
+
+
+def test_upstream_sync_template_reports_downstream_edits():
+    t = (REPO / "docs" / "templates" / "upstream-sync.yml").read_text(encoding="utf-8")
+    assert "tools/fork_check.py" in t and t.index("fork_check") < t.index("git merge --no-edit")

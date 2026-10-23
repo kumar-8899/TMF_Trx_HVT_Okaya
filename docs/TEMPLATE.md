@@ -39,6 +39,8 @@ engine — app step types are added under `app/<name>/`, never by editing `contr
 `labview/Source/` framework modules (MQTT Bridge, Sequence Engine),
 `dev.ps1`, `debug.ps1`.
 
+**Check it any time:** `python tools/fork_check.py` compares the fork with its base framework tag and lists every framework-owned path you changed; the fork CI runs it on every pull request.
+
 This table is machine-readable: `tools/ownership.py` is the single source (the Developer Hub widget and `tools/fork_check.py` read it), and `tools/ownership_cases.json` pins the cases. Change a rule there and here together.
 
 Custom recipes, users, instruments, variable maps, health suites, MES settings,
