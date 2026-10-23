@@ -27,6 +27,12 @@
 #ifndef WebView2Setup
   #define WebView2Setup "@@WEBVIEW2_SETUP@@"
 #endif
+; Set by build-installer.ps1 (/DDebugToolDir=...) ONLY when app/<slug>/debug-tool.json says delivery=bundle: the unpacked, signed
+; TMF Debug Tool. It is an OPTIONAL, UNTICKED task installing BESIDE the app in {app}\tools\debug-tool - outside run.dist, so app
+; updates and rollbacks never touch it and it needs no swap journal. Nothing starts it, no service, nothing in Windows startup.
+#ifndef DebugToolDir
+  #define DebugToolDir ""
+#endif
 
 [Setup]
 ; @@APP_ID@@ is rendered as {{<GUID>} — Inno reads {{ as a literal { , giving a fixed AppId so
@@ -51,6 +57,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; already present, the elevation is just for the grant; a site that pre-grants could drop to lowest.
 PrivilegesRequired=admin
 
+#if DebugToolDir != ""
+[Tasks]
+Name: "debugtool"; Description: "Install the TMF Debug Tool (a support tool for the service engineer; it is not started automatically and adds nothing to Windows startup)"; Flags: unchecked
+#endif
+
 [Files]
 ; The whole compiled backend tree (incl. run.dist\vendor\mosquitto — the station's own broker).
 Source: "..\release-build\run.dist\*"; DestDir: "{app}\run.dist"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -61,6 +72,9 @@ Source: "..\release-build\run_station.exe"; DestDir: "{app}"; Flags: ignoreversi
 #if WebView2Setup != ""
 Source: "{#WebView2Setup}"; DestDir: "{tmp}"; DestName: "webview2-runtime.exe"; Flags: deleteafterinstall; Check: NeedsWebView2
 #endif
+#if DebugToolDir != ""
+Source: "{#DebugToolDir}\*"; DestDir: "{app}\tools\debug-tool"; Flags: recursesubdirs createallsubdirs ignoreversion; Tasks: debugtool
+#endif
 
 [Icons]
 ; Desktop shortcut (always) + Start-Menu — both open the app MAXIMIZED (no arguments: station.py's
@@ -69,6 +83,9 @@ Source: "{#WebView2Setup}"; DestDir: "{tmp}"; DestName: "webview2-runtime.exe"; 
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\run_station.exe"; WorkingDir: "{app}"
 Name: "{group}\{#AppName}";       Filename: "{app}\run_station.exe"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+#if DebugToolDir != ""
+Name: "{group}\TMF Debug Tool (support)"; Filename: "{app}\tools\debug-tool\tmf-debug-tool.exe"; Parameters: "serve --state-dir ""{app}"""; WorkingDir: "{app}\tools\debug-tool"; Tasks: debugtool
+#endif
 
 [Run]
 ; Install the WebView2 runtime silently (no-op if already present). Must run BEFORE first launch.

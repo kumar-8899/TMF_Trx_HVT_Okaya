@@ -101,6 +101,7 @@ const pages = {
         h('div', { class: 'row' }, chip('MQTT ' + hth.live.mqtt, hth.live.mqtt === 'connected'), chip('station DB ' + hth.live.db, hth.live.db === 'available'),
           chip('launcher log ' + hth.live.launcher_log, hth.live.launcher_log === 'available')),
         kv({ broker: hth.live.broker, stations: hth.live.stations.join(', '), 'recorder mode': hth.mode, 'buffered records': hth.recorder.buffer_used, dropped: hth.recorder.dropped, 'MCP endpoint': s.mcp_url })),
+      hth.compat && hth.compat.status !== 'ok' ? h('div', { class: 'note' }, 'Version check: ' + hth.compat.note) : null,
       Object.keys(hth.level_reverts_pending).length ? h('div', { class: 'note' }, 'Raised log levels waiting to revert: ' + JSON.stringify(hth.level_reverts_pending)) : null,
       hth.notes.length ? h('div', { class: 'card' }, h('h3', {}, 'Notes'), hth.notes.map(n => h('div', { class: n.includes('FAILED') ? 'bad' : 'mut' }, n))) : null);
   },

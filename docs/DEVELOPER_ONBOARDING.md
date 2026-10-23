@@ -160,10 +160,28 @@ folder, make your change on a new branch, and open a Pull Request to
 
 ---
 
+## Step 9 — Debug a client's bench with Claude Code
+
+When a bench misbehaves on a client PC, use the **TMF Debug Tool** (`docs/DEBUG_TOOL.md`) instead of asking the engineer to run commands by hand.
+
+1. **Get the tool once.** It is a signed release asset (`debug-tool-v<ver>`), not something you build: `python tools/debug_tool_delivery.py fetch --slug <your-app>`
+   caches it in `tools/debug-tool/` (gitignored). `app/<slug>/debug-tool.json` records how this app delivers it (`on-demand` by default; `new-test-app` writes it).
+2. **Connected** — the engineer starts the tool on the bench PC and turns **Sharing ON**; they read you the `claude mcp add …` command (or you use the committed `.mcp.json`,
+   which holds only `${TMF_DEBUG_TOKEN}` references — never a token). Then ask Claude Code to use the skill **`debug-client-bench`**. Everything that only *reads* just works;
+   anything that changes or runs something on the PC waits for the engineer's **Approve** click, so say what you are about to request before you ask.
+3. **No connection** — ask the engineer to click **Collect** (or give them the collect kit: `python -m debug_tool kit collect`) and send you the one zip; then
+   `python -m debug_tool analyze <zip>` writes `.debug/<name>-<stamp>/analysis.md`. Same skill, air-gapped branch.
+4. Before any session on a new PC the engineer runs `tmf-debug-tool.exe selftest` (30 s) — it names blocked ports, a missing PowerShell or a security product in the way.
+
+Captures and analyses land in `.debug/` (gitignored). Delete them after the case.
+
+---
+
 ## Which skill for which job
 
 | You want to… | Skill |
 |--------------|-------|
+| Debug a running bench on a client PC (live, or from a bundle) | `debug-client-bench` |
 | Start a new app | `new-test-app` |
 | Start a new app that's similar to one you already have | `clone-test-app` |
 | Turn a spreadsheet of a system's I/O into an app's variable map | `system-blueprint` |

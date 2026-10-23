@@ -12,8 +12,6 @@ from debug_tool.pyenv import PythonEnv, PythonUnavailable, _probe
 from debug_tool.scripts import ScriptRunner
 
 WIN = sys.platform == "win32"
-SKIP_DIRS = {"site-packages", "test", "tests", "idlelib", "tkinter", "turtledemo", "ensurepip", "lib2to3", "__pycache__", "venv",
-             "pydoc_data", "distutils"}
 
 
 def _no_python(_name):
@@ -22,29 +20,11 @@ def _no_python(_name):
 
 @pytest.fixture(scope="session")
 def embed_zip(tmp_path_factory):
-    """Mimic python.org's 'Windows embeddable package': python.exe + DLLs flat, stdlib in pythonXY.zip, a locked pythonXY._pth."""
+    """Mimic python.org's 'Windows embeddable package' from this PC's Python (see make_embed.py)."""
     if not WIN:
         pytest.skip("the embeddable package is Windows-only")
-    base = Path(sys.base_prefix)
-    tag = f"{sys.version_info.major}{sys.version_info.minor}"
-    work = tmp_path_factory.mktemp("embed")
-    stdlib = work / f"python{tag}.zip"
-    with zipfile.ZipFile(stdlib, "w", zipfile.ZIP_STORED) as z:
-        for p in (base / "Lib").rglob("*.py"):
-            rel = p.relative_to(base / "Lib")
-            if not (set(rel.parts[:-1]) & SKIP_DIRS):
-                z.write(p, rel.as_posix())
-    out = work / "python-embed-test.zip"
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
-        for name in ("python.exe", "python3.dll", f"python{tag}.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
-            if (base / name).is_file():
-                z.write(base / name, name)
-        for p in (base / "DLLs").iterdir():
-            if p.suffix.lower() in (".pyd", ".dll"):
-                z.write(p, p.name)
-        z.write(stdlib, stdlib.name)
-        z.writestr(f"python{tag}._pth", f"python{tag}.zip\n.\n\n# Uncomment to run site.main() automatically\n#import site\n")
-    return out
+    from debug_tool.tester.make_embed import build_embeddable_like
+    return build_embeddable_like(tmp_path_factory.mktemp("embed"), "python-embed-test.zip")
 
 
 def make_env(tmp_path, embed_zip=None, **kw):

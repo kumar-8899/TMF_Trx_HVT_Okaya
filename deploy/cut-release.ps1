@@ -203,10 +203,25 @@ if ($runStationOk -and -not (Test-Path $wv2)) {
   Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2124701" -OutFile $wv2
 } elseif ($runStationOk) { Info "reusing cached $wv2" }
 
+# --- 7b. TMF Debug Tool delivery (app/<slug>/debug-tool.json: bundle | on-demand | none) -----------
+# The tool is a separate, separately released artifact (docs/DEBUG_TOOL.md): this only decides whether the fork's pinned, signed
+# zip rides along as an OPTIONAL installer task. A pin that cannot be satisfied stops the release - a handover sheet must never
+# promise a tool the package lacks.
+Step "7b/10  Debug Tool delivery (app\$Slug\debug-tool.json)"
+$debugToolDir = ""
+$dtOut = & python (Join-Path $repo "tools/debug_tool_delivery.py") stage --slug $Slug --stage-dir "release-build/debug-tool" --delivery-dir "deploy/Output" --json
+if ($LASTEXITCODE -ne 0) { throw "Debug Tool delivery: $dtOut" }
+$dt = $dtOut | ConvertFrom-Json
+if ($dt.delivery -eq "bundle") {
+  $debugToolDir = (Resolve-Path "release-build/debug-tool").Path
+  Info "bundling Debug Tool $($dt.version) as an optional, unticked installer task (+ $(Split-Path $dt.delivered_zip -Leaf) in deploy\Output)"
+} else { Info "delivery = $($dt.delivery): the Debug Tool is not shipped with this build" }
+
 # --- 8. Offline installer (setup.exe) (internal step) --------------------------------------
 Step "8/10  build setup.exe"
 if ($runStationOk) {
   $isccArg = @{}; if ($Iscc) { $isccArg["Iscc"] = $Iscc }
+  if ($debugToolDir) { $isccArg["DebugToolDir"] = $debugToolDir }
   & (Join-Path $PSScriptRoot "build-installer.ps1") -Slug $Slug @isccArg
 } else { Warn "skipped (no run_station.exe this build)" }
 

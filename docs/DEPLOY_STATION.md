@@ -227,7 +227,38 @@ A private app repo needs a read token for the client to poll releases:
 
 ---
 
+## 6. Support sessions: handing the TMF Debug Tool to a client engineer (v1.32.0)
+
+The **TMF Debug Tool** (`DEBUG_TOOL.md`) lets a developer debug a running bench with Claude Code, or collect one diagnostics zip when
+there is no network path. It is a **separate program** — never inside `run.dist`, never auto-started, no service, nothing in Windows
+startup. How it reaches a bench is a per-customer choice recorded in `app/<slug>/debug-tool.json` (`bundle` / `on-demand` / `none`):
+
+- **`bundle`** — `cut-release.ps1` step 7b copies the pinned, signed zip into `deploy\Output\` and the installer offers an **optional, unticked**
+  task that installs it to `{app}\tools\debug-tool` (a Start-menu shortcut is added; app updates and rollbacks never touch it).
+- **`on-demand`** — nothing ships; the engineer carries the zip (USB) when a session is needed.
+- **`none`** — this customer does not use it.
+
+**Consent checklist (tick at handover; keep with the delivery sign-off):**
+
+| | |
+|---|---|
+| ☐ | Customer IT has the one-page note (`README-FIRST.txt` inside the tool zip; same content as `DEBUG_TOOL.md` §10/§12) |
+| ☐ | Customer chose `bundle` / `on-demand` / `none` and it matches `app/<slug>/debug-tool.json` |
+| ☐ | The tool's signing certificate / zip SHA-256 (`SHA256SUMS.txt`) was given to customer IT for allow-listing |
+| ☐ | Customer understands: nothing is reachable until the on-site operator turns sharing ON; every action is approved by a person at the PC; scripts run unelevated |
+| ☐ | Which address the tool may listen on for a remote session (VPN/LAN address, port 8010) and that it never listens on all interfaces |
+| ☐ | Retention: diagnostic bundles are deleted after the case; they are not committed or posted publicly |
+| ☐ | `tmf-debug-tool.exe selftest` was run once on the bench PC and passed (or its findings were resolved) |
+| ☐ | Customer contact who may approve requests during a session (name/role) |
+
+**Starting a session on site:** double-click the tool (or run it from the Start menu), *Share* → **Turn sharing ON**, read the command to the developer, keep the window
+open, approve or deny each request on *Approvals*, close the window when done. No connection? *Collect* → send the one zip. Stage 1 of the rollout (one pilot bench) must
+be complete before `bundle` is offered to a customer (`DEBUG_TOOL.md` §12).
+
+---
+
 ## See also
+- `DEBUG_TOOL.md` — the support tool: consent model, tools, air-gapped mode, packaging, deployment stages.
 - `RUNNING.md` — running a station (dev + frozen).
 - `SECURE_DISTRIBUTION.md` §5–6 — the build/sign/update pipeline + artifact layout.
 - `APP_REPO.md` — the app-repo side of the two-tier model.

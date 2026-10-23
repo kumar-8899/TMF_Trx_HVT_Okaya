@@ -20,7 +20,8 @@ param(
   [string]$Publisher,
   [string]$AppShort,
   [string]$WebView2,
-  [string]$Iscc
+  [string]$Iscc,
+  [string]$DebugToolDir        # the UNPACKED signed TMF Debug Tool (cut-release stages it for delivery=bundle) -> an optional, unticked installer task
 )
 
 $ErrorActionPreference = "Stop"
@@ -141,8 +142,14 @@ if (-not $Iscc) {
 }
 if (-not $Iscc) { throw "ISCC.exe not found - install Inno Setup 6 (choco install innosetup -y) or pass -Iscc" }
 
+$isccArgs = @($rendered)
+if ($DebugToolDir) {
+  if (-not (Test-Path (Join-Path $DebugToolDir "tmf-debug-tool.exe"))) { throw "DebugToolDir '$DebugToolDir' does not contain tmf-debug-tool.exe" }
+  Info "offering the TMF Debug Tool as an optional, unticked installer task: $DebugToolDir"
+  $isccArgs += "/DDebugToolDir=$((Resolve-Path $DebugToolDir).Path)"
+}
 Info "compiling with $Iscc ..."
-& $Iscc $rendered
+& $Iscc @isccArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit $LASTEXITCODE)" }
 
 $out = Join-Path $deploy "Output\$AppShort-Setup-$version.exe"

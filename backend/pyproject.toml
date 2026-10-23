@@ -35,6 +35,14 @@ release = [
 desktop = [
     "pywebview>=5.0",
 ]
+# TMF Debug Tool (repo-root debug_tool/, docs/DEBUG_TOOL.md): MCP server + operator window. Needed to run its tests and to
+# build it (deploy/build-debug-tool.ps1). The starlette pin is deliberate: mcp pulls starlette and FastAPI 0.115 needs <0.42.
+debug-tool = [
+    "mcp>=1.12,<2",
+    "starlette>=0.41,<0.42",
+    "pywebview>=5.0",
+    "pyinstaller>=6.6",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

@@ -58,6 +58,10 @@ backend/data/launcher.log
 # tmf-debug captures + digests pulled from benches (REMOTE_DEBUG.md §8)
 .debug/
 
+# TMF Debug Tool (docs/DEBUG_TOOL.md): its build output, and the fork's cache of the pinned signed release (never rebuilt downstream)
+release-build-tool/
+tools/debug-tool/
+
 # Nuitka crash report (build junk)
 nuitka-crash-report.xml
 

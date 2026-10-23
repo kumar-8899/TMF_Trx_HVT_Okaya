@@ -28,7 +28,7 @@ from pathlib import Path
 from debug_server.capture import CapturedRecord
 from debug_server.config import DebugConfig
 from debug_server.ingest import Ingestor
-from debug_tool import tails
+from debug_tool import compat, tails
 from debug_tool.appinfo import AppInfo
 from debug_tool.live import run_all_stations
 from tmf_debug.api import select_run, why as api_why
@@ -197,7 +197,7 @@ class Engine:
                 "launcher_log": "available" if self.app.launcher_log and self.app.launcher_log.is_file() else "missing"},
                 "level_reverts_pending": {k: {"previous": v["previous"], "due_in_s": max(0, int(v["due"] - self._clock()))}
                                           for k, v in self.level_reverts.items()},
-                "notes": self.notes}
+                "compat": compat.check(self.app.framework_version), "notes": self.notes}
 
     def run_active(self) -> bool:
         """A test run is in progress (from run-started/finished events seen since the tool started)."""

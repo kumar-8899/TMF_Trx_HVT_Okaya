@@ -190,6 +190,14 @@ def cmd_kit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_selftest(args: argparse.Namespace) -> int:
+    from debug_tool import selftest
+    tool_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    steps = selftest.run(require_python=args.require_python, tool_dir=tool_dir, log=(lambda m: None) if args.json else print)
+    print(selftest.to_json(steps) if args.json else "\n" + selftest.render(steps).splitlines()[0])
+    return 0 if not any(st.status == selftest.FAIL for st in steps) else 1
+
+
 def cmd_mcp_stdio(args: argparse.Namespace) -> int:
     from debug_tool.local_mcp import run_stdio
     run_stdio(args.workdir)
@@ -261,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--timeout", type=int, default=60)
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_kit)
+
+    sp = sub.add_parser("selftest", help="check the tool works on THIS PC end to end (fake install; never touches the real app)")
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--require-python", action="store_true", help="release gate: fail unless Python scripts ran on the BUNDLED interpreter (and fail, not skip, when none is available)")
+    sp.set_defaults(func=cmd_selftest)
 
     sp = sub.add_parser("mcp-stdio", help="stdio MCP server for Claude Code (kits + analyse; air-gapped)")
     sp.add_argument("--workdir", default=".", help="kits and analyses are written under this folder")
