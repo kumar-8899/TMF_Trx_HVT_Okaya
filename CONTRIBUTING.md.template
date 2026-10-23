@@ -18,6 +18,17 @@ authoritative boundary). You own:
 Everything else is framework code. A change you need there goes upstream and comes back as a
 framework release you `git merge` — never a downstream patch (it makes the next merge worse).
 
+- `python tools/fork_check.py` lists every framework-owned file you have changed since your base framework tag
+  (CI runs it on every pull request). Raise a needed change with the `framework-change-request` skill: it writes
+  `docs/framework-cr/CR-<n>.md` (symptom, evidence, root cause, a `.diff`, a test) and leaves the framework file untouched.
+- `python tools/upgrade.py --to latest` (skill `upgrade-framework`) pulls a new framework release safely.
+- `python tools/doctor.py` checks this machine (virtualenv, editable installs, ports, stale config, line endings).
+- Give every fork its own virtualenv (`python -m venv .venv`). Several forks sharing one global Python overwrite each
+  other's `pip install -e`.
+- **Scripted edits keep LF.** The repo stores LF; Python's `open(p, "w")` / `Path.write_text` on Windows rewrite LF files
+  as CRLF (whole-file diffs, merge conflicts). Use your editor, or write with `newline="\n"`. `.gitattributes`
+  normalises on commit, but check `git diff --stat` after any scripted edit.
+
 ## Local setup
 
 ```pwsh

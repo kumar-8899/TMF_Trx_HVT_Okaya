@@ -190,6 +190,16 @@ other skills are machine-independent via `$FRAMEWORK_REMOTE` (the `<framework-re
 
 ## 3. Upgrading an application to a new framework release
 
+**One command (v1.32.0):** `python tools/upgrade.py --to latest` (or `--to vX.Y.Z`; `--dry-run` first; `--major` for a
+MAJOR jump). It runs a preflight (clean working tree, `tools/fork_check.py` - no framework-owned file edited, `doctor`
+errors), fetches the tags and merges (on a conflict it lists the files with their ownership class and aborts, leaving
+the repo as it was), reinstalls inside the virtualenv, runs `config_doctor --apply`, runs the backend tests and the
+frontend type-check + build, and prints **"What's new for you"**: the CHANGELOG sections between your version and the
+new one, module `contract_version` changes, screen overrides whose framework screen changed, and a newer Debug Tool
+release if you pin an older one. It never pushes. The `upgrade-framework` skill drives it for you.
+
+The manual steps it automates, for reference:
+
 ```pwsh
 git fetch upstream --tags
 git merge v1.1.0                         # clean IF §1 was respected

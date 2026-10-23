@@ -158,6 +158,8 @@ Super_Test_App **v1.31.1**. Regenerate: `python tools/gen_devguide.py`.
 - **add-bench-test** — Guided workflow to add or build a test (or a whole test sequence) IN AN EXISTING forked test application on the Super_Test_App framework, in
 - **clone-test-app** — Start a new test application by cloning an EXISTING forked app (on the Super_Test_App framework) that is similar to what's needed, instead o
 - **create-instrument-library** — Author a new Python instrument library into the Instrument_Library repo (a local clone at $TMF_INSTRUMENT_LIBRARY) against a capability inte
+- **framework-change-request** — Raise a change to the Super_Test_App FRAMEWORK from inside a forked application, without patching the framework file in the fork. Use when t
 - **new-test-app** — Fork the Super_Test_App test-and-measurement framework into a new, self-contained test application. Use when the user wants to create/scaffo
 - **system-blueprint** — Turn a filled "System Blueprint" Excel workbook into a test application's canonical I/O artifacts — the controller-side variable map (app/<n
 - **test-step-authoring** — Author a new test step type for the Python Test Controller — the handler, its parameter schema, a simulated DUT, and the tests that exercise
+- **upgrade-framework** — Upgrade an existing forked test application to a newer Super_Test_App framework release safely - preflight (clean tree, no framework-owned f

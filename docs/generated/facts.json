@@ -2297,6 +2297,10 @@
       "description": "Author a new Python instrument library into the Instrument_Library repo (a local clone at $TMF_INSTRUMENT_LIBRARY) against a capability interface + the vendor manual, then gate it with the framework conformance suite. Use when the user wants to add, create, author, scaffold, generate, or write an instrument library / driver for a specific instrument model — power supply, electronic load, DMM/multimeter, temperature controller, DAQ-adjacent source, multiplexer, or DSO/oscilloscope. Follows INSTRUMENT_LIBRARY.md §2–§5 and §8."
     },
     {
+      "name": "framework-change-request",
+      "description": "Raise a change to the Super_Test_App FRAMEWORK from inside a forked application, without patching the framework file in the fork. Use when the user hit a bug or limitation in framework-owned code (core, controller, build/release scripts, shared screens, deploy tooling), when `tools/fork_check.py` reports a framework-owned file edited downstream, or when they say \"fix this in the framework\", \"the framework should do X\", or \"write up a change request / framework CR\". Produces docs/framework-cr/CR-<n>.md with symptom, evidence, root cause, a proposed .diff and a test - and leaves the framework file in the fork untouched. Do NOT use for app-owned changes (app/<slug>/, instrument_libs/, overrides) - just make those."
+    },
+    {
       "name": "new-test-app",
       "description": "Fork the Super_Test_App test-and-measurement framework into a new, self-contained test application. Use when the user wants to create/scaffold/bootstrap a NEW test bench or test application \"on the framework\", \"from the framework\", fork the framework for a customer/product line, start a new App_<Customer>, or turn a described end-of-line/safety/aging/endurance bench into a running app. This is the intelligent successor to tools/new_app.ps1 — it clones a release tag, wires remotes + app.json, copies the needed instrument drivers from the central Instrument_Library, scaffolds the app payload (variable map, recipe, controller step types), installs deps, and verifies in simulation. Do NOT use to add a single step type (use test-step-authoring) or a single driver (use create-instrument-library) to an EXISTING app."
     },
@@ -2307,6 +2311,10 @@
     {
       "name": "test-step-authoring",
       "description": "Author a new test step type for the Python Test Controller — the handler, its parameter schema, a simulated DUT, and the tests that exercise both. Use this skill whenever the user wants to add a test to a test bench, describes a measurement or DUT behaviour they need automated (\"ramp the AC until it trips and check recovery\", \"measure standby current\", \"cycle the relay 500 times and watch for weld\"), asks for a step type, step handler, or test step, or mentions adding a test to an application package such as inverter-eol-steps or motor-tester-steps. Trigger this even when the user only describes the physical test in plain language without naming a step type — turning a described test into a step type is exactly this skill's job. Do NOT use this for authoring recipes, which are data authored by engineers in the UI against the schemas this skill produces."
+    },
+    {
+      "name": "upgrade-framework",
+      "description": "Upgrade an existing forked test application to a newer Super_Test_App framework release safely - preflight (clean tree, no framework-owned file edited, doctor), fetch + merge the tag, reinstall, reconcile live config, run the tests, then explain what is new for THIS app. Use when the user says \"upgrade/update/pull the new framework version\", \"merge the latest framework\", \"bring this app up to v1.x\", or asks what changed in a newer framework release for their app. Do NOT use to fork a new app (new-test-app) or to patch a framework file in a fork (framework-change-request)."
     }
   ],
   "ownership": {
