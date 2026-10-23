@@ -2,9 +2,23 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.30.0"
+    "version": "1.31.1"
   },
   "releases": [
+    {
+      "version": "1.31.1",
+      "date": "2026-10-15",
+      "bump": "PATCH",
+      "summary": "SQL Server in a packaged app, from the Okaya fork (PATCH).",
+      "body": "**SQL Server in a packaged app, from the Okaya fork (PATCH).**\n\n- **pyodbc was never bundled (Okaya C8).** `mssql+pyodbc` imports its DBAPI dynamically, so PyInstaller dropped `pyodbc`\n  although the build PC had it (MySQL worked). Reproduced with a 4-line frozen script (fails plain, works with\n  `--hidden-import`). `build_release.py` now forces `pymysql` + `pyodbc` in and **fails the build** if either is missing\n  on the build PC (the `release` extra installs them); the release gate runs the new `run.exe --check-db-drivers`\n  inside the built exe and fails if any provider's driver cannot be imported.\n- **The legacy \"SQL Server\" ODBC driver failed every bound statement with `HY104` (Okaya C9).** SQLAlchemy 2.x's\n  `setinputsizes()` declares strings `NVARCHAR(MAX)`; `dbconn` now turns it off for `mssql+pyodbc` (all engines).\n- **Settings lists the ODBC drivers installed on that PC** (`GET /system/odbc-drivers`, any signed-in role) and defaults to\n  the newest; the backend uses the same default when the field is blank. Free text remains where ODBC is unavailable.\n- Docs: `REPORT_STORE.md` (SQL Server prerequisites - the OS ODBC driver is a per-station prerequisite), `RELEASE_GATE.md`\n  (3c), user Settings help.\n- **Not verified against a live SQL Server** (none available here): run Test connection -> Check/Create table -> a test run\n  with both the legacy driver and ODBC Driver 17/18 on a real server before relying on it.\n- Fork files to take as-is: `core/services/dbconn.py`, `build_release.py`, `run.py`, `deploy/verify-build.ps1`,\n  `core/app.py`, frontend `components/DbServerForm.tsx`, `screens/config/ReportDbConfig.tsx`, `backend/pyproject.toml`\n  (the Okaya `--hidden-import` and `use_setinputsizes` patches can be dropped)."
+    },
+    {
+      "version": "1.31.0",
+      "date": "2026-10-15",
+      "bump": "MINOR",
+      "summary": "Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).",
+      "body": "**Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).**\n\nEvery item below was a real failure in the Okaya Transformer fork (or a request raised while triaging them). Each defect\nhas a test that failed before the fix and is kept. Items that were app-specific (not generic) were **not** adopted - see\n\"Not adopted\".\n\n*Test execution and results*\n\n- **D1 - `recipe_id` validated at creation** (`recipe/variants/filesystem.py`): 1-64 of `A-Za-z0-9_-`, alphanumeric first,\n  no Windows device names (`CON`, `COM1`...). Creation only - existing ids are never re-checked. `RECIPE.md` 5.1.\n- **D2 / X1 - recipe-level `stop_on_fail`** (`controller/sequencer.py`): strictly boolean `true` skips the remaining\n  top-level steps after the first failing one (`step.skipped` diag each, failing row kept, FAIL verdict, teardown\n  unaffected). Absent/false/other = unchanged. The per-step `on_fail` in the old docs was never read by the controller.\n  **Open item:** the LabVIEW engine must implement the same rule (`RECIPE.md` 2.1); not verifiable from this repo.\n- **D5 - a FAIL verdict always has a FAIL row**: a crashed step now yields one row (`measured: \"ERROR\"`, limits from\n  params, cause in `message`); the failed `step.end` diag is `warning` so it survives `persist.min_level`; the cause rides\n  on the `test-result` and so on the Runs record. `contracts/REPORT.md` (new).\n- **D14 - `measure_and_compare` `retries` (0-5) + `settle_s`**: re-read a flaky signal without re-running the step; last\n  attempt wins; abort-aware; a read that never succeeds is the `ERROR` row.\n- **D6 - INFO rows are not failures**: `set_output`/`prompt_operator` rows no longer top the failure Pareto\n  (`analytics.row_is_failure`, SQL Pareto). PASS/FAIL/INFO semantics are documented in `contracts/REPORT.md`.\n  *Open option (not done, ask first):* omit INFO rows from xlsx/TDMS export and the Full view; cycle time still includes them.\n\n*Calibration, data and operator access*\n\n- **D3 / X2 - calibration overlay + Maintenance calibration panel** (`contracts/CALIBRATION.md`, new): per-station\n  gain/offset overlay (state dir) over the shipped map's scale, baked by the supervisor into an effective map, applied by\n  both read paths through one function, hot-reloaded by the new controller op `calibration.reload` (no relaunch; refused\n  mid-run). REST `/calibration/*` gated `MAINTENANCE.CALIBRATE`. Bad overlay degrades loudly to factory scale.\n- **D4 - report timestamps were 4-byte `FLOAT` on MySQL** (epoch rounded by minutes): columns are `Double`; existing\n  MySQL/MariaDB databases are widened in place (`ALTER ... MODIFY COLUMN ... DOUBLE`), and already-rounded rows are\n  repaired once from the runs records (marker record, background, retried on failure). New CI job `report-mysql` runs\n  the store against a real MariaDB. `REPORT_STORE.md`.\n- **X9 - Settings -> Reset data did not clear Reports**: reports live in the report DB and the outbox forwarder re-inserts\n  what is queued. `reports` now delegates to the report module (`reset_data`: drain lock, outbox first, then purge); a DB\n  failure is reported, not hidden.\n- **D9 - shipped variable map readable on a fresh install**: the backend engine falls back to `app/<slug>/maps/<station>.json`\n  (below app.json and DB bindings; never blocks `/readyz`).\n- **D11 / X8 - an operator without `CONFIG.VIEW` can still run a test**: `/config/barcode` and `/config/shift/current` are\n  any-of `TEST.RUN`/`CONFIG.VIEW`; instrument connection status (`/variables/instances`, status only) is open to every\n  signed-in role; the Runs screen shows a failed config load and blocks Start instead of silently dropping the serial box.\n  New gate helpers `require_any_permission`, `require_authenticated` (`core/services/security.py`).\n\n*Release and packaging*\n\n- **D10 - stale UI could ship**: `build_release.py` always rebuilds the frontend and stamps `build-info.json`\n  (app version, git SHA, hash of every frontend input); the gate (`verify_frontend_stamp.py`) fails on any mismatch and\n  proves the running exe serves that bundle. `-SkipTests` skips tests, never the build. `RELEASE_GATE.md`.\n- **D13 - step-type schemas missing in the frozen build** (`schema: null`, validation silently off): schemas are copied\n  into `run.dist`; the gate fails if any step type has no schema.\n- **D7 - update-swap `WinError`**: **not reproduced from the broker alone** (a running exe does not block renaming its\n  parent folder; a process cwd or open handle does). Hardening anyway: the vendored broker runs from\n  `<deploy root>/data/broker/`, and a failed swap rename now **names the processes running from inside `run.dist`**\n  (`UPDATES.md` 4.1) - collect that message if it recurs.\n- **D8 - optional Authenticode signing** (`deploy/sign-binaries.ps1`; env-configured PFX / store / Trusted Signing): signs\n  `run.exe`, `mosquitto.exe`, `run_station.exe` before the manifest is hashed, and `setup.exe`. No certificate = loud\n  \"UNSIGNED\" warning; `cut-release.ps1 -RequireSigning` makes it mandatory. `SECURE_DISTRIBUTION.md` 9.\n\n*Login, navigation and portal*\n\n- **X3** the login screen shows the real application version bottom-right (was a hard-coded `v1.0.0`).\n- **X4** opt-in username dropdown: `auth.config.login.user_picker` (default **false**); pre-auth\n  `GET /auth/login-options` returns active usernames only when on (`contracts/auth.md`).\n- **X5** *Exit station* for every role: new `SYSTEM.EXIT` (default to all roles); `/system/shutdown` is any-of\n  `SYSTEM.EXIT`/`SYSTEM.SETTINGS`; the UI gates on the permission, not the role name.\n- **X6** Help and the User Portal are merged: **Portal** is the one user documentation surface; F1 context help stays and\n  opens the Portal's Manual tab; *Developer docs* remain for super_admin on a source checkout.\n- **X7** Portal **Test Sequence** tab (permission `PORTAL.SEQUENCE`, default admin). The framework ships a placeholder\n  and two screen-registry keys, `portal` and `portal-test-sequence`; each app authors the content\n  (`contracts/PORTAL.md`, `TEMPLATE.md` 1.3). Deliberately **not** generated from the live recipe.\n- **X10** the menu footer shows the application version; the in-app \"Relaunch to update\" chip is no longer in the nav\n  (`UpdateChip.tsx` is kept, unreferenced; a staged update applies on the next restart or from Settings -> Updates).\n\n*Not adopted*\n\n- **D12 - hidden per-model limits** is an app concern: no framework code. The handler-purity exception that lets an app\n  step read its own private data file is documented, with five conditions, in `PYTHON_CONTROLLER.md` section 6.\n\n**Upgrade notes for forks**\n\n- New permissions `SYSTEM.EXIT`, `PORTAL.SEQUENCE` (and `login.user_picker`): run `python -m tools.config_doctor --apply`\n  and **re-login**; without `SYSTEM.EXIT` the operator's *Exit station* stays hidden on a station whose roles were\n  edited in the Permissions UI.\n- MySQL report databases migrate themselves on first start; allow a moment for the one-time timestamp repair.\n- A fork may now supply `frontend/src/app/overrides/` entries with keys `portal` and `portal-test-sequence`.\n- Files that are framework-owned and changed wholesale - **Okaya / HVT may take these as-is and drop their local edits**:\n  `modules/recipe/variants/filesystem.py`, `controller/controller/sequencer.py`, `controller/controller/step_types/core.py`,\n  `controller/controller/step_types/schemas/measure_and_compare.json`, `core/services/controller_supervisor.py`,\n  `core/services/security.py`, `core/services/calibration.py`, `modules/report/{analytics.py,outbox.py,store/schema.py,\n  store/store.py,variants/standard.py}`, `modules/runs/variants/default.py`, `modules/config/api.py`,\n  `modules/variables/{engine.py,api.py,calibration.py,variants/default.py}`, `modules/auth/{api.py,variants/default.py}`,\n  `build_release.py`, `launcher.py`, `station.py`, `deploy/{verify-build.ps1,cut-release.ps1,build-installer.ps1,\n  sign-binaries.ps1,verify_frontend_stamp.py}`, and the frontend `Layout.tsx`, `Login.tsx`, `UserMenu.tsx`, `Portal.tsx`,\n  `Runs.tsx`, `Maintenance.tsx`, `HelpPanel.tsx`. A fork that edited any of them locally should diff before taking it.\n- Known unrelated failure left as-is: `controller/tester/test_instrument_call.py::test_instrument_call_error_is_never_blank_and_carries_cause_and_traceback`\n  (fails on v1.30.0 too)."
+    },
     {
       "version": "1.30.0",
       "date": "2026-10-09",
@@ -458,6 +472,10 @@
         {
           "method": "POST",
           "path": "/auth/login"
+        },
+        {
+          "method": "GET",
+          "path": "/auth/login-options"
         },
         {
           "method": "POST",
@@ -1172,9 +1190,34 @@
       "contract_dependencies": [],
       "permissions_used": [
         "CONFIG.VIEW",
-        "HEALTH.MAINTENANCE"
+        "HEALTH.MAINTENANCE",
+        "MAINTENANCE.CALIBRATE"
       ],
       "routes": [
+        {
+          "method": "POST",
+          "path": "/calibration/fit"
+        },
+        {
+          "method": "GET",
+          "path": "/calibration/signals"
+        },
+        {
+          "method": "DELETE",
+          "path": "/calibration/{name}"
+        },
+        {
+          "method": "POST",
+          "path": "/calibration/{name}/apply"
+        },
+        {
+          "method": "POST",
+          "path": "/calibration/{name}/drive"
+        },
+        {
+          "method": "POST",
+          "path": "/calibration/{name}/raw"
+        },
         {
           "method": "GET",
           "path": "/variables"
@@ -1283,6 +1326,10 @@
       {
         "method": "PUT",
         "path": "/system/debug-config"
+      },
+      {
+        "method": "GET",
+        "path": "/system/odbc-drivers"
       },
       {
         "method": "POST",
@@ -1464,6 +1511,12 @@
       "description": "Delete library documents (and, later, review all troubleshooting chats)."
     },
     {
+      "key": "PORTAL.SEQUENCE",
+      "domain": "Portal",
+      "label": "View test sequence",
+      "description": "Open the Test Sequence tab in the portal (how each test runs)."
+    },
+    {
       "key": "SYSTEM.RESET_DATA",
       "domain": "System",
       "label": "Reset data",
@@ -1474,6 +1527,12 @@
       "domain": "System",
       "label": "Station settings",
       "description": "MES + station settings (super_admin)."
+    },
+    {
+      "key": "SYSTEM.EXIT",
+      "domain": "System",
+      "label": "Exit station",
+      "description": "Close the station application (Exit station in the user menu)."
     }
   ],
   "roles": {
@@ -1493,7 +1552,9 @@
       "HELP.VIEW",
       "PORTAL.VIEW",
       "PORTAL.UPLOAD",
-      "PORTAL.MANAGE"
+      "PORTAL.MANAGE",
+      "PORTAL.SEQUENCE",
+      "SYSTEM.EXIT"
     ],
     "engineer": [
       "TEST.RUN",
@@ -1508,7 +1569,8 @@
       "CONFIG.EDIT",
       "HELP.VIEW",
       "PORTAL.VIEW",
-      "PORTAL.UPLOAD"
+      "PORTAL.UPLOAD",
+      "SYSTEM.EXIT"
     ],
     "maintenance": [
       "MAINTENANCE.CALIBRATE",
@@ -1519,7 +1581,8 @@
       "CONFIG.VIEW",
       "CONFIG.EDIT",
       "HELP.VIEW",
-      "PORTAL.VIEW"
+      "PORTAL.VIEW",
+      "SYSTEM.EXIT"
     ],
     "operator": [
       "TEST.RUN",
@@ -1529,7 +1592,8 @@
       "HEALTH.VIEW",
       "CONFIG.VIEW",
       "HELP.VIEW",
-      "PORTAL.VIEW"
+      "PORTAL.VIEW",
+      "SYSTEM.EXIT"
     ],
     "super_admin": [
       "AUTH.*",
@@ -1652,6 +1716,19 @@
           },
           "expected": {
             "title": "Expected (exact match)"
+          },
+          "retries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 0,
+            "title": "Re-read attempts on a failed/out-of-limit read"
+          },
+          "settle_s": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0.5,
+            "title": "Pause between re-reads (s)"
           }
         }
       }
@@ -1941,6 +2018,12 @@
     }
   ],
   "controller_ops": [
+    {
+      "op": "calibration.reload",
+      "group": "calibration",
+      "blocking": false,
+      "doc": ""
+    },
     {
       "op": "daq.ai.read",
       "group": "daq",

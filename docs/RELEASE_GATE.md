@@ -19,8 +19,20 @@ metadata PyInstaller dropped, and native drivers that crash only in the frozen e
 | 1c | `forbid_in_dist_root` (optional, app-owned) | a listed runtime DLL sits next to `run.exe` and would shadow the system MSVC runtime. |
 | 2 | **First boot** on an EMPTY state dir (`TMF_STATE_DIR`), private port (`TMF_PORT`, default 18765) | `/healthz` does not answer; config was not seeded from the shipped `*.example.json`. |
 | 3 | **Every module in the shipped config is loaded** (`/modules/status`) | any is skipped (not licensed, unknown variant, not registered) or missing. |
+| 3b | **Framework probes** (every app, no probes file needed) - built into `verify-build.ps1` | **(D13)** any step type in `GET /recipes/step-types` has `schema: null` or the catalog is empty: `--collect-submodules` bundles Python only, so a schema JSON that was not copied (`build_release.copy_step_type_schemas`) silently turns recipe validation off in the frozen exe. **(D10)** the SPA the exe serves is stale or unstamped - see below. |
+| 3c | **Database drivers** - `run.exe --check-db-drivers` (built into `verify-build.ps1`) | any provider's DBAPI (`pymysql`, `pyodbc`, `sqlite3`) cannot be imported inside the built exe. SQLAlchemy imports them dynamically, so a driver the build PC had installed can still be dropped silently (SQL Server: "driver not installed: No module named 'pyodbc'" in the field, MySQL fine). `build_release.py` also forces them in with `--hidden-import` and fails the build when one is not installed. |
 | 4 | **API probes** - `probes[]` (`path`, `auth`, `min_items`) as the seeded admin | a probe returns fewer than `min_items`. |
 | 5 | **Controller probes** - `controller_probes[]` | a *real driver call* through the built exe's controller (`run.exe --controller` over a private Mosquitto) fails or gets no reply. Skipped (loudly) when the required device is absent on the build PC. **Read-only calls only** - the device may be real hardware. |
+
+### The gate proves the UI, not just the API (D10)
+
+`build_release.py` now **always** runs `npm run build` (it used to reuse an existing `frontend/dist`, so
+`cut-release.ps1 -SkipTests` - the only other UI build - shipped a stale SPA) and stamps
+`run.dist/frontend/build-info.json` = `{app_version, git_sha, src_hash}`, where `src_hash` is a sha256 over
+every frontend input (`frontend/src` incl. a fork's `app/overrides/`, `public/`, `package*.json`, `vite.config.ts`,
+`index.html`, `tsconfig.json`). `deploy/verify_frontend_stamp.py` recomputes it from the tree being released and
+**fails** when the hash, `app/<slug>/VERSION` or `git rev-parse --short HEAD` differ, and fetches
+`/build-info.json` from the *running* exe to prove it serves that bundle. `-SkipTests` skips tests, never the build.
 
 ## `app/<slug>/release-probes.json`
 
@@ -35,6 +47,10 @@ Add a probe **whenever a bug shows up only in an installed build**. The framewor
   `config/license.example.json` and **fails** when any module in the shipped app config would not activate.
 - **Package metadata** is derived from what `instrument_libs/` imports (plus its dependencies), on top of `pyvisa`,
   `nidaqmx`, `nitypes`.
+- **Step-type schemas** (`copy_step_type_schemas`) are copied into `run.dist` beside where the frozen handlers
+  resolve them: `controller/step_types/schemas/*.json` and each app step package's `*.json` at its own relative
+  path. The gate (3b) fails the release if any is missing.
+- **Code signing** is optional and runs *before* the manifest is hashed - see `docs/SECURE_DISTRIBUTION.md` section 9.
 - **`TMF_PORT`** (backend) lets the gate run while a real station owns :8000.
 
 ## Resume and preflight

@@ -1,5 +1,5 @@
 /** Consolidated user control in the AppBar — the avatar opens a dropdown with the
- * signed-in identity, Log out, and (super_admin) Exit station. Folds what used to be a
+ * signed-in identity, Log out, and (SYSTEM.EXIT — every role by default) Exit station. Folds what used to be a
  * separate SessionPanel + ExitButton into one control so the bar stays uncluttered.
  *
  * Exit station calls POST /system/shutdown — the full graceful backend shutdown (the
@@ -26,7 +26,7 @@ export function UserMenu() {
   const [stopped, setStopped] = useState(false);
   if (!principal) return null;
 
-  const isAdmin = principal.role === "super_admin";
+  const canExit = can("SYSTEM.EXIT");     // every role by default (X5); not just super_admin
   const initials = principal.username.slice(0, 2).toUpperCase();
   const close = () => setAnchor(null);
 
@@ -79,7 +79,7 @@ export function UserMenu() {
           <ListItemIcon><Logout fontSize="small" /></ListItemIcon>
           <ListItemText>Log out</ListItemText>
         </MenuItem>
-        {isAdmin && [
+        {canExit && [
           <Divider key="exit-divider" />,
           <MenuItem key="exit" onClick={() => { close(); setConfirm(true); }} sx={{ color: "error.main" }}>
             <ListItemIcon><PowerSettingsNew fontSize="small" color="error" /></ListItemIcon>

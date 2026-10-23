@@ -43,3 +43,29 @@ jobs:
         run: npx vitest run
       - name: Build
         run: npm run build
+
+  report-mysql:
+    # D4 — the report store against a REAL MariaDB: the pre-fix FLOAT DDL is widened to DOUBLE and a
+    # 10-digit epoch round-trips exactly. sqlite cannot show this (it has no 4-byte FLOAT).
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: tmf
+          MARIADB_DATABASE: tmf_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Report store on MariaDB
+        env:
+          TMF_TEST_MYSQL_URL: mysql+pymysql://root:tmf@127.0.0.1:3306/tmf_test
+        run: python -m pytest modules/report/tester/test_store_precision.py -q -rs

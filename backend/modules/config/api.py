@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.services.security import require_permission
+from core.services.security import require_any_permission, require_permission
 
 _VIEW = [Depends(require_permission("CONFIG.VIEW"))]
+# What the Test Bench's Start dialog reads (barcode layout, current shift): an operator holds TEST.RUN
+# but an admin may remove CONFIG.VIEW from the role. Writes and every other config read stay gated.
+_RUN_READ = [Depends(require_any_permission("TEST.RUN", "CONFIG.VIEW"))]
 _EDIT = [Depends(require_permission("CONFIG.EDIT"))]
 
 
@@ -37,13 +40,13 @@ def build_router(module) -> APIRouter:
     async def set_shift(body: dict) -> dict:
         return await _guard(module.set_shift_config(body))
 
-    @router.get("/config/shift/current", dependencies=_VIEW)
+    @router.get("/config/shift/current", dependencies=_RUN_READ)
     async def current_shift() -> dict:
         return await module.current_shift()
 
     # --- barcode ------------------------------------------------------------
 
-    @router.get("/config/barcode", dependencies=_VIEW)
+    @router.get("/config/barcode", dependencies=_RUN_READ)
     async def get_barcode() -> dict:
         return await module.get_barcode_config()
 

@@ -17,6 +17,7 @@ export function mockFetch(routes: Record<string, Route>) {
       ok: status >= 200 && status < 300,
       status,
       text: async () => (body === null ? "" : JSON.stringify(body)),
+      json: async () => body,       // hooks that call fetch() directly (useBranding, Login) use r.json()
     } as Response;
   }) as any;
   return globalThis.fetch as any;

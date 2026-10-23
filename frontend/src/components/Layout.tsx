@@ -1,5 +1,5 @@
 import {
-  AppsOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
+  AppsOutlined, Article, Assessment, BadgeOutlined, BuildOutlined, CodeOutlined, DarkMode, ExpandLess, ExpandMore, FavoriteBorder,
   Fullscreen, FullscreenExit,
   GroupsOutlined, HelpOutlineOutlined, HubOutlined, LightMode, LockPersonOutlined, MemoryOutlined, MenuBookOutlined, MonitorHeartOutlined,
   PlayCircleOutline, QrCodeScannerOutlined, QueryStatsOutlined, ScheduleOutlined,
@@ -15,14 +15,13 @@ import { Link as RouterLink, NavLink, Outlet, useLocation } from "react-router-d
 import { api } from "../api/client";
 import { APP_PAGES } from "../app/registry";
 import { useAuth } from "../auth/AuthContext";
-import { useBranding } from "../hooks/useBranding";
+import { displayVersion, useBranding } from "../hooks/useBranding";
 import { useRunActivity } from "./RunActivity";
 import { useColorMode } from "../theme/ColorMode";
 import { BrandMark } from "./BrandMark";
 import { HelpPanel } from "./help/HelpPanel";
 import { MesAlertDialog } from "./MesAlertDialog";
 import { StatusDot } from "./ui";
-import { UpdateChip } from "./UpdateChip";
 import { UserMenu } from "./UserMenu";
 
 const DRAWER_WIDTH = 232;
@@ -76,9 +75,27 @@ const NAV: NavItem[] = [
   ...APP_PAGES.map((p): NavItem => (
     { label: p.navLabel, to: p.path, icon: p.navIcon ?? <AppsOutlined />, perm: p.permission }
   )),
+  // The Portal is the ONE user-facing documentation surface (manual + library + test sequence); the
+  // separate user "Help" entry is gone — see HELP_FALLBACK / DEV_DOCS below for what remains of /help.
   { label: "Portal", to: "/portal", icon: <MenuBookOutlined />, perm: "PORTAL.VIEW" },
-  { label: "Help", to: "/help", icon: <HelpOutlineOutlined />, perm: "HELP.VIEW" },
 ];
+
+/** Only for a role that can read help but not open the Portal: keeps a way to the manual. */
+const HELP_FALLBACK: NavItem = { label: "Help", to: "/help", icon: <HelpOutlineOutlined />, perm: "HELP.VIEW" };
+/** Developer documentation (/help, Developer audience): super_admin on a source checkout only — the
+ * backend ships no dev pages in a built station, so this entry never appears there. */
+const DEV_DOCS: NavItem = { label: "Developer docs", to: "/help", icon: <CodeOutlined />, perm: "HELP.VIEW", role: "super_admin" };
+
+/** Does the backend serve Developer pages to this user? (super_admin on a source checkout.) */
+function useHasDevDocs(enabled: boolean): boolean {
+  const [has, setHas] = useState(false);
+  useEffect(() => {
+    if (!enabled) { setHas(false); return; }
+    api.get("/help/index").then((t: any[]) => setHas(Array.isArray(t) && t.some((s) => s.audience === "dev")))
+      .catch(() => setHas(false));
+  }, [enabled]);
+  return has;
+}
 
 /** Poll /readyz for the station + bridge-link health lamp in the AppBar. */
 function useReadyz() {
@@ -169,8 +186,11 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else document.documentElement.requestFullscreen().catch(() => {});
   };
-  const items = NAV.filter((n) => (!n.perm || can(n.perm)) && (!n.role || principal?.role === n.role));
   const showHelp = can("HELP.VIEW");
+  const hasDevDocs = useHasDevDocs(showHelp && principal?.role === "super_admin");
+  const items = [
+    ...NAV, ...(showHelp && !can("PORTAL.VIEW") ? [HELP_FALLBACK] : []), ...(hasDevDocs ? [DEV_DOCS] : []),
+  ].filter((n) => (!n.perm || can(n.perm)) && (!n.role || principal?.role === n.role));
   const [helpOpen, setHelpOpen] = useState(false);
 
   // F1 or Ctrl+/ opens contextual help from anywhere.
@@ -260,9 +280,16 @@ export function Layout({ hideNav = false }: { hideNav?: boolean }) {
               ? <NavGroup key={n.label} n={n} can={can} role={principal?.role} />
               : <NavLeaf key={n.to} n={n} />)}
           </List>
-          {/* Relaunch-to-update lives at the foot of the menu — only rendered when an
-              update is staged, and never mid-run. */}
-          {!runActive && <UpdateChip drawer />}
+          {/* Foot of the menu: the running application version (what support asks for first).
+              The in-app "Relaunch to update" chip used to live here; a staged update now applies
+              on the next normal restart, or from Settings → Updates. */}
+          {displayVersion(branding) && (
+            <Box sx={{ px: 2, py: 1.25, borderTop: "1px solid", borderColor: "divider" }}>
+              <Typography variant="caption" color="text.secondary" data-testid="nav-version">
+                Version {displayVersion(branding)}
+              </Typography>
+            </Box>
+          )}
         </Drawer>
       )}
       <Box component="main" sx={{ flexGrow: 1, p: 3, bgcolor: "background.default" }}>

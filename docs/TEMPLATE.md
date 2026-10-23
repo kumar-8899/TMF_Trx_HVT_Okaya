@@ -52,7 +52,7 @@ lives in one app-owned tree, `app/<name>/`, kept apart from framework files:
 | Path | What |
 |---|---|
 | `<name>_steps/` | **controller step-type package** — product-specific step types (e.g. `hipot_ir`), loaded via `step_type_packages`. Only what the core 8 types can't express; author with the `test-step-authoring` skill. |
-| `maps/<station>.json` | **variable map** — named signals (read/write + scale) and actions bound to instrument capabilities. |
+| `maps/<station>.json` | **variable map** — named signals (read/write + scale) and actions bound to instrument capabilities. Shipped read-only: operator calibrations are an **overlay** in the state dir (`docs/contracts/CALIBRATION.md`), never an edit of this file; `"calibratable": false` hides a signal from the Maintenance calibration screen. |
 | `recipes/*.json` | **recipes** — the test sequences + limits, as data. |
 | `specs/<test>.md` | **test procedure specs** — one human-readable, authoritative `.md` per test (procedure, delays, input params, output measurements, signals). The engineer edits these; `spec-lint` keeps the code in sync. See `docs/TEST_SPECS.md`. |
 | `controller.json` | the app's **controller config** — `library_paths` (→ the fork's own `instrument_libs/`), station→map, `step_type_packages`. Referenced by `app.json` → `controller.config_file`. Instrument **instances** are NOT authored here (v1.5.0+): they come from the app's Instruments page — an `instruments` list in this file is ignored under app supervision. |
@@ -92,12 +92,14 @@ How it works (`frontend/src/app/registry.ts`):
 | `recipe-editor` | `screens/RecipeEditor` | `/recipes/new`, `/recipes/:id/edit` |
 | `recipe-detail` | `screens/RecipeDetail` | `/recipes/:id` |
 | `maintenance` | `screens/Maintenance` | `/maintenance` |
+| `portal` | `screens/Portal` | `/portal` (the whole User Portal) |
+| `portal-test-sequence` | `components/portal/TestSequence` (placeholder) | `/portal?tab=sequence` - **the app authors this** (`docs/contracts/PORTAL.md` "Test Sequence tab") |
 
 The permission wrappers (`RequirePermission`/`RequireRole`) stay in the framework `App.tsx` —
 an override replaces only the inner screen, never the gate. Overrides reuse the framework API
 client and run-stream hooks. See `frontend/src/app/overrides/README.md`.
 
-### Adding a brand-new page (not just replacing one of the 5 above)
+### Adding a brand-new page (not just replacing one of the keys above)
 
 The 5 keys above only let a fork *replace* an existing screen — there was no way to *add* a
 new top-level page without editing framework-owned `App.tsx` (routes) and `Layout.tsx` (nav),

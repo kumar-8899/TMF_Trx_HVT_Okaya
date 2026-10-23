@@ -105,28 +105,33 @@ def test_handler_cannot_report_pass_over_a_failed_measurement():
     assert r == FAIL
 
 
-def test_crashed_step_reports_fail_not_pass_with_zero_measurements():
-    """Regression: a leaf step whose handler raises a plain Exception must FAIL, even
-    though it produced zero measurements — step_status()'s "empty list is PASS" rule
-    governs a normal return with nothing to check, never a raised exception. Before the
-    fix, the exception-forced FAIL was silently overwritten back to PASS."""
+def test_crashed_step_reports_fail_with_synthesized_fail_row():
+    """D5: a leaf step whose handler raises a plain Exception must FAIL *and* emit ONE
+    synthesized FAIL row, so the failure is never invisible to the report/yield — whenever a
+    run verdict is FAIL, at least one emitted row is FAIL. The synthesized row is named from the
+    step id, value ERROR, and the cause is carried on the step message."""
     r, ev, _ = _run({"steps": [{"type": "test_crasher", "id": "boom", "params": {}}]})
     assert r == FAIL
     sc = [p for t, p in ev if t == "step-completed"][0]
     assert sc["status"] == FAIL
-    assert sc["measurement_count"] == 0
+    assert sc["measurement_count"] == 1
     assert "boom" in sc["message"]
+    trs = [p for t, p in ev if t == "test-result"]
+    assert len(trs) == 1
+    assert trs[0]["result"] == FAIL and trs[0]["measured"] == "ERROR" and trs[0]["test_name"] == "boom"
 
 
-def test_step_failed_exception_also_reports_fail_with_zero_measurements():
-    """Same regression, via the StepFailed path (lines 86-87) rather than the generic
-    Exception path (lines 88-89) — both except blocks were equally clobbered."""
+def test_step_failed_exception_also_reports_fail_with_synthesized_fail_row():
+    """Same invariant via the StepFailed path (lines 86-87) rather than the generic Exception
+    path — both must produce one synthesized FAIL row carrying the cause."""
     r, ev, _ = _run({"steps": [{"type": "test_step_failed", "id": "boom", "params": {}}]})
     assert r == FAIL
     sc = [p for t, p in ev if t == "step-completed"][0]
     assert sc["status"] == FAIL
-    assert sc["measurement_count"] == 0
+    assert sc["measurement_count"] == 1
     assert sc["message"] == "deliberately failed"
+    trs = [p for t, p in ev if t == "test-result"]
+    assert len(trs) == 1 and trs[0]["result"] == FAIL and trs[0]["measured"] == "ERROR"
 
 
 def test_test_result_carries_cycle_time_ms():

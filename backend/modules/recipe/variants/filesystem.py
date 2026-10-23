@@ -36,19 +36,31 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# A recipe_id is a FOLDER NAME under the recipe root (RecipeStore.recipe_dir) and can be typed by
-# a user (an app's New-recipe form), so it is validated where ids enter — creation. No path
-# separators / dots / drive colons (traversal + Windows trailing-dot aliasing), bounded length,
-# and not a Windows reserved device name (CON, NUL, COM1, ...), which cannot be a directory there.
-_RECIPE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
-_WINDOWS_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.IGNORECASE)
+# A recipe_id becomes a folder name on disk (RECIPE.md §5.1/§5.3), so it must be a safe
+# path component. Validated at CREATION only — ids on existing recipes are never re-checked,
+# so historical recipes stay loadable regardless of this rule.
+_RECIPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_WIN_RESERVED = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+)
 
 
-def _check_recipe_id(rid: object) -> None:
-    if not isinstance(rid, str) or not _RECIPE_ID_RE.fullmatch(rid) or _WINDOWS_RESERVED.fullmatch(rid):
+def _check_recipe_id(rid: str) -> None:
+    """Raise RecipeValidationError if `rid` is not a safe folder name.
+
+    1–64 of [A-Za-z0-9_-], first char alphanumeric, not a Windows reserved device name.
+    """
+    if not rid:
+        raise RecipeValidationError(["recipe_id required"])
+    if not _RECIPE_ID_RE.match(rid):
         raise RecipeValidationError([
-            "recipe_id must be 1-64 characters: letters, digits, '-' or '_', starting with a "
-            "letter or digit (and not a reserved name such as CON or NUL)"])
+            f"recipe_id '{rid}' is invalid: use 1–64 of letters, digits, '_' or '-', "
+            "starting with a letter or digit"
+        ])
+    if rid.upper() in _WIN_RESERVED:
+        raise RecipeValidationError([f"recipe_id '{rid}' is a reserved device name on Windows"])
 
 
 class FilesystemRecipe:
@@ -164,8 +176,6 @@ class FilesystemRecipe:
 
     async def create_recipe(self, payload: dict) -> dict:
         rid = payload.get("recipe_id")
-        if not rid:
-            raise RecipeValidationError(["recipe_id required"])
         _check_recipe_id(rid)
         if self.store.exists(rid):
             raise RecipeExistsError(f"recipe '{rid}' already exists")

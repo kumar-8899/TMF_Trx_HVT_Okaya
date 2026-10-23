@@ -22,23 +22,32 @@ class Sequencer:
         self._emit = emit            # emit(event_type, payload)
         self._diag = diag_fn
         self._any_fail = False
-        self._stop_on_fail = False
 
     def run(self, recipe: dict, *, run_id: str, station: str, run_parameters: dict,
             deadline_ts: float, aborted_fn) -> str:
         """Walk the recipe's top-level steps. Returns 'PASS' | 'FAIL'. Raises StepAborted
-        if aborted (the engine then runs teardown + emits run-aborted).
-
-        Recipe-level `stop_on_fail: true` (default false = run every step regardless): once any
-        step's FINAL attempt FAILs, every later step is skipped — see `_exec`."""
+        if aborted (the engine then runs teardown + emits run-aborted)."""
         self._any_fail = False
-        self._stop_on_fail = recipe.get("stop_on_fail") is True
         ctx = StepContext(
             station=station, run_id=run_id, trace=f"run:{run_id}", run_parameters=run_parameters,
             variables=self._vars, deadline_ts=deadline_ts, aborted_fn=aborted_fn,
             diag_fn=self._diag, child_runner=self._exec)
-        for step in recipe.get("steps", []) or []:
-            self._exec(step, ctx)
+        # stop_on_fail (RECIPE.md §2): strictly boolean true. When set, the top-level walk stops
+        # after the FIRST top-level step whose final attempt FAILs — the remaining top-level steps
+        # are skipped (no step-started/-completed/test-result, one step.skipped diag each). The
+        # failing step's own row is still emitted, the verdict is FAIL, and teardown still runs
+        # (runstate.py owns teardown, unaffected). Absent/false/any other value keeps the historic
+        # "always continue" behaviour.
+        stop_on_fail = recipe.get("stop_on_fail") is True
+        steps = recipe.get("steps", []) or []
+        for i, step in enumerate(steps):
+            result = self._exec(step, ctx)
+            if stop_on_fail and result.status == results.FAIL:
+                for skipped in steps[i + 1:]:
+                    sid = skipped.get("id") or skipped.get("type", "step")
+                    self._diag("warning", "step.skipped", step_id=sid,
+                               reason="stop_on_fail: a prior step failed")
+                break
         return results.FAIL if self._any_fail else results.PASS
 
     def _exec(self, step: dict, ctx: StepContext) -> results.StepResult:
@@ -46,14 +55,6 @@ class Sequencer:
             raise StepAborted()
         step_id = step.get("id") or step.get("type", "step")
         type_id = step.get("type")
-        if self._stop_on_fail and self._any_fail:
-            # An earlier step already FAILed (final attempt) and the recipe asked to stop at the
-            # first failure. Skip silently: no step-started/-completed/test-result events, so the
-            # event stream only ever describes steps that actually ran. The verdict is already
-            # FAIL (_any_fail); teardown is the run engine's job, not this walk's, so it still
-            # runs. INFO (not PASS) so a skipped child can never read as a passing one.
-            self._diag("info", "step.skipped", step_id=step_id, reason="stop_on_fail")
-            return results.StepResult(status=results.INFO, message="skipped: stop_on_fail")
         entry = registry.get(type_id)
         if entry is None:
             raise StepFailed(f"unknown step type '{type_id}'")   # validation should have caught it
@@ -73,13 +74,19 @@ class Sequencer:
                 for m in result.measurements:
                     self._emit("test-result", {"run_id": ctx.run_id, "step_id": step_id,
                                                "attempt": attempt, "cycle_time_ms": result.elapsed_ms,
+                                               # why the step failed (D5): rides to the Runs record
+                                               **({"message": result.message}
+                                                  if status == results.FAIL and result.message else {}),
                                                **results.measurement_dict(m, step_id)})
             self._emit("step-completed", {"run_id": ctx.run_id, "step_id": step_id,
                                           "status": status, "elapsed_ms": result.elapsed_ms,
                                           "measurement_count": len(result.measurements),
                                           "message": result.message, "attempt": attempt,
                                           "attempts_allowed": attempts_allowed})
-            self._diag("info", "step.end", step_id=step_id, status=status, attempt=attempt,
+            # A failed step is logged at WARNING so its cause persists (the Logs page keeps
+            # >= warning; step.end was info and was dropped by default). D5.
+            self._diag("warning" if status == results.FAIL else "info", "step.end",
+                       step_id=step_id, status=status, attempt=attempt, message=result.message,
                        elapsed_ms=result.elapsed_ms, measurement_count=len(result.measurements))
             if final:
                 if status == results.FAIL:
@@ -108,6 +115,18 @@ class Sequencer:
         if entry.composite:
             status = result.status                     # handler aggregated its children
         else:
+            if crashed and not result.measurements:
+                # A crashed leaf that emitted nothing still gets ONE synthesized FAIL row, so a
+                # FAIL verdict ALWAYS has at least one FAIL row (the failure is never invisible to
+                # the report / yield). Name from params.name, else the read/signal param, else the
+                # step id; value ERROR; limits from the step's min/max/expected when present; the
+                # cause is already on result.message. Composites never synthesize — their children
+                # do. (PYTHON_CONTROLLER.md §8.2.)
+                p = step.get("params", {}) or {}
+                syn_name = p.get("name") or p.get("signal") or p.get("read") or step_id
+                lim = results.Limits(min=p.get("min"), max=p.get("max"), expected=p.get("expected"))
+                result.measurements = [results.Measurement(
+                    syn_name, "ERROR", p.get("unit"), limits=lim, status=results.FAIL)]
             for m in result.measurements:             # stamp the loop index (sweep/repeat)
                 if m.sequence is None:
                     m.sequence = ctx.sequence

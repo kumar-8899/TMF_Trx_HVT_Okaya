@@ -210,24 +210,15 @@ measurements** — an exception-forced FAIL is never recomputed from (and so nev
 overridden by) the empty measurement list a crashed step necessarily produced (v1.18.2;
 `sequencer.py` `_attempt()`). Limits come from `params`, never from handler code.
 
-**Stop on first failure.** A recipe may set a top-level `stop_on_fail: true` (strictly
-boolean `true`; absent, `false`, or any other value keeps the original behaviour — every
-step runs and every result is reported). Once any step's **final** attempt FAILs (a retry
-that recovers does not count), `Sequencer._exec` skips every later step — later siblings
-inside a composite and every later top-level step alike — without emitting
-`step-started` / `step-completed` / `test-result` for them, and logs a `step.skipped`
-diag. The failing step's own results are still emitted, the run verdict is FAIL, and
-teardown still runs (it belongs to the run engine, not the step walk). The `on_fail`
-field in the step envelope is a separate, per-step setting that the Python controller does
-not act on. `stop_on_fail` is implemented by the Python controller only; this document does
-not cover whether the LabVIEW engine honours it.
-
-**A failed test should still leave a result row.** A crashed step contributes *no*
-`test-result` (`measurement_count` 0 — tested, above), so a step type that wants its
-failure to show up in the Results table and reports must **return** a FAIL measurement
-instead of raising: assert `Measurement(status=FAIL)` (with limits set) when a reading
-exists, or give a non-numeric value against numeric limits (e.g. `"ERROR"`) when it does
-not — the framework judges that FAIL by its own rule. Reserve raising for an abort.
+**What the sequencer guarantees about failures (v1.31.0):**
+- **`stop_on_fail`** (recipe top level, strictly `true`): skip the remaining *top-level* steps after the first
+  failing one, emit `step.skipped` diagnostics, keep the failing row, FAIL verdict, teardown unaffected
+  (`contracts/RECIPE.md` section 2.1). Both engines must honour it; LabVIEW is not verified from this repo.
+- **A FAIL verdict always has a FAIL row.** A crashed non-composite step with no measurements gets one synthesized
+  row (`measured: "ERROR"`, the cause in `message`); the failed `step.end` diagnostic is `warning` so it survives
+  the default `persist.min_level` (`contracts/REPORT.md` section 3).
+- **`measure_and_compare` `retries` / `settle_s`** re-read a flaky signal without re-running the step.
+- `INFO` rows (no limits) are context, never counted as pass or fail (`contracts/REPORT.md`).
 
 A handler touches only `ctx` (`context.py`): `read/write/read_many/invoke`,
 `wait/aborted/deadline_exceeded/remaining_ms`, `diag`, `execute_child`. **No
@@ -235,6 +226,21 @@ instrument, no instance id, no bridge, no DB, no filesystem.** The static
 conformance checker (`conformance.py`) enforces the mechanical §7.3 rules (no bare
 `time.sleep`, no forbidden imports/`open()`, no unbounded loops, no module/class
 state) over every core and app step type.
+
+**Sanctioned exception - an app-owned private data file (handler purity, D12).** Some products keep per-model
+limits or offsets *outside the recipe* (so the recipe a technician can open does not carry them). The framework
+does not provide or encourage hiding values and has no code for it; it only sanctions the one deviation from "no
+filesystem" that such an app needs: **an app step may read one small, read-only, app-owned file** (kept under the
+station state dir or `app/<slug>/`), subject to:
+1. read it **once per step execution, at step start** - never in a loop, never inside a `ctx.read`/`ctx.wait` cycle;
+2. **never write** it (and never a path derived from run input);
+3. a missing or invalid file **fails the step loudly** (`StepFailed("private limits file <path> ...")`) - never a
+   silent default, which would be a wrong PASS;
+4. the **report row still carries its limits or an honest marker** (`expected` filled, or the step `message` says
+   a private limits file was applied), so a FAIL is always explainable by someone who may see the file;
+5. the exception is **written down in the app's `specs/<test>.md`** so a reviewer sees it.
+The mechanical checker flags `open()` but not `pathlib.Path.read_text()`; that is a gap in a backstop, not a licence
+- rules 1-5 are the contract. Everything else in the handler stays pure (no instrument, bridge or DB access).
 
 ---
 
@@ -248,6 +254,7 @@ run.start | run.abort | sequencer.list_test_classes
 daq.ai.stream.start | daq.ai.stream.stop | daq.ai.read
 daq.di.stream.start | daq.di.stream.stop | daq.di.read
 safety.trip | safety.clear | safety.status
+calibration.reload
 ```
 
 Controller → app queries: `recipe.fetch`. Events published on
@@ -270,6 +277,14 @@ name — `NotConnected`/`NotSupported`/`DeviceError`/`CommandTimeout`/`GarbageRe
 one); `instrument.status {ids?}` is this process's `InstrumentRegistry.status()`, optionally
 filtered. Under `controller.kind == "labview"` there is no controller subprocess and these
 are unused — the backend connects to owner=python instruments directly, exactly as before.
+
+**`calibration.reload`** (v1.31.0, `docs/contracts/CALIBRATION.md`): the supervisor points each
+station's `variable_map` at an *effective* map (shipped map + the station's calibration overlay,
+baked into `<state dir>/controller.maps/`). This op re-reads that file and swaps each signal's
+`scale` in place, so a Maintenance-screen calibration takes effect with no relaunch. Only `scale`
+may change (a changed binding or signal set is refused — restart to rewire), and it is refused
+while the station is not idle (`Busy`) because a scale change inside a sequence would corrupt its
+readings. Reply: `{ok, result:{reloaded:n}}` or `{ok:false, error:{code, message}}`.
 
 ---
 

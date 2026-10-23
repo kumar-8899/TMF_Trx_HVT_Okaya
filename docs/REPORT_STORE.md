@@ -25,6 +25,52 @@ Tables are **prefixed `tmf_`** so they never collide with a client's existing ta
   test_name, test_group, expected, measured, result, unit, cycle_time_ms. Indexed on
   run_id / test_name.
 
+**Floating columns are `Double`** (`started_ts`, `finished_ts`, `created_at`, `cycle_time_ms`).
+Never a bare SQLAlchemy `Float()`: on MySQL that is a 4-byte `FLOAT` (~7 significant digits) which
+rounds a 10-digit epoch timestamp by minutes (field defect D4). A test fails if one reappears in
+the schema module.
+
+### Upgrading a database created with the old `FLOAT` columns (v1.31.0)
+- **Widen in place.** `ensure_schema()` and Settings → *Test connection* run an idempotent
+  `ALTER TABLE … MODIFY COLUMN … DOUBLE NULL` for every reflected `FLOAT` column of ours —
+  **MySQL/MariaDB only** (SQL Server's `FLOAT` is already 8 bytes; sqlite is untyped). Foreign
+  columns are never touched. It is logged as a warning naming the columns.
+- **One-time repair.** Rows written before the fix hold rounded timestamps. On first start after
+  upgrade (MySQL only), the report module restores `started_ts`/`finished_ts`/`created_at` from
+  the runs module's `run` records (same `run_id`, full precision) — only where the stored value is
+  within 5 000 s of the truth (the signature of single-precision rounding), never anything wider.
+  A `config` record `report_ts_repair` is the marker so it never rescans; it runs in the
+  background (never blocks start), and a failure leaves the marker unset so the next boot retries.
+  Rows whose run record was already purged cannot be repaired.
+- **CI.** The `report-mysql` job runs `test_store_precision.py` against a real MariaDB service:
+  create with the OLD `FLOAT` DDL → migrate → assert `DOUBLE` → a 10-digit epoch round-trips
+  exactly. Locally: `TMF_TEST_MYSQL_URL=mysql+pymysql://user:pw@host/db pytest modules/report/tester/test_store_precision.py`.
+
+### SQL Server prerequisites (v1.31.1)
+
+- **The OS ODBC driver is a per-station prerequisite** - it is not part of the app. Any of "ODBC Driver 18 / 17 for
+  SQL Server" (recommended; download from Microsoft) or the **built-in "SQL Server" driver** that every Windows PC
+  ships works. Settings -> Report database and Config -> MES now **list the drivers actually installed on that PC**
+  (`GET /system/odbc-drivers`, from `pyodbc.drivers()`, newest first) and a blank choice means "the newest
+  installed" - the backend resolves it the same way when the field is empty. Where pyodbc/ODBC is unavailable the
+  field stays free text.
+- **The built-in "SQL Server" driver needed a fix**: SQLAlchemy 2.x calls `cursor.setinputsizes()` and declares every
+  bound string `NVARCHAR(MAX)` (precision 0); the legacy driver has no MAX types and failed every parameterised
+  statement with `HY104 Invalid precision value (0) (SQLBindParameter)` (server/database/table pickers passed because
+  they use parameterless SQL; checking/creating the table and every insert failed). `core/services/dbconn.py` now
+  sets `use_setinputsizes=False` for `mssql+pyodbc` on every engine (including the server-level engine that creates
+  the database). ODBC Driver 17/18 behave the same with it off.
+- **The driver modules are forced into the frozen exe.** SQLAlchemy imports the DBAPI by name at connect time
+  (`mssql+pyodbc` does `__import__("pyodbc")`), which PyInstaller cannot see, so a build could silently omit pyodbc
+  while MySQL worked ("driver not installed: No module named 'pyodbc'"). `build_release.py` passes
+  `--hidden-import=pymysql --hidden-import=pyodbc` and **fails the build** when either is not installed on the build
+  PC (`pip install -e backend[report-db]`; the `release` extra includes them). The release gate runs
+  `run.exe --check-db-drivers`, which imports every provider's driver through `dbconn` inside the built exe.
+- Not verified against a live SQL Server from this repo (none available in CI or on the dev PC): the SQL Server leg
+  of the report/MES flows has only been exercised with fakes and the SQLAlchemy dialect settings. Before relying on it,
+  run Test connection -> Check/Create table -> a test run with **both** the legacy "SQL Server" driver and an
+  ODBC Driver 17/18 on a real server.
+
 `SQLAlchemy Core` gives a dialect-agnostic schema + query layer; the sync engine runs in
 a thread executor. Drivers are lazy: **MySQL** `mysql+pymysql`, **SQL Server**
 `mssql+pyodbc` (needs the OS *ODBC Driver 18 for SQL Server*). Install per deployment:
@@ -72,6 +118,16 @@ password (+ ODBC driver for SQL Server) → **Test connection** (creates tables)
 If the DB is unreachable, reports queue in the outbox (`/reports` + Analytics show a "not
 configured / queued" state); when the DB returns, the forwarder drains the queue. The
 report module `health()` reports the outbox backlog.
+
+## Reset data (Settings → Data management → Reports, `SYSTEM.RESET_DATA`)
+Reports live in the pro DB, and anything still spooled in the outbox is re-inserted by the
+forwarder — so deleting only one side is silently undone on the next tick (field bug X9). The
+`reports` target is therefore delegated by the runs module to the report module's
+`reset_data()` (contract method), which: takes the forwarder's drain lock (no forward can be
+mid-write), **empties the outbox first**, then purges `tmf_report_result` + `tmf_report`. If the
+DB cannot be purged the outbox is already empty and the error is raised to the operator — a
+visible failure, never a partial wipe that later resurrects. Folder-sink mirrors (CSV/JSON files)
+are operator files and are not deleted. The reply is `{reports, outbox}` (counts).
 
 ## Follow-ups (not built)
 Encryption-at-rest for the stored DB password (station-local for now); a central

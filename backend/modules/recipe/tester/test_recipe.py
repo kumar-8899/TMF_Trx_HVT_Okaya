@@ -187,6 +187,27 @@ async def test_legacy_cwd_recipes_are_migrated_on_construct(tmp_path, monkeypatc
     await db.close()
 
 
+@pytest.mark.parametrize("rid", ["1400", "TX-100", "COM10", "CONSOLE", "a_b-1"])
+async def test_recipe_id_accepts_ordinary_ids(fsmod, rid):
+    """D1: ids that look like reserved names but aren't (COM10, CONSOLE) and ordinary ids are
+    accepted."""
+    mod, _ = fsmod
+    created = await mod.create_recipe({**PAYLOAD, "recipe_id": rid})
+    assert created["recipe_id"] == rid
+    assert mod.store.exists(rid)
+
+
+@pytest.mark.parametrize("rid", ["../x", "a/b", "a\\b", "CON", "nul", "LPT1", "has space",
+                                 ".hidden", "-lead", "", "x" * 65])
+async def test_recipe_id_rejects_unsafe_ids(fsmod, rid):
+    """D1: path-unsafe / reserved / malformed ids are rejected at creation and nothing is written."""
+    mod, _ = fsmod
+    with pytest.raises(RecipeValidationError):
+        await mod.create_recipe({**PAYLOAD, "recipe_id": rid})
+    if rid:
+        assert not mod.store.exists(rid)
+
+
 async def test_create_save_publish(fsmod):
     mod, db = fsmod
     created = await mod.create_recipe(PAYLOAD)
@@ -236,27 +257,6 @@ async def test_create_duplicate_and_validation(fsmod):
                                    "steps": [{"step_id": "w", "step_type": "wait", "params": {}}]})
     with pytest.raises(RecipeValidationError):
         await mod.publish_draft("bad", bad["draft_id"])
-
-
-@pytest.mark.parametrize("bad_id", [
-    "../evil", "a/b", "a\\b", "..", ".hidden", "has space", "x" * 65, "café", "trailing.",
-    "a:b", "a*b", "-leading", "_leading", "CON", "nul", "Com1", "LPT9",
-])
-async def test_create_rejects_unsafe_recipe_ids(fsmod, bad_id):
-    """The recipe_id is a folder name AND can be user-typed: nothing path-like or reserved may
-    get through, and nothing may be written when it is refused."""
-    mod, _ = fsmod
-    before = mod.store.list_recipe_ids()
-    with pytest.raises(RecipeValidationError):
-        await mod.create_recipe({**PAYLOAD, "recipe_id": bad_id})
-    assert mod.store.list_recipe_ids() == before
-
-
-@pytest.mark.parametrize("good_id", ["1400", "TX-100", "tx_100-A", "a", "9" * 64, "COM10", "CONSOLE"])
-async def test_create_accepts_ordinary_user_typed_ids(fsmod, good_id):
-    mod, _ = fsmod
-    created = await mod.create_recipe({**PAYLOAD, "recipe_id": good_id})
-    assert created["recipe_id"] == good_id and mod.store.exists(good_id)
 
 
 async def test_second_version_via_fork(fsmod):

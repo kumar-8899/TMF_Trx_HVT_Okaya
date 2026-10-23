@@ -207,6 +207,16 @@ class LocalDbAuth:
 
     # --- user management (gated AUTH.MANAGE_USERS in the router) ------------
 
+    async def login_options(self) -> dict:
+        """PRE-AUTH, for the login screen. Off by default (`login.user_picker` false): only the flag
+        is returned, so a station that does not opt in never enumerates its usernames to an
+        unauthenticated caller. On: the sorted usernames of ACTIVE accounts - names only, no role,
+        state or any other field."""
+        if not (self.config.get("login") or {}).get("user_picker"):
+            return {"user_picker": False, "users": []}
+        names = sorted(u["username"] for u in await self.users.list() if u.get("state") == ACTIVE)
+        return {"user_picker": True, "users": names}
+
     async def list_users(self, viewer_role: str = PROTECTED_ROLE) -> list[dict]:
         # super_admin accounts are visible only to a super_admin viewer.
         users = await self.users.list()  # user records carry no secret

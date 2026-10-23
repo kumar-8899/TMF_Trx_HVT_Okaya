@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from controller.context import StepAborted
 from controller.registry import register_step_type
-from controller.results import INFO, Limits, Measurement, StepResult
+from controller.results import FAIL, INFO, Limits, Measurement, StepResult, evaluate
 from controller.sequencer import worst
 
 _PRIM = "primitive"
@@ -130,16 +130,43 @@ class SetOutput:
 
 @register_step_type(type_id="measure_and_compare", display_name="Measure & compare", kind=_PRIM)
 class MeasureAndCompare:
-    """Read a signal, compare against limits, produce ONE measurement (§8)."""
+    """Read a signal, compare against limits, produce ONE measurement (§8).
+
+    Graded reads can be transient (a Modbus connection reset): `retries` (0–5, default 0) re-reads
+    the SAME signal — no preconditions re-run, only this read — with a fixed `settle_s` pause
+    between attempts (abort-aware via ctx.wait). A failed read OR an out-of-limit reading is
+    re-read; ONLY the last attempt is reported. A read that still raises on the final attempt is
+    the FAIL row ERROR (D5), carrying the cause. StepAborted is never retried. (D14)"""
     @staticmethod
     def bindings(params):
         return {"signals": [params["signal"]] if params.get("signal") else [], "actions": []}
 
     def execute(self, params, ctx) -> StepResult:
-        value = ctx.read(params["signal"])
+        signal = params["signal"]
         lim = Limits(min=params.get("min"), max=params.get("max"), expected=params.get("expected"))
-        name = params.get("name") or params["signal"]
-        return StepResult(measurements=[Measurement(name, value, params.get("unit"), limits=lim)])
+        name = params.get("name") or signal
+        unit = params.get("unit")
+        attempts = max(0, min(5, int(params.get("retries", 0) or 0))) + 1
+        settle_s = max(0.0, float(params.get("settle_s", 0.5) or 0.0))
+        last_exc: Exception | None = None
+        for i in range(attempts):
+            if i > 0:
+                ctx.wait(settle_s)                      # abort-aware pause before a re-read
+            try:
+                value = ctx.read(signal)
+            except StepAborted:
+                raise
+            except Exception as exc:                    # noqa: BLE001 — transient read; may retry
+                last_exc = exc
+                continue
+            m = Measurement(name, value, unit, limits=lim)
+            if evaluate(m) != FAIL or i == attempts - 1:
+                return StepResult(measurements=[m])     # pass, or last attempt wins
+        # every attempt raised — one FAIL row ERROR with the cause (D5)
+        cause = f"{type(last_exc).__name__}: {last_exc}" if last_exc else "read failed"
+        return StepResult(
+            measurements=[Measurement(name, "ERROR", unit, limits=lim, status=FAIL)],
+            message=f"read '{signal}' failed: {cause}")
 
 
 @register_step_type(type_id="prompt_operator", display_name="Prompt operator", kind=_PRIM)

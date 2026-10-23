@@ -1,11 +1,11 @@
 import { Close, Login as LoginIcon, ShieldOutlined } from "@mui/icons-material";
-import { Alert, Box, Button, Paper, Stack, TextField, Typography } from "@mui/material";
-import { useState } from "react";
+import { Alert, Box, Button, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { BrandMark } from "../components/BrandMark";
-import { useBranding } from "../hooks/useBranding";
+import { displayVersion, useBranding } from "../hooks/useBranding";
 
 export function Login() {
   const { login } = useAuth();
@@ -15,6 +15,14 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Opt-in (app.json auth.config login.user_picker, default OFF): a dropdown of ACTIVE usernames
+  // instead of free text. Pre-auth endpoint; any failure falls back to the free-text box.
+  const [pickable, setPickable] = useState<string[] | null>(null);
+  useEffect(() => {
+    fetch("/auth/login-options").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (j?.user_picker && Array.isArray(j.users) && j.users.length) setPickable(j.users);
+    }).catch(() => {});
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,8 +70,15 @@ export function Login() {
 
             <form onSubmit={submit}>
               <Stack spacing={2}>
-                <TextField label="Username" value={username} autoFocus fullWidth
-                  onChange={(e) => setUsername(e.target.value)} inputProps={{ "aria-label": "username" }} />
+                {pickable ? (
+                  <TextField select label="Username" value={username} autoFocus fullWidth
+                    onChange={(e) => setUsername(e.target.value)} inputProps={{ "aria-label": "username" }}>
+                    {pickable.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
+                  </TextField>
+                ) : (
+                  <TextField label="Username" value={username} autoFocus fullWidth
+                    onChange={(e) => setUsername(e.target.value)} inputProps={{ "aria-label": "username" }} />
+                )}
                 <TextField label="Password" type="password" value={password} fullWidth
                   onChange={(e) => setPassword(e.target.value)} inputProps={{ "aria-label": "password" }} />
                 {error && <Alert severity="error">{error}</Alert>}
@@ -98,7 +113,9 @@ export function Login() {
           bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "#F9FAFB"),
         }}>
           <Typography variant="caption" color="text.secondary">{stamp}</Typography>
-          <Typography variant="caption" color="text.secondary">v1.0.0</Typography>
+          <Typography variant="caption" color="text.secondary" data-testid="app-version">
+            {displayVersion(branding) ? `v${displayVersion(branding)}` : ""}
+          </Typography>
         </Box>
       </Paper>
     </Box>

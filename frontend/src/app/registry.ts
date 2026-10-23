@@ -1,13 +1,15 @@
 /** App screen-override + page registry (TEMPLATE.md §1 — the frontend app-owned boundary).
  *
- * Some screens (Runs, Recipes, the recipe editor/detail, Maintenance) must look different per
+ * Some screens (Runs, Recipes, the recipe editor/detail, Maintenance, the Portal) must look different per
  * application. Instead of editing the framework `screens/*` (which would conflict on every
  * framework upgrade), a fork drops a file under **`frontend/src/app/overrides/`** that
  * default-exports `{ key, component }`. It is auto-registered here and the router uses it in
  * place of the framework default. The framework never needs the fork to edit shared files, so
  * `git merge upstream/<version>` stays clean.
  *
- * Overridable keys: "runs" · "recipes" · "recipe-editor" · "recipe-detail" · "maintenance".
+ * Overridable keys: "runs" · "recipes" · "recipe-editor" · "recipe-detail" · "maintenance" ·
+ * "portal" (the whole User Portal) · "portal-test-sequence" (just its Test Sequence tab — the usual one
+ * to override: the framework ships a placeholder because that content is authored per application).
  * The framework ships `overrides/` empty → defaults are used.
  *
  * The same directory also lets a fork ADD a brand-new top-level page — something the 5 fixed

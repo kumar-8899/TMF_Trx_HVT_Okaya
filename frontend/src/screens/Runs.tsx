@@ -58,18 +58,27 @@ export function Runs() {
   const [station, setStation] = useState<string | null>(null);   // multi-socket: which DUT position
   const values = useValues("/instruments/values/ws");
 
+  // What the Start dialog needs to render. A failed load used to be swallowed (`.catch(() => {})`),
+  // which silently turned the serial-number box into a recipe picker when /config/barcode was
+  // refused (field defect D11) - so every failure is recorded and SHOWN, and Start is blocked.
+  const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
+  const noteLoad = (what: string, e: any) => setLoadErrors((p) => ({ ...p, [what]: e?.message || "failed" }));
+  const clearLoad = (what: string) => setLoadErrors((p) => { const { [what]: _gone, ...rest } = p; return rest; });
+
   const refresh = () => api.get("/runs").then(setRuns).catch((e) => setError(e.message));
   useEffect(() => {
     refresh();
-    api.get("/runs/config").then(setProfile).catch(() => {});
-    api.get("/config/barcode").then(setBarcodeCfg).catch(() => {});
-    api.get("/recipes").then(setRecipes).catch(() => {});
+    api.get("/runs/config").then(setProfile).catch((e) => noteLoad("run settings", e));
+    api.get("/config/barcode").then((c) => { setBarcodeCfg(c); clearLoad("barcode settings"); })
+      .catch((e) => noteLoad("barcode settings", e));
+    api.get("/recipes").then(setRecipes).catch((e) => noteLoad("recipe list", e));
   }, []);
 
   // current shift (refresh each minute so it flips at a shift boundary)
   const [shift, setShift] = useState<any | null>(null);
   useEffect(() => {
-    const load = () => api.get("/config/shift/current").then(setShift).catch(() => {});
+    const load = () => api.get("/config/shift/current").then((s) => { setShift(s); clearLoad("current shift"); })
+      .catch((e) => noteLoad("current shift", e));
     load();
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
@@ -174,6 +183,13 @@ export function Runs() {
         )}
       />
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {Object.entries(loadErrors).map(([what, msg]) => (
+        <Alert key={what} severity="warning" sx={{ mb: 2 }}>
+          Could not load the {what}: {msg}. {what === "barcode settings"
+            ? "Starting a test is blocked until this loads - ask an administrator to check this role's permissions."
+            : "Parts of this screen may be incomplete."}
+        </Alert>
+      ))}
 
       <Stack spacing={2}>
         {/* identity + status banner */}
@@ -234,7 +250,8 @@ export function Runs() {
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="contained" startIcon={<PlayArrow />}
-            disabled={barcodeCfg.enabled ? !barcode : !pickRecipe} onClick={startRun}>Start</Button>
+            disabled={Boolean(loadErrors["barcode settings"]) || (barcodeCfg.enabled ? !barcode : !pickRecipe)}
+            onClick={startRun}>Start</Button>
         </DialogActions>
       </Dialog>
     </Box>

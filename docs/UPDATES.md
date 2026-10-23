@@ -262,6 +262,26 @@ instrument I/O. Three layers stop that:
 3. **The rename retries with backoff** (`_rename_with_retry`): a just-exited
    process can hold its image open for a brief, non-deterministic window.
 
+**What actually blocks a directory rename on Windows** (measured, D7): a running exe *by itself* does **not**
+block renaming its parent directory. A process whose **current directory** is inside `run.dist`, or any open
+**file handle** inside it, does. So the backend (`cwd = run.dist`), the controller child and anything they log
+to are the real risks - which is what layers 1-3 handle.
+
+**The vendored broker is staged out of the swap unit** (defence in depth). `station.py` used to launch
+`run.dist/vendor/mosquitto/win64/mosquitto.exe` in place; it now copies that folder (exe + DLLs + conf) to
+`<deploy root>/data/broker/` (`stage_broker`) and runs the copy, so no broker process, image or antivirus
+scan sits inside the directory a swap renames. A refresh that fails because an orphaned broker still holds
+the staged exe keeps the existing copy and logs it. A broker outside `run.dist` (PATH / system install) is
+used as-is.
+
+**A failed rename names its cause.** When the retries are exhausted, `launcher.lock_holders()` lists every
+process whose executable is under `run.dist` (PowerShell `Win32_Process`; best effort) and the error - which
+lands in `data/last_swap_error.json` and on the Updates page - reads
+`Access is denied - …\run.dist has process(es) running from inside it (likely the lock holder): pid 4242 mosquitto.exe`
+instead of a bare `WinError`. If it names nothing, the holder is an open file handle or a process cwd: look
+there. *We could not reproduce the Okaya `WinError` from the broker alone (cwd outside `run.dist`); if it
+recurs, this message is the evidence to collect.*
+
 If the swap still fails, the launcher writes `data/last_swap_error.json`; the
 Updates page shows `swap_failed` with the error and strike count instead of
 looping forever on `relaunch_requested`.

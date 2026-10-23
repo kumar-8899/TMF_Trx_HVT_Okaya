@@ -15,6 +15,24 @@ Hands-on hardware operation. **Maintenance mode is owned by the LabVIEW controll
 - You need the **HEALTH.MAINTENANCE** permission.
 - See Troubleshooting for the MQTT details.
 
+## Calibration (analog inputs and outputs)
+Needs the **MAINTENANCE.CALIBRATE** permission (the *maintenance* role and *super_admin* have it).
+Use it when a reference meter shows an analog channel has drifted. Nothing in the shipped
+configuration is edited — your calibration is stored separately, and **Reset to factory** removes it.
+
+1. **Pick the signal** (and the station, on a multi-socket PC). A ✓ marks one already calibrated.
+2. **Analog input:** apply a known stimulus, press **Capture raw reading**, type what the reference
+   meter shows, press **Add point**.
+   **Analog output:** enter a raw value, press **Drive output** (needs maintenance mode on), type what
+   the meter measures, press **Add point**.
+3. Add **two or more points at clearly different values**. The fitted gain, offset and the largest
+   error show live; remove any bad point with the bin icon.
+4. **Apply calibration.** It takes effect immediately — no restart. If a test is running, the
+   screen says the change is *saved* and applies after the run.
+
+If the stored calibration file is damaged the station falls back to the factory scale and logs an
+error — it never silently runs half-calibrated.
+
 ## Instrument test bench (super_admin)
 For `super_admin`, this page also embeds a hands-on panel for **Python-owned instruments** —
 set outputs, read measurements, toggle the output, and drive a unit to a safe state. It's the

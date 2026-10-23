@@ -305,8 +305,11 @@ def create_app(
                 "station_refusals": getattr(app.state, "station_refusals", [])}
 
     # ---- station configuration (Settings → Station; SYSTEM.SETTINGS) --------
-    from core.services.security import require_permission
+    from core.services.security import require_any_permission, require_authenticated, require_permission
     _SETTINGS = [Depends(require_permission("SYSTEM.SETTINGS"))]
+    # Exiting the station is every role's right (SYSTEM.EXIT, default-granted to all roles); the
+    # old SYSTEM.SETTINGS holders keep it. Relaunch / updates / config stay SYSTEM.SETTINGS only.
+    _EXIT = [Depends(require_any_permission("SYSTEM.EXIT", "SYSTEM.SETTINGS"))]
 
     def _running_controller_kind() -> str:
         return "python" if getattr(app.state, "controller", None) is not None else "labview"
@@ -466,6 +469,15 @@ def create_app(
                                 reason=reason, confirmed_dead=dead)
         threading.Timer(0.6, lambda: os._exit(42)).start()
 
+    @app.get("/system/odbc-drivers", dependencies=[Depends(require_authenticated())])
+    async def odbc_drivers() -> dict:
+        """SQL Server ODBC drivers installed on THIS PC, newest first, for the report-DB / MES
+        settings dropdown (the driver is a per-station OS prerequisite, docs/REPORT_STORE.md). An
+        empty list means pyodbc/ODBC is unavailable here - the UI falls back to free text."""
+        from core.services import dbconn
+        drivers = await asyncio.get_running_loop().run_in_executor(None, dbconn.odbc_drivers)
+        return {"drivers": drivers, "default": drivers[0] if drivers else None}
+
     @app.post("/system/relaunch", dependencies=_SETTINGS)
     async def system_relaunch() -> dict:
         """Relaunch the station to apply a config change (exit 42 → the launcher restarts)."""
@@ -473,7 +485,7 @@ def create_app(
         _exit_relaunch("config change")
         return {"ok": True, "relaunching": True, "note": "station is relaunching to apply configuration"}
 
-    @app.post("/system/shutdown", dependencies=_SETTINGS)
+    @app.post("/system/shutdown", dependencies=_EXIT)
     async def system_shutdown() -> dict:
         """Exit the station SAFELY. Raises SIGINT to trigger the full lifespan shutdown —
         modules stop, the Python controller is gracefully stopped (every instrument driven

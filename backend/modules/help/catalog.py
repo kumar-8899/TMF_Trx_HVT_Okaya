@@ -114,6 +114,8 @@ PAGES: list[Page] = [
     Page("dev-config", "Config", "dev", "Contracts", "contracts/CONFIG.md"),
     Page("dev-instrument-library-contract", "Instrument library contract", "dev", "Contracts", "INSTRUMENT_LIBRARY.md"),
     Page("dev-report-store", "Report DB store", "dev", "Contracts", "REPORT_STORE.md"),
+    Page("dev-report-rows", "Report rows (PASS/FAIL/INFO)", "dev", "Contracts", "contracts/REPORT.md"),
+    Page("dev-calibration", "Calibration", "dev", "Contracts", "contracts/CALIBRATION.md"),
     Page("dev-frontend", "Frontend", "dev", "Contracts", "FRONTEND.md"),
     Page("dev-labview-bridge", "LabVIEW bridge", "dev", "Bus & LabVIEW", "LABVIEW_BRIDGE.md"),
     Page("dev-mqtt-messages", "MQTT message reference", "dev", "Bus & LabVIEW", "MQTT_MESSAGES.md"),

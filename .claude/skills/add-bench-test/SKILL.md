@@ -123,6 +123,23 @@ verified path is `run_sim`/MQTT; core-only recipes can already be authored in th
 
 ---
 
+## Layer 6 - Operator-facing documentation: the Test Sequence portal tab (once the tests exist)
+
+The framework ships the User Portal's **Test Sequence** tab as an empty shell (permission `PORTAL.SEQUENCE`,
+default admin) and does **not** generate it - what a technician reads about each step is authored per app.
+When the user asks you to "create the Test Sequence tab" (do not do it unprompted), follow
+`docs/contracts/PORTAL.md` -> "Test Sequence tab": read `recipes/*.json`, `specs/<test>.md` and
+`maps/<station>.json`; write a no-props view under `frontend/src/app/overrides/` and register it with
+`export default { key: "portal-test-sequence", component }` (never edit `screens/Portal.tsx`); show limits/units from
+the recipe at render time so they cannot go stale; add a vitest. Only app-owned paths change.
+
+**Related framework behaviour to use, not re-implement:** recipe-level `"stop_on_fail": true` (skip the rest after the
+first failing top-level step); `measure_and_compare` `retries`/`settle_s` for a flaky read; analog calibration is an
+operator overlay (Maintenance -> Calibration, `docs/contracts/CALIBRATION.md`) - never bake a drifted gain into the
+shipped map, and set `"calibratable": false` on a signal that must not appear there.
+
+---
+
 ## Order-of-operations checklist
 
 - [ ] Spec + limits pinned (from the product spec, not invented)

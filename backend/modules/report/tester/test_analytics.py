@@ -1,6 +1,6 @@
 """Unit tests for the analytics engine (pure functions over report dicts)."""
 
-from modules.report.analytics import build_dashboard
+from modules.report.analytics import build_dashboard, row_is_failure
 
 
 def _report(run_id, serial, model, result, started, finished, rows=None, operator=None):
@@ -90,3 +90,19 @@ def test_by_station_yield_and_filter():
     # a drifting socket is visible; the filter isolates it
     only = build_dashboard([a, b, c], station="st1")
     assert only["kpis"]["runs"] == 2 and only["filters"]["station"] == "st1"
+
+
+def test_info_rows_are_not_failures():
+    """D6: INFO rows (setup/actuation/waits, no limits) are context and never count in the
+    failure or parameter Pareto; PASS/FAIL are the measured results."""
+    assert row_is_failure("FAIL") and not row_is_failure("PASS")
+    assert not row_is_failure("INFO") and not row_is_failure("info")
+    assert row_is_failure(None)          # a blank/unknown result is NOT context — stays a failure
+    rpt = _report("r9", "SN9", "INV", "FAIL", DAY, DAY + 10, rows=[
+        {"test_name": "Relay K1", "result": "INFO"},
+        {"test_name": "Settle", "result": "INFO"},
+        {"test_name": "UVP", "result": "FAIL"},
+    ])
+    d = build_dashboard([rpt])
+    assert [p["name"] for p in d["failure_pareto"]] == ["UVP"]
+    assert [p["name"] for p in d["param_pareto"]] == ["UVP"]

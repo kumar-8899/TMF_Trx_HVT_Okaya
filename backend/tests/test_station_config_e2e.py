@@ -125,3 +125,52 @@ async def test_relaunch_stops_the_controller_before_exiting(config_dir, monkeypa
     # the controller is stopped BEFORE the process exit is scheduled (the trailing "stop" is
     # the lifespan teardown, which os._exit(42) would skip in a real relaunch).
     assert events[:2] == ["stop", "exit42"]
+
+
+async def test_exit_station_is_open_to_any_role_holding_system_exit(config_dir, monkeypatch):
+    """X5: an operator (SYSTEM.EXIT, no SYSTEM.SETTINGS) can exit the station; a role stripped of
+    SYSTEM.EXIT cannot; relaunch stays SYSTEM.SETTINGS-only. The real shutdown raises SIGINT, so the
+    signal + hard-exit watchdog are stubbed."""
+    import core.app as core_app
+    raised: list[str] = []
+    monkeypatch.setattr(core_app.signal, "raise_signal", lambda s: raised.append("sigint"))
+
+    class _NoTimer:
+        daemon = False
+
+        def __init__(self, *a, **k): pass
+        def start(self): pass
+    monkeypatch.setattr(core_app.threading, "Timer", _NoTimer)
+
+    app = _app(config_dir)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            admin = await _admin(c)
+            made = (await c.post("/auth/users", headers=admin, json={"username": "ollie", "role": "operator"})).json()
+            r = await c.post("/auth/login", json={"username": "ollie", "credential": {"password": made["temp_password"]}})
+            op = {"Authorization": f"Bearer {r.json()['token']}"}
+            assert "SYSTEM.EXIT" in r.json()["principal"]["permissions"]
+            assert "SYSTEM.SETTINGS" not in r.json()["principal"]["permissions"]
+            assert (await c.post("/system/shutdown", headers=op, json={})).status_code == 200
+            assert (await c.post("/system/relaunch", headers=op, json={})).status_code == 403   # still settings-only
+
+            # take SYSTEM.EXIT away from operator -> exit is refused for a fresh login
+            assert (await c.put("/auth/roles/operator", headers=admin,
+                                json={"permissions": ["TEST.RUN"]})).status_code == 200
+            r2 = await c.post("/auth/login", json={"username": "ollie", "credential": {"password": made["temp_password"]}})
+            op2 = {"Authorization": f"Bearer {r2.json()['token']}"}
+            assert (await c.post("/system/shutdown", headers=op2, json={})).status_code == 403
+
+
+async def test_odbc_drivers_endpoint_lists_installed_drivers_for_any_signed_in_role(config_dir, monkeypatch):
+    from core.services import dbconn
+    monkeypatch.setattr(dbconn, "odbc_drivers", lambda: ["ODBC Driver 18 for SQL Server", "SQL Server"])
+    app = _app(config_dir)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            assert (await c.get("/system/odbc-drivers")).status_code == 401          # signed-in only
+            r = await c.get("/system/odbc-drivers", headers=await _admin(c))
+            assert r.json() == {"drivers": ["ODBC Driver 18 for SQL Server", "SQL Server"],
+                                "default": "ODBC Driver 18 for SQL Server"}
+            monkeypatch.setattr(dbconn, "odbc_drivers", lambda: [])
+            assert (await c.get("/system/odbc-drivers", headers=await _admin(c))).json() == {"drivers": [], "default": None}

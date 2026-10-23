@@ -5,9 +5,9 @@ uses the bridge verbs, not these routes."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 
-from core.services.security import require_permission, require_role
+from core.services.security import current_principal, require_authenticated, require_permission, require_role
 from instrumentlib.errors import InstrumentError, NotConnected, NotSupported
 from modules.variables.engine import VariableError
 
@@ -15,6 +15,7 @@ _VIEW = [Depends(require_permission("CONFIG.VIEW"))]
 _WRITE = [Depends(require_permission("HEALTH.MAINTENANCE"))]
 _TESTBENCH = [Depends(require_role("super_admin"))]   # Test Bench manual command path
 _MAP_EDIT = [Depends(require_role("super_admin"))]    # variable-map authoring
+_CALIBRATE = Depends(require_permission("MAINTENANCE.CALIBRATE"))   # CALIBRATION.md
 
 
 async def _guard(coro):
@@ -57,7 +58,9 @@ def build_router(module) -> APIRouter:
     async def capabilities() -> dict:
         return module.capabilities()
 
-    @router.get("/variables/instances", dependencies=_VIEW)
+    # Connection STATUS only (id, library, capabilities, state, simulated - no params) is every
+    # signed-in role's to see, even with CONFIG.VIEW removed (X8); instrument CONFIG stays CONFIG.VIEW.
+    @router.get("/variables/instances", dependencies=[Depends(require_authenticated())])
     async def instances() -> list[dict]:
         await module.refresh_instance_status()
         return module.instance_status()
@@ -69,6 +72,70 @@ def build_router(module) -> APIRouter:
     @router.websocket("/instruments/values/ws")
     async def values_ws(websocket: WebSocket) -> None:
         await module.stream_values_ws(websocket)
+
+    # --- calibration (docs/contracts/CALIBRATION.md) -----------------------
+    # All gated MAINTENANCE.CALIBRATE (not HEALTH.MAINTENANCE: calibrating changes every later
+    # measurement, so it is a separate, auditable grant).
+
+    async def _cal(coro):
+        from core.services.calibration import CalibrationError
+        from modules.variables.calibration import CalibrationUnavailable
+        try:
+            return await coro
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"unknown signal {exc}") from exc
+        except CalibrationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except CalibrationUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except VariableError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except NotConnected as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except InstrumentError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @router.get("/calibration/signals")
+    async def cal_signals(station: str | None = None, _=_CALIBRATE) -> list[dict]:
+        from core.services.calibration import CalibrationError
+        try:
+            return module.calibration.list_signals(station)
+        except CalibrationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @router.post("/calibration/fit")
+    async def cal_fit(body: dict, _=_CALIBRATE) -> dict:
+        from core.services.calibration import CalibrationError, fit_linear
+        try:
+            return fit_linear((body or {}).get("points") or [])
+        except CalibrationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @router.post("/calibration/{name}/raw")
+    async def cal_raw(name: str, body: dict | None = None, _=_CALIBRATE) -> dict:
+        return await _cal(module.calibration.read_raw(name, (body or {}).get("station")))
+
+    @router.post("/calibration/{name}/drive")
+    async def cal_drive(name: str, body: dict, _=_CALIBRATE) -> dict:
+        if "raw" not in (body or {}):
+            raise HTTPException(status_code=422, detail="raw required")
+        try:
+            raw = float(body["raw"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="raw must be a number") from None
+        return await _cal(module.calibration.drive_raw(name, raw, body.get("station")))
+
+    @router.post("/calibration/{name}/apply")
+    async def cal_apply(name: str, body: dict, request: Request, _=_CALIBRATE) -> dict:
+        return await _cal(module.calibration.apply(
+            name, (body or {}).get("points") or [], (body or {}).get("station"),
+            current_principal(request).subject))
+
+    @router.delete("/calibration/{name}")
+    async def cal_reset(name: str, request: Request, station: str | None = None,
+                        _=_CALIBRATE) -> dict:
+        return await _cal(module.calibration.reset(
+            name, station, current_principal(request).subject))
 
     # --- variable-map editor (bindings) ------------------------------------
 

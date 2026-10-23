@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -199,6 +200,40 @@ def _mosquitto_exe() -> str | None:
     return None
 
 
+def stage_broker(exe: Path, dest_dir: Path, *, swap_unit: Path | None = None) -> Path:
+    """Run the vendored broker from OUTSIDE the swap unit (field defect D7).
+
+    A running exe (and the DLLs it loaded) holds its directory open, so a broker launched from
+    `run.dist/vendor/mosquitto/win64/` made the launcher's `run.dist -> backup` rename fail with
+    WinError 5/32 on every in-app update. Copy the broker folder (exe + DLLs + conf) to
+    `dest_dir` (`<deploy root>/data/broker/`, which a swap never touches) and run that copy.
+
+    A broker that is NOT inside `swap_unit` (PATH / system install) is returned unchanged. Files
+    are refreshed only when size/mtime differ; a copy that fails because an orphaned broker still
+    holds the staged exe keeps the existing staged copy (logged) instead of aborting the launch."""
+    exe = Path(exe)
+    swap_unit = Path(swap_unit) if swap_unit is not None else RUN_DIST
+    try:
+        exe.resolve().relative_to(swap_unit.resolve())
+    except ValueError:
+        return exe
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for src in exe.parent.iterdir():
+        if not src.is_file():
+            continue
+        dst = dest_dir / src.name
+        try:
+            if dst.is_file() and dst.stat().st_size == src.stat().st_size \
+                    and int(dst.stat().st_mtime) >= int(src.stat().st_mtime):
+                continue
+            shutil.copy2(src, dst)
+        except OSError as exc:
+            if not dst.is_file():
+                raise
+            _log(f"broker file {src.name} not refreshed ({exc}) - using the existing staged copy")
+    return dest_dir / exe.name
+
+
 def _broker_cmd(exe: str) -> list[str]:
     """Prefer a loopback conf: the one vendored beside the exe, else deploy/mosquitto.conf in a
     source checkout. Mosquitto 2.x with NO config refuses anonymous clients, so the conf is
@@ -235,6 +270,7 @@ class Station:
             _log("mosquitto not found (deploy/fetch-mosquitto.ps1 vendors it) - the app runs, but "
                  "MQTT features stay offline until a broker is on :1883")
             return
+        exe = str(stage_broker(Path(exe), ROOT / "data" / "broker"))   # never run from run.dist (D7)
         self.broker = subprocess.Popen(_broker_cmd(exe), cwd=str(ROOT))
         self._started_broker = True
         _log(f"broker started (pid={self.broker.pid})")

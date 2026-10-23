@@ -214,6 +214,23 @@ def _driver_metadata_packages(product: str) -> list[str]:
     return list(wanted)
 
 
+REPORT_DB_DRIVERS = ("pymysql", "pyodbc")     # MySQL, SQL Server (pyproject extra `report-db`)
+
+
+def report_db_drivers() -> list[str]:
+    """The report/MES DBAPI modules to force into the frozen exe. Raises SystemExit (fails the
+    release) when any is not installed on the build PC: install them with
+    `pip install -e backend[report-db]`."""
+    import importlib.util
+    missing = [m for m in REPORT_DB_DRIVERS if importlib.util.find_spec(m) is None]
+    if missing:
+        raise SystemExit(
+            f"BUILD FAILED: database driver(s) not installed on this build PC: {', '.join(missing)}.\n"
+            "  The report store and MES outbound talk to MySQL (PyMySQL) and SQL Server (pyodbc); a build "
+            "without them cannot reach the customer's database.\n  Fix: pip install -e backend[report-db]")
+    return list(REPORT_DB_DRIVERS)
+
+
 def build_backend(track: str = "framework", product: str = "super_test_app") -> None:
     """Freeze the backend with PyInstaller (onedir, flat layout) into DIST = OUT/"run.dist".
     PyInstaller ties --name to both the output folder AND the exe stem, so this always produces
@@ -270,6 +287,13 @@ def build_backend(track: str = "framework", product: str = "super_test_app") -> 
     # `run.exe --debug-server` (flight recorder, FRAMEWORK CR A2) is loaded by name from run.py's
     # dual entry, so static analysis would miss it; `tmf_debug` is the laptop CLI and not needed here.
     cmd.append("--collect-submodules=debug_server")
+    # Report / MES database drivers (docs/REPORT_STORE.md). SQLAlchemy imports the DBAPI by NAME at
+    # connect time (mssql+pyodbc: `__import__("pyodbc")`), which static analysis cannot see - the
+    # build PC can have pyodbc installed and the frozen exe still ships without it ("driver not
+    # installed: No module named 'pyodbc'" in the field, MySQL fine). Force them in, and FAIL the
+    # build when one is missing rather than ship a station that cannot reach its database.
+    for mod in report_db_drivers():
+        cmd.append(f"--hidden-import={mod}")
     env = None
     if track == "app":
         # The recipe module builds its catalog via `from controller.packages import …`
@@ -391,7 +415,77 @@ def copy_user_docs(repo: Path, dest: Path) -> None:
     print(f"docs: user manual + {n_img} shared image(s) -> run.dist/docs (developer docs NOT shipped)")
 
 
-def copy_docs_frontend_dll(skip_frontend: bool) -> None:
+# Everything the SPA is built FROM (frontend/dist is output and deliberately excluded). A fork's
+# screen overrides live in frontend/src/app/overrides/, so they are covered by `src`.
+_FE_INPUT_FILES = ("index.html", "package.json", "package-lock.json", "vite.config.ts",
+                   "tsconfig.json")
+_FE_INPUT_DIRS = ("src", "public")
+
+
+def frontend_src_hash() -> str:
+    """sha256 over every frontend INPUT (path + bytes, stable order). Stamped into the built SPA and
+    recomputed by the release gate (deploy/verify_frontend_stamp.py): a bundle built from older
+    sources than the tree being released is STALE and must not ship (field defect D10)."""
+    fe = REPO / "frontend"
+    h = hashlib.sha256()
+    files = [fe / f for f in _FE_INPUT_FILES if (fe / f).is_file()]
+    for d in _FE_INPUT_DIRS:
+        if (fe / d).is_dir():
+            files += [p for p in (fe / d).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    for p in sorted(files, key=lambda p: p.relative_to(fe).as_posix()):
+        h.update(p.relative_to(fe).as_posix().encode() + b"\0")
+        h.update(p.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def _git_sha() -> str:
+    try:
+        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True,
+                           text=True, timeout=20)
+        return r.stdout.strip() if r.returncode == 0 else "unknown"
+    except Exception:  # noqa: BLE001 - a build outside git still stamps, as "unknown"
+        return "unknown"
+
+
+def copy_step_type_schemas(product: str) -> int:
+    """Ship the step-type JSON schemas INSIDE run.dist, beside where the frozen handlers resolve
+    them. `--collect-submodules` bundles Python only; `registry._schema_for` reads
+    `schemas/<type>.json` (core) / `schema.json` (app steps) next to the handler, so without these
+    files the frozen `GET /recipes/step-types` returns `schema: null` and recipe validation is
+    silently skipped (field defect D13). Core schemas live at controller/step_types/schemas/, and
+    each app step package keeps its `*.json` at the same relative path under its package name."""
+    n = 0
+    core = REPO / "controller" / "controller" / "step_types" / "schemas"
+    if not core.is_dir() or not list(core.glob("*.json")):
+        raise SystemExit(f"BUILD FAILED: core step-type schemas not found at {core} - the frozen "
+                         "recipe catalog would ship with schema=null")
+    for src in core.glob("*.json"):
+        dest = DIST / "controller" / "step_types" / "schemas" / src.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        n += 1
+    app = REPO / "app" / product
+    ctrl = app / "controller.json"
+    pkgs: list[str] = []
+    if ctrl.is_file():
+        try:
+            pkgs = list(json.loads(ctrl.read_text(encoding="utf-8")).get("step_type_packages") or [])
+        except json.JSONDecodeError:
+            pkgs = []
+    for pkg in pkgs:
+        root = app / pkg
+        for src in (root.rglob("*.json") if root.is_dir() else []):
+            if "__pycache__" in src.parts:
+                continue
+            dest = DIST / pkg / src.relative_to(root)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            n += 1
+    print(f"step-type schemas: {n} file(s) -> run.dist (core + app packages)")
+    return n
+
+
+def copy_docs_frontend_dll(skip_frontend: bool, ui_version: str | None = None) -> None:
     # The SPA + in-app help ride INSIDE run.dist (the swap unit), so the published .zip is a
     # COMPLETE app (a client install has the UI) AND an in-app update refreshes the UI/help too —
     # a swap replaces run.dist wholesale. The fork's OWN `frontend/dist` (built here) already
@@ -400,9 +494,16 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
     # allowlist only — developer content never ships (copy_user_docs).
     copy_user_docs(REPO, DIST / "docs")
     if not skip_frontend:
+        # ALWAYS rebuild: trusting an existing frontend/dist shipped a stale UI whenever the tests
+        # step (the only other build) was skipped (D10). The stamp lets the release gate prove the
+        # bundle matches the sources, the app version and the commit being released.
         fe = REPO / "frontend" / "dist"
-        if not fe.exists():
-            _run(["npm", "run", "build"], cwd=REPO / "frontend")   # builds the fork's UI incl. overrides
+        _run(["npm", "run", "build"], cwd=REPO / "frontend")   # builds the fork's UI incl. overrides
+        (fe / "build-info.json").write_text(json.dumps({
+            "app_version": ui_version or _framework_version(),
+            "git_sha": _git_sha(),
+            "src_hash": frontend_src_hash(),
+        }, indent=2) + "\n", encoding="utf-8")
         shutil.copytree(fe, DIST / "frontend", dirs_exist_ok=True)
     # Windowed launcher SOURCE — the one `station.py` entrypoint, shipped to the deploy root (NOT
     # the swap unit; it launches run.dist) as the scripted fallback: `python station.py` beside
@@ -422,6 +523,30 @@ def copy_docs_frontend_dll(skip_frontend: bool) -> None:
             break
     else:
         print("WARNING: keystation_core.dll not found - ship it separately")
+
+
+def sign_release_binaries() -> list[Path]:
+    """OPTIONAL Authenticode signing of the executables that ship (D8): run.exe, the vendored
+    mosquitto.exe and run_station.exe. Smart App Control / SmartScreen block unsigned exes from an
+    unknown publisher. MUST run before manifest(): the manifest hashes run.dist and the .ksupdate
+    signs the zip, so signing afterwards would invalidate both. Delegates to
+    deploy/sign-binaries.ps1, which reads the certificate from the environment and is a loud no-op
+    ("UNSIGNED") when none is configured; a configured-but-failing signature fails the build."""
+    exe = "run.exe" if sys.platform == "win32" else "run"
+    candidates = [DIST / exe, DIST / "vendor" / "mosquitto" / "win64" / "mosquitto.exe",
+                  OUT / "run_station.exe"]
+    files = [p for p in candidates if p.is_file()]
+    script = REPO / "deploy" / "sign-binaries.ps1"
+    if sys.platform != "win32" or not script.is_file() or not files:
+        print("signing: skipped (not Windows / no script / nothing built)")
+        return []
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+           "-Paths", ",".join(str(p) for p in files)]
+    print("+", " ".join(cmd), flush=True)
+    r = subprocess.run(cmd, cwd=REPO)
+    if r.returncode != 0:
+        raise SystemExit(f"BUILD FAILED: code signing failed (exit {r.returncode}) - see the [sign] lines above")
+    return files
 
 
 def copy_vendor_broker() -> None:
@@ -910,18 +1035,20 @@ def main() -> int:
         # BEFORE spending time on data/payload/zip — fail fast on a mis-bundled toolchain.
         _verify_frozen_controller(args.product)
     copy_data()
-    copy_docs_frontend_dll(args.skip_frontend)
+    copy_docs_frontend_dll(args.skip_frontend, app_ver)
     run_station_ok: bool | None = None
     if args.track == "app":
         # A runnable app = the backend exe (which also runs the controller) + the app definition +
         # drivers, all inside run.dist so an update swap carries the whole thing (SECURE_DISTRIBUTION §5).
         copy_app_payload(args.product)
+        copy_step_type_schemas(args.product)
         promote_app_config(args.app_config, args.product)
         copy_vendor_broker()            # vendored Mosquitto INSIDE run.dist (no service, no admin)
         # FAIL-SOFT (see build_run_station_exe docstring): run.dist + the .zip/.ksupdate are still
         # produced below even if the frozen windowed launcher can't be built/verified here — only the
         # offline first-install setup.exe needs run_station.exe, not the in-app update path.
         run_station_ok = build_run_station_exe()  # BESIDE run.dist (no Python/pip on client)
+    sign_release_binaries()          # BEFORE manifest(): the manifest hashes + the zip must see signed bytes
     manifest(args.track, args.product, args.pinned_fw_version, app_ver)
     # RELEASE.json must ride INSIDE run.dist (the swap unit) so an applied update swaps the
     # version manifest too; app_version() reads run.dist/RELEASE.json first (core.__init__).

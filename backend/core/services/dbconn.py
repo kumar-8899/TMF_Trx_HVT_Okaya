@@ -35,6 +35,48 @@ def short_error(exc: BaseException, limit: int = 300) -> str:
     return (str(exc).strip().splitlines() or [exc.__class__.__name__])[0][:limit]
 
 
+# --- ODBC drivers (SQL Server) ----------------------------------------------------------------
+
+# Newest first. Anything not listed ranks below these but above nothing; "SQL Server" is the legacy
+# SQLSRV32 driver every Windows PC ships - the only one a fresh PC has, and the least capable.
+_ODBC_PREFERENCE = (
+    "ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "ODBC Driver 13.1 for SQL Server",
+    "ODBC Driver 13 for SQL Server", "ODBC Driver 11 for SQL Server", "SQL Server Native Client 11.0",
+    "SQL Server Native Client 10.0", "SQL Server",
+)
+
+
+def odbc_drivers() -> list[str]:
+    """SQL Server ODBC drivers installed on THIS PC, newest first (`pyodbc.drivers()`, filtered to
+    SQL Server ones). [] when pyodbc or ODBC is unavailable - the caller falls back to free text."""
+    try:
+        import pyodbc
+        installed = [d for d in pyodbc.drivers() if "sql server" in d.lower()]
+    except Exception:  # noqa: BLE001 - not Windows / driver manager missing / pyodbc not bundled
+        return []
+    rank = {name: i for i, name in enumerate(_ODBC_PREFERENCE)}
+    return sorted(installed, key=lambda d: (rank.get(d, len(rank)), d))
+
+
+def default_odbc_driver() -> str:
+    """The newest installed SQL Server driver, else the modern default (so a PC without any driver
+    reports a clear "data source name not found" naming it, not a silent legacy fallback)."""
+    return (odbc_drivers() or [_ODBC_PREFERENCE[0]])[0]
+
+
+def check_dbapi(provider: str) -> dict:
+    """Import the DBAPI module the dialect for `provider` will use, exactly as SQLAlchemy does -
+    including drivers it imports DYNAMICALLY (mssql+pyodbc does `__import__("pyodbc")`, which
+    PyInstaller cannot see). Run inside the BUILT exe by the release gate. -> {provider, ok, detail}."""
+    cfg = {"provider": provider, "host": "x", "user": "u", "password": "p", "database": "d",
+           "path": ":memory:"}
+    try:
+        mod = create_engine(build_url(cfg), future=True).dialect.import_dbapi()
+        return {"provider": provider, "ok": True, "detail": getattr(mod, "__name__", str(mod))}
+    except Exception as exc:  # noqa: BLE001 - ModuleNotFoundError is the case we exist to catch
+        return {"provider": provider, "ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+
 # --- URLs + engines ---------------------------------------------------------------------------
 
 def build_url(cfg: dict, database: str | None = None) -> URL:
@@ -45,7 +87,7 @@ def build_url(cfg: dict, database: str | None = None) -> URL:
         return URL.create("mysql+pymysql", username=user, password=pw, host=host,
                           port=int(cfg.get("port") or 3306), database=db or None)
     if p == "sqlserver":
-        q = {"driver": cfg.get("odbc_driver") or "ODBC Driver 18 for SQL Server",
+        q = {"driver": cfg.get("odbc_driver") or default_odbc_driver(),
              "TrustServerCertificate": "yes"}
         return URL.create("mssql+pyodbc", username=user, password=pw, host=host,
                           port=int(cfg.get("port") or 1433), database=db or "master", query=q)
@@ -54,9 +96,19 @@ def build_url(cfg: dict, database: str | None = None) -> URL:
     raise DbError(f"unknown DB provider '{p}'")
 
 
+def _dialect_kwargs(url: URL) -> dict[str, Any]:
+    """SQL Server (pyodbc): SQLAlchemy 2.x calls `cursor.setinputsizes()` for EVERY statement and
+    declares bound strings as unsized NVARCHAR(MAX) (precision 0). The legacy "SQL Server" ODBC driver
+    - the only one a fresh Windows PC has - has no MAX types and fails every bound statement with
+    `HY104 Invalid precision value (0) (SQLBindParameter)`; ODBC Driver 17/18 accept it. Turning
+    setinputsizes off (bind_typing NONE) works on both, at no cost for our plain-string/number binds."""
+    return {"use_setinputsizes": False} if url.get_backend_name() == "mssql" else {}
+
+
 def make_engine(cfg: dict, database: str | None = None, *, connect_timeout: float | None = None):
     url = build_url(cfg, database)
     kw: dict[str, Any] = {"pool_pre_ping": True, "future": True}
+    kw.update(_dialect_kwargs(url))
     if url.get_backend_name() == "sqlite":
         kw["connect_args"] = {"check_same_thread": False}
     else:
@@ -90,7 +142,8 @@ def ensure_database(cfg: dict, database: str | None = None) -> None:
         return
     if not valid_identifier(db):
         raise DbError(f"invalid database name '{db}' (letters, digits, underscore only)")
-    eng = create_engine(build_server_url(cfg), future=True, isolation_level="AUTOCOMMIT")
+    srv = build_server_url(cfg)
+    eng = create_engine(srv, future=True, isolation_level="AUTOCOMMIT", **_dialect_kwargs(srv))
     try:
         with eng.connect() as c:
             if p == "mysql":

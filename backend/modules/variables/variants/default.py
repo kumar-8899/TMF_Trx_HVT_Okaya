@@ -28,6 +28,7 @@ from core.paths import bundle_root
 from core.services.streaming import StreamHub
 from instrumentlib.registry import build_index
 from modules.variables.api import build_router
+from modules.variables.calibration import CalibrationService
 from modules.variables.engine import VariableEngine
 from modules.variables.instances import InstanceRegistry
 
@@ -62,6 +63,7 @@ class DefaultVariables:
         self._static_vars: dict = dict(config.get("variables", {}) or {})
         self._db_vars: set[tuple[str, str]] = set()   # (station, name)
         self._instance_stations: dict[str, list[str]] = {}   # id -> sockets (no-lease rule)
+        self.calibration = CalibrationService(self, data_dir=config.get("data_dir"))
         self.router = build_router(self)
         self._values_hub = StreamHub()            # value/{name} -> /instruments/values/ws
         self._values: dict[tuple, dict] = {}       # (station, name) -> latest frame (snapshot)
@@ -141,6 +143,8 @@ class DefaultVariables:
                              bridge=proxy_bridge, station=self._default_station)
         await self.instances.connect_all()
         await self._load_db_bindings()
+        self.calibration.load_overlays()    # CALIBRATION.md: overlay > map scale, both read paths
+        self._load_shipped_maps()           # D9: the app's shipped map is readable on a fresh install
         self._validate_no_lease()      # §9.3 shared-instrument rule, loud at startup
         b = self.core.bridge
         if b is not None:
@@ -237,6 +241,34 @@ class DefaultVariables:
             station = data.pop("station", None) or self._default_station
             self.engine.map_for(station)[name] = data
             self._db_vars.add((station, name))
+
+    def _load_shipped_maps(self) -> None:
+        """D9: make the signals the app SHIPS (app/<slug>/maps/<station>.json, recorded by the
+        controller supervisor in controller.maps/index.json) resolvable by the backend engine, as a
+        fallback below app.json variables and DB bindings. Without it a UI read of any shipped
+        signal raised `unknown variable` on a fresh install. Absent index (LabVIEW / unsupervised)
+        = nothing to load; an unreadable map is a loud warning, never fatal."""
+        import json
+
+        from core.services import calibration as cal
+        try:
+            index = cal.read_index(self.calibration.data_dir)
+        except Exception as exc:  # noqa: BLE001
+            self.core.diag.warning("variables", "shipped variable map index unreadable", error=str(exc))
+            return
+        for st, ent in index.items():
+            if st not in self._stations:
+                continue
+            try:
+                signals = json.loads(Path(ent["shipped"]).read_text(encoding="utf-8")).get("signals") or {}
+            except Exception as exc:  # noqa: BLE001
+                self.core.diag.warning("variables", "shipped variable map unreadable - its signals "
+                                       "are not readable from the UI", station=st,
+                                       path=ent.get("shipped"), error=str(exc))
+                continue
+            self.engine.set_shipped(st, signals)
+            self.core.diag.info("variables", "shipped variable map loaded", station=st,
+                                signals=len(signals))
 
     def _validate_no_lease(self) -> None:
         """§9.3: a shared instrument (>1 socket) may only be bound read-only. A write

@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 
 from sqlalchemy import (
-    and_, case, delete, distinct, func, insert, select, text, true,
+    Double, and_, case, delete, distinct, func, insert, inspect, select, text, true, update,
 )
 
 from core.services import dbconn
@@ -24,6 +24,45 @@ from modules.report import analytics as A
 from modules.report.store.schema import metadata, report, report_result
 
 _DETAIL_CAP = 50_000     # bounded header rows for FPY / cycle charts
+_MYSQL_DIALECTS = ("mysql", "mariadb")
+REPAIR_TOLERANCE_S = 5000.0     # a single-precision epoch is off by <= ~128 s; anything wider is not this bug
+
+
+def float_columns_to_widen(reflected: dict[str, list[dict]]) -> list[tuple[str, str]]:
+    """Pure: `(table, column)` pairs that our schema declares Double but the database reflects
+    as a 4-byte FLOAT. `reflected` is `{table: Inspector.get_columns(table)}`. Foreign columns
+    (not in our metadata) are never touched."""
+    out = []
+    for tname, cols in reflected.items():
+        mine = metadata.tables.get(tname)
+        if mine is None:
+            continue
+        for col in cols:
+            decl = mine.columns.get(col["name"])
+            if decl is not None and isinstance(decl.type, Double)                     and type(col["type"]).__name__.upper() == "FLOAT":
+                out.append((tname, col["name"]))
+    return out
+
+
+def widen_ddl(dialect, cols: list[tuple[str, str]]) -> list[str]:
+    q = dialect.identifier_preparer.quote_identifier
+    return [f"ALTER TABLE {q(t)} MODIFY COLUMN {q(c)} DOUBLE NULL" for t, c in cols]
+
+
+def _ensure_tables(conn, diag=None) -> list[str]:
+    """create_all + (MySQL/MariaDB only) widen any pre-fix FLOAT columns. Idempotent."""
+    metadata.create_all(conn)
+    if conn.dialect.name not in _MYSQL_DIALECTS:
+        return []
+    insp = inspect(conn)
+    reflected = {t: insp.get_columns(t) for t in metadata.tables if insp.has_table(t)}
+    todo = float_columns_to_widen(reflected)
+    for stmt in widen_ddl(conn.dialect, todo):
+        conn.execute(text(stmt))
+    if todo and diag is not None:
+        diag.warning("report", "report DB columns widened FLOAT -> DOUBLE (timestamp precision fix)",
+                     columns=[f"{t}.{c}" for t, c in todo])
+    return [f"{t}.{c}" for t, c in todo]
 
 
 # Connection plumbing (URLs, engines, create-database) is shared with other modules via core.
@@ -73,7 +112,7 @@ class ReportStore:
             try:
                 with eng.begin() as c:
                     c.execute(text("SELECT 1"))
-                    metadata.create_all(c)                # idempotent DDL
+                    _ensure_tables(c)                     # idempotent DDL (+ FLOAT -> DOUBLE widen)
                 return {"ok": True, "status": "pass", "detail": "connected; database + schema ready"}
             except ModuleNotFoundError as exc:            # DBAPI driver missing
                 return {"ok": False, "status": "error",
@@ -90,8 +129,64 @@ class ReportStore:
         def _c():
             _ensure_database(self._cfg)                   # create the DB if missing
             with self._engine.begin() as c:
-                metadata.create_all(c)
+                _ensure_tables(c, self.diag)
         await self._run(_c)
+
+    @property
+    def dialect(self) -> str:
+        return self._engine.dialect.name if self._engine is not None else ""
+
+    def widen_float_columns(self) -> list[str]:
+        """Public, synchronous: run just the FLOAT -> DOUBLE migration. No-op off MySQL/MariaDB."""
+        if not self.configured:
+            return []
+        with self._engine.begin() as c:
+            if c.dialect.name not in _MYSQL_DIALECTS:
+                return []
+            insp = inspect(c)
+            reflected = {t: insp.get_columns(t) for t in metadata.tables if insp.has_table(t)}
+            todo = float_columns_to_widen(reflected)
+            for stmt in widen_ddl(c.dialect, todo):
+                c.execute(text(stmt))
+        return [f"{t}.{col}" for t, col in todo]
+
+    async def repair_timestamps(self, truth: list[dict]) -> int:
+        """One-time repair of rows rounded by the old FLOAT columns. `truth` is the runs records
+        (`{run_id, started_ts, finished_ts}`, full precision). A stored value is replaced only when
+        it differs from the truth by <= REPAIR_TOLERANCE_S (the signature of single-precision
+        rounding); anything further off is a different problem and is left alone. Idempotent.
+        Returns the number of report rows updated."""
+        if not self.configured or not truth:
+            return 0
+        return await self._run(self._repair, truth)
+
+    def _repair(self, truth: list[dict]) -> int:
+        by_id = {t["run_id"]: t for t in truth if t.get("run_id")}
+        fix = []
+        with self._engine.connect() as c:
+            for r in c.execute(select(report.c.run_id, report.c.started_ts, report.c.finished_ts,
+                                      report.c.created_at)).mappings():
+                t = by_id.get(r["run_id"])
+                if t is None:
+                    continue
+                new = {}
+                for col, want in (("started_ts", t.get("started_ts")), ("finished_ts", t.get("finished_ts")),
+                                  ("created_at", t.get("finished_ts"))):
+                    have = r[col]
+                    if (have is not None and want is not None and have != want
+                            and abs(have - want) <= REPAIR_TOLERANCE_S):
+                        new[col] = float(want)
+                if new:
+                    fix.append({"rid": r["run_id"], **{f"n_{k}": v for k, v in new.items()},
+                                "_cols": tuple(new)})
+        n = 0
+        with self._engine.begin() as c:
+            for f in fix:
+                cols = f.pop("_cols")
+                c.execute(update(report).where(report.c.run_id == f["rid"])
+                          .values({k: f[f"n_{k}"] for k in cols}))
+                n += 1
+        return n
 
     # --- writes ------------------------------------------------------------
 
@@ -120,6 +215,20 @@ class ReportStore:
                     "result": _s(r.get("result")), "unit": _s(r.get("unit")),
                     "cycle_time_ms": _f(r.get("cycle_time_ms")),
                 } for i, r in enumerate(rows)])
+
+    async def purge(self) -> int:
+        """Delete EVERY report (header + result rows). Settings -> Reset data only. Returns the
+        number of reports removed; 0 when the store is not configured."""
+        if not self.configured:
+            return 0
+        return await self._run(self._purge)
+
+    def _purge(self) -> int:
+        with self._engine.begin() as c:
+            n = c.execute(select(func.count()).select_from(report)).scalar() or 0
+            c.execute(delete(report_result))          # children first: no reliance on FK cascade
+            c.execute(delete(report))
+        return int(n)
 
     # --- reads -------------------------------------------------------------
 
@@ -274,8 +383,11 @@ class ReportStore:
                 .where(report.c.station.isnot(None)).where(report.c.station != "")
                 .group_by(report.c.station)).all()]
 
-            # parameter Pareto: failing result rows grouped by test_name (indexed)
-            rr, fail = report_result, report_result.c.result.notlike("PASS%")
+            # parameter Pareto: failing result rows grouped by test_name (indexed). INFO rows
+            # are context (setup/actuation/waits/prompts), never counted as failures (D6).
+            rr = report_result
+            fail = and_(report_result.c.result.notlike("PASS%"),
+                        func.upper(report_result.c.result) != "INFO")
             pareto = [{"name": t or "(unnamed)", "count": int(n)} for t, n in c.execute(
                 select(rr.c.test_name, func.count()).select_from(rr.join(report, rr.c.run_id == report.c.run_id))
                 .where(and_(w, fail)).group_by(rr.c.test_name).order_by(func.count().desc()).limit(50)).all()]

@@ -20,6 +20,13 @@ import pytest
 import build_release as br
 
 
+@pytest.fixture(autouse=True)
+def _drivers_present(monkeypatch):
+    """build_backend now requires the report-db drivers on the build PC; most tests here are about
+    something else, so pretend they are installed (the dedicated tests below exercise the check)."""
+    monkeypatch.setattr(br, "report_db_drivers", lambda: list(br.REPORT_DB_DRIVERS))
+
+
 # --- _WEBVIEW_NOFOLLOW: win32 must stay includable ------------------------
 
 def test_webview_nofollow_excludes_only_genuinely_irrelevant_platforms():
@@ -467,3 +474,200 @@ def test_release_probes_example_matches_its_schema():
     schema = json.loads((root / "deploy" / "release-probes.schema.json").read_text(encoding="utf-8"))
     example = json.loads((root / "docs" / "templates" / "release-probes.example.json").read_text(encoding="utf-8"))
     Draft202012Validator(schema).validate(example)
+
+
+# --- D13: step-type schemas must ride in the frozen build -------------------------------------
+
+def test_copy_step_type_schemas_ships_core_and_app_schemas(monkeypatch, tmp_path):
+    """`--collect-submodules` bundles .py only; a step type resolves `schemas/<id>.json` / its
+    `schema.json` beside the handler, so without these copies the frozen catalog has schema=None
+    and recipe validation silently skips (field defect D13)."""
+    repo, dist = tmp_path / "repo", tmp_path / "dist"
+    core = repo / "controller" / "controller" / "step_types" / "schemas"
+    core.mkdir(parents=True)
+    (core / "wait.json").write_text("{}")
+    app = repo / "app" / "acme"
+    (app / "acme_steps" / "hipot").mkdir(parents=True)
+    (app / "acme_steps" / "hipot" / "schema.json").write_text("{}")
+    (app / "acme_steps" / "hipot" / "handler.py").write_text("# code")
+    (app / "controller.json").write_text(json.dumps({"step_type_packages": ["acme_steps"]}))
+    dist.mkdir()
+    monkeypatch.setattr(br, "REPO", repo)
+    monkeypatch.setattr(br, "DIST", dist)
+    n = br.copy_step_type_schemas("acme")
+    assert (dist / "controller" / "step_types" / "schemas" / "wait.json").is_file()
+    assert (dist / "acme_steps" / "hipot" / "schema.json").is_file()
+    assert not (dist / "acme_steps" / "hipot" / "handler.py").exists()     # code is in the exe
+    assert not (dist / "acme_steps" / "controller.json").exists()
+    assert n == 2
+
+
+def test_copy_step_type_schemas_fails_loudly_when_core_schemas_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(br, "REPO", tmp_path)
+    monkeypatch.setattr(br, "DIST", tmp_path / "dist")
+    with pytest.raises(SystemExit, match="step-type schemas"):
+        br.copy_step_type_schemas("acme")
+
+
+# --- D10: stale frontend must not ship --------------------------------------------------------
+
+def _fe(tmp_path):
+    fe = tmp_path / "frontend"
+    (fe / "src").mkdir(parents=True)
+    (fe / "src" / "a.tsx").write_text("one")
+    (fe / "package.json").write_text("{}")
+    (fe / "dist").mkdir()
+    (fe / "dist" / "index.html").write_text("STALE")
+    return fe
+
+
+def test_frontend_src_hash_tracks_sources_and_ignores_dist(monkeypatch, tmp_path):
+    fe = _fe(tmp_path)
+    monkeypatch.setattr(br, "REPO", tmp_path)
+    h1 = br.frontend_src_hash()
+    (fe / "dist" / "index.html").write_text("rebuilt")
+    assert br.frontend_src_hash() == h1                                     # dist output is not input
+    (fe / "src" / "a.tsx").write_text("two")
+    assert br.frontend_src_hash() != h1
+    h2 = br.frontend_src_hash()
+    (fe / "src" / "overrides").mkdir()
+    (fe / "src" / "overrides" / "Runs.tsx").write_text("fork screen")        # a fork override counts
+    assert br.frontend_src_hash() != h2
+
+
+def test_build_always_rebuilds_even_when_dist_exists_and_stamps_it(monkeypatch, tmp_path):
+    fe = _fe(tmp_path)
+    dist = tmp_path / "out" / "run.dist"
+    dist.mkdir(parents=True)
+    ran = []
+
+    def fake_run(cmd, cwd, env=None):
+        ran.append(cmd)
+        (fe / "dist" / "index.html").write_text("FRESH")
+
+    monkeypatch.setattr(br, "REPO", tmp_path)
+    monkeypatch.setattr(br, "DIST", dist)
+    monkeypatch.setattr(br, "_run", fake_run)
+    monkeypatch.setattr(br, "_git_sha", lambda: "abc1234")
+    monkeypatch.setattr(br, "copy_user_docs", lambda *a, **k: None)
+    monkeypatch.setattr(br, "OUT", tmp_path / "out")
+    monkeypatch.setattr(br, "BACKEND", tmp_path / "backend")
+    br.copy_docs_frontend_dll(skip_frontend=False, ui_version="2.3.4")
+    assert ran and ran[0][:3] == ["npm", "run", "build"]                    # stale dist was NOT trusted
+    assert (dist / "frontend" / "index.html").read_text() == "FRESH"
+    stamp = json.loads((dist / "frontend" / "build-info.json").read_text())
+    assert stamp["app_version"] == "2.3.4" and stamp["git_sha"] == "abc1234"
+    assert stamp["src_hash"] == br.frontend_src_hash()
+
+
+def test_verify_stamp_helper_catches_a_stale_bundle(monkeypatch, tmp_path):
+    import sys
+    sys.path.insert(0, str(br.REPO / "deploy"))
+    try:
+        import verify_frontend_stamp as v
+    finally:
+        sys.path.pop(0)
+    fe = _fe(tmp_path)
+    monkeypatch.setattr(br, "REPO", tmp_path)
+    (tmp_path / "app" / "acme").mkdir(parents=True)
+    (tmp_path / "app" / "acme" / "VERSION").write_text("2.3.4")
+    dist = tmp_path / "run.dist"
+    (dist / "frontend").mkdir(parents=True)
+    good = {"app_version": "2.3.4", "git_sha": "abc1234", "src_hash": br.frontend_src_hash()}
+    (dist / "frontend" / "build-info.json").write_text(json.dumps(good))
+    assert v.check(dist, "acme", repo=tmp_path, sha="abc1234") == []
+    (fe / "src" / "a.tsx").write_text("edited after the build")              # source moved on
+    errs = v.check(dist, "acme", repo=tmp_path, sha="abc1234")
+    assert any("stale" in e for e in errs)
+    errs = v.check(dist, "acme", repo=tmp_path, sha="deadbee")
+    assert any("git" in e for e in errs)
+    (dist / "frontend" / "build-info.json").unlink()
+    assert any("build-info.json" in e for e in v.check(dist, "acme", repo=tmp_path, sha="abc1234"))
+
+
+# --- D8: optional Authenticode signing, BEFORE the manifest hashes the files --------------------
+
+def test_sign_release_binaries_signs_what_exists_and_is_skipped_off_windows(monkeypatch, tmp_path):
+    repo, out = tmp_path / "repo", tmp_path / "out"
+    dist = out / "run.dist"
+    (repo / "deploy").mkdir(parents=True)
+    (repo / "deploy" / "sign-binaries.ps1").write_text("# stub")
+    (dist / "vendor" / "mosquitto" / "win64").mkdir(parents=True)
+    (dist / "run.exe").write_bytes(b"x")
+    (dist / "vendor" / "mosquitto" / "win64" / "mosquitto.exe").write_bytes(b"x")
+    # run_station.exe deliberately absent (fail-soft build) -> must be skipped, not an error
+    for name, val in (("REPO", repo), ("OUT", out), ("DIST", dist)):
+        monkeypatch.setattr(br, name, val)
+    calls = []
+    monkeypatch.setattr(br.subprocess, "run",
+                        lambda cmd, **k: calls.append(cmd) or type("R", (), {"returncode": 0})())
+    monkeypatch.setattr(br.sys, "platform", "win32")
+    files = br.sign_release_binaries()
+    assert [p.name for p in files] == ["run.exe", "mosquitto.exe"]
+    paths = calls[0][calls[0].index("-Paths") + 1]
+    assert "run.exe" in paths and "mosquitto.exe" in paths and "run_station.exe" not in paths
+    monkeypatch.setattr(br.sys, "platform", "linux")
+    assert br.sign_release_binaries() == [] and len(calls) == 1
+
+
+def test_a_configured_signature_that_fails_fails_the_build(monkeypatch, tmp_path):
+    repo, out = tmp_path / "repo", tmp_path / "out"
+    (repo / "deploy").mkdir(parents=True)
+    (repo / "deploy" / "sign-binaries.ps1").write_text("# stub")
+    (out / "run.dist").mkdir(parents=True)
+    (out / "run.dist" / "run.exe").write_bytes(b"x")
+    for name, val in (("REPO", repo), ("OUT", out), ("DIST", out / "run.dist")):
+        monkeypatch.setattr(br, name, val)
+    monkeypatch.setattr(br.sys, "platform", "win32")
+    monkeypatch.setattr(br.subprocess, "run", lambda cmd, **k: type("R", (), {"returncode": 1})())
+    with pytest.raises(SystemExit, match="code signing failed"):
+        br.sign_release_binaries()
+
+
+def test_main_signs_before_the_manifest_hashes_the_tree():
+    src = (br.BACKEND / "build_release.py").read_text(encoding="utf-8")
+    body = src[src.index("def main()"):]
+    assert body.index("sign_release_binaries()") < body.index("RELEASE.json must ride")   # manifest() sits between
+
+
+# --- report/MES database drivers must be in the frozen exe (Okaya C8) -----------------------------
+
+def test_report_db_drivers_fails_the_build_when_one_is_missing(monkeypatch):
+    import importlib.util as iu
+    real = iu.find_spec
+    monkeypatch.undo()                      # drop the autouse stub: test the real function
+    monkeypatch.setattr(iu, "find_spec", lambda n, *a, **k: None if n == "pyodbc" else real(n, *a, **k))
+    with pytest.raises(SystemExit) as ei:
+        br.report_db_drivers()
+    msg = str(ei.value)
+    assert "pyodbc" in msg and "report-db" in msg and "BUILD FAILED" in msg
+
+
+def test_report_db_drivers_returns_both_when_installed(monkeypatch):
+    import importlib.util as iu
+    monkeypatch.undo()
+    monkeypatch.setattr(iu, "find_spec", lambda n, *a, **k: object())
+    assert br.report_db_drivers() == ["pymysql", "pyodbc"]
+
+
+def test_build_backend_forces_both_db_drivers_in_as_hidden_imports(monkeypatch, tmp_path):
+    """SQLAlchemy imports mssql's pyodbc dynamically - invisible to PyInstaller - so it must be named."""
+    seen = {}
+    monkeypatch.setattr(br, "OUT", tmp_path / "out")
+    monkeypatch.setattr(br, "DIST", tmp_path / "out" / "run.dist")
+    monkeypatch.setattr(br, "BACKEND", tmp_path / "backend")
+    (tmp_path / "backend").mkdir()
+
+    def fake_run(cmd, cwd, env=None):
+        seen["cmd"] = cmd
+        (tmp_path / "out" / "run").mkdir(parents=True)
+    monkeypatch.setattr(br, "_run", fake_run)
+    br.build_backend("framework")
+    assert "--hidden-import=pyodbc" in seen["cmd"] and "--hidden-import=pymysql" in seen["cmd"]
+
+
+def test_gate_runs_the_driver_check_inside_the_built_exe():
+    """run.exe --check-db-drivers is the entry the release gate calls; verify-build.ps1 must call it."""
+    run_py = (br.BACKEND / "run.py").read_text(encoding="utf-8")
+    gate = (br.REPO / "deploy" / "verify-build.ps1").read_text(encoding="utf-8")
+    assert "--check-db-drivers" in run_py and "--check-db-drivers" in gate

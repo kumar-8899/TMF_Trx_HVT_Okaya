@@ -3,11 +3,27 @@
  * password convention ("•••••• (unchanged)", blank = keep) live in one place. The parent owns the
  * state, the Test/Save buttons and the API calls. */
 import { MenuItem, Stack, TextField } from "@mui/material";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+
+import { api } from "../api/client";
 
 export interface ServerConn {
   provider?: string; host?: string; port?: number | string; database?: string;
   user?: string; odbc_driver?: string; has_password?: boolean;
+}
+
+/** SQL Server ODBC drivers installed on THIS PC, newest first (GET /system/odbc-drivers). `null` =
+ * not known yet or unavailable (non-Windows, no pyodbc) -> the field stays free text. */
+function useOdbcDrivers(enabled: boolean): string[] | null {
+  const [drivers, setDrivers] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!enabled || drivers !== null) return;
+    api.get("/system/odbc-drivers")
+      .then((r) => setDrivers(Array.isArray(r?.drivers) && r.drivers.length ? r.drivers : null))
+      .catch(() => setDrivers(null));
+  }, [enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  return drivers;
 }
 
 export const PORTS: Record<string, number> = { mysql: 3306, sqlserver: 1433 };
@@ -28,6 +44,7 @@ interface Props {
 export function DbServerForm({ value, onChange, password, onPassword, showDatabase = false,
                                providerExtra, disabled }: Props) {
   const isSql = value.provider === "sqlserver";
+  const odbcDrivers = useOdbcDrivers(isSql);
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
@@ -63,10 +80,21 @@ export function DbServerForm({ value, onChange, password, onPassword, showDataba
             <TextField label="Password" type="password" value={password} sx={{ width: 200 }} disabled={disabled}
               placeholder={value.has_password ? "•••••• (unchanged)" : ""}
               onChange={(e) => onPassword(e.target.value)} />
-            {isSql && (
+            {isSql && (odbcDrivers ? (
+              // The drivers this PC actually has; blank = the newest one (also what the backend picks).
+              <TextField select label="ODBC driver" value={value.odbc_driver ?? ""} sx={{ width: 300 }} disabled={disabled}
+                onChange={(e) => onChange({ odbc_driver: e.target.value })} inputProps={{ "aria-label": "ODBC driver" }}
+                helperText="Installed on this PC">
+                <MenuItem value=""><em>Newest installed ({odbcDrivers[0]})</em></MenuItem>
+                {value.odbc_driver && !odbcDrivers.includes(value.odbc_driver) && (
+                  <MenuItem value={value.odbc_driver}>{value.odbc_driver} (not installed here)</MenuItem>
+                )}
+                {odbcDrivers.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+              </TextField>
+            ) : (
               <TextField label="ODBC driver" value={value.odbc_driver ?? ""} sx={{ width: 260 }} disabled={disabled}
                 placeholder="ODBC Driver 18 for SQL Server" onChange={(e) => onChange({ odbc_driver: e.target.value })} />
-            )}
+            ))}
           </Stack>
         </>
       )}

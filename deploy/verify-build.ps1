@@ -84,6 +84,24 @@ if ($probes -and $probes.forbid_in_dist_root -and -not $SourceMode) {
   }
 }
 
+# 1d. database drivers (Okaya C8): SQLAlchemy imports the DBAPI by NAME at connect time (mssql+pyodbc does
+#     __import__("pyodbc")), which PyInstaller cannot see - a build can ship without pyodbc while MySQL works,
+#     and the field shows "driver not installed: No module named 'pyodbc'". Import every provider's driver the
+#     way SQLAlchemy does, INSIDE the built exe (run.exe --check-db-drivers).
+if (-not $SourceMode) {
+  $dbOut = Join-Path ([IO.Path]::GetTempPath()) ("tmf-dbdrv-" + [guid]::NewGuid().ToString("N").Substring(0, 8) + ".txt")
+  $dbProc = Start-Process -FilePath $exe -ArgumentList "--check-db-drivers" -WorkingDirectory $distPath `
+              -WindowStyle Hidden -PassThru -Wait -RedirectStandardOutput $dbOut -RedirectStandardError "$dbOut.err"
+  $dbLines = @(Get-Content $dbOut -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\{' })
+  if ($dbLines.Count -eq 0) { Fail "db driver check printed nothing (exit $($dbProc.ExitCode)); stderr: $((Get-Content "$dbOut.err" -ErrorAction SilentlyContinue | Select-Object -First 3) -join ' ')" }
+  foreach ($l in $dbLines) {
+    $r = $l | ConvertFrom-Json
+    if ($r.ok) { Pass "db driver importable in the built exe: $($r.provider) ($($r.detail))" }
+    else { Fail "db driver NOT importable in the built exe: $($r.provider) - $($r.detail) (add --hidden-import / install backend[report-db] on the build PC)" }
+  }
+  Remove-Item $dbOut, "$dbOut.err" -ErrorAction SilentlyContinue
+}
+
 # 2. first-boot start on a private port with an empty state dir
 $state = Join-Path ([IO.Path]::GetTempPath()) ("tmf-verify-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $state | Out-Null
@@ -123,6 +141,38 @@ try {
         elseif ($m) { Fail "module '$id' is $($m.status): $($m.reason)" }
         else { Fail "module '$id' is in the shipped app config but not registered/discovered" }
       }
+    }
+
+    # 3b. framework probes (every app, no probes file needed)
+    #  - D13: every step type in the BUILT exe must carry its JSON schema. `--collect-submodules`
+    #    bundles Python only; a missing schemas/*.json makes /recipes/step-types return schema=null
+    #    and recipe validation silently skips - invisible in source mode.
+    #  - D10: the SPA the exe serves must be the one built from THIS tree (sources + version + commit).
+    $fwToken = $null
+    try {
+      $fwLogin = Invoke-RestMethod "$base/auth/login" -Method Post -ContentType "application/json" `
+        -Body '{"username":"admin","credential":{"password":"admin"}}' -TimeoutSec 10
+      $fwToken = $fwLogin.token
+      if (-not $fwToken) { $fwToken = $fwLogin.access_token }
+    } catch { Fail "framework probes: login as the seeded admin failed: $($_.Exception.Message)" }
+    if ($fwToken) {
+      $stModule = $null
+      if ($st) { $stModule = $st.modules | Where-Object { $_.id -eq "recipe" } }
+      if ($stModule -and $stModule.status -eq "loaded") {
+        try {
+          $types = Invoke-RestMethod "$base/recipes/step-types" -Headers @{ Authorization = "Bearer $fwToken" } -TimeoutSec 15
+          $noSchema = @($types | Where-Object { -not $_.schema } | ForEach-Object { $_.type_id })
+          if (@($types).Count -eq 0) { Fail "step-type catalog is empty in the built exe" }
+          elseif ($noSchema.Count -gt 0) { Fail "step type(s) with NO schema in the built exe (schemas not bundled): $($noSchema -join ', ')" }
+          else { Pass "step-type schemas present: $(@($types).Count) type(s)" }
+        } catch { Fail "step-type catalog probe: $($_.Exception.Message)" }
+      } else { Write-Host "  note: recipe module not loaded - step-type schema probe skipped" -ForegroundColor Yellow }
+    }
+    if (-not $SourceMode) {
+      $stampOut = & python (Join-Path $PSScriptRoot "verify_frontend_stamp.py") $distPath $Slug --url $base 2>&1
+      foreach ($l in $stampOut) { Write-Host "  $l" }
+      if ($LASTEXITCODE -ne 0) { Fail "UI bundle check failed (stale or unstamped frontend - see lines above)" }
+      else { Pass "UI bundle is current (sources + version + commit)" }
     }
 
     # 4. app probes against the live API

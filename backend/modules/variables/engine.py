@@ -11,6 +11,7 @@ clamp (silent, logged) → inverse scale → capability call.
 
 from __future__ import annotations
 
+from core.services.calibration import overlay_calibration
 from instrumentlib.errors import InstrumentError
 
 
@@ -24,6 +25,13 @@ class VariableEngine:
         self.maps: dict[str, dict] = maps or {}
         self.diag = diag
         self.default_station = default_station
+        # Per-station calibration overlays (CALIBRATION.md): overlay > map scale, applied at
+        # read/write time through the SAME rules as the supervisor's baked controller map.
+        self.overlays: dict[str, dict] = {}
+        # Signals the APP ships in app/<slug>/maps/<station>.json (D9): a read-only fallback below
+        # app.json + DB bindings. Kept apart from `maps` so a shipped signal whose instrument is
+        # not configured yet never blocks /readyz (unbound()) - it just fails loudly when read.
+        self.shipped: dict[str, dict] = {}
 
     # ---- station resolution ----------------------------------------------
 
@@ -33,15 +41,36 @@ class VariableEngine:
     def map_for(self, station: str | None) -> dict:
         return self.maps.setdefault(self._station(station), {})
 
+    def set_shipped(self, station: str | None, signals: dict | None) -> None:
+        self.shipped[self._station(station)] = signals or {}
+
+    def set_overlay(self, station: str | None, overlay: dict | None) -> None:
+        self.overlays[self._station(station)] = overlay or {}
+
+    def _scale_for(self, name: str, v: dict, station: str | None) -> tuple[float, float]:
+        ov = self.overlays.get(self._station(station))
+        if ov and name in (ov.get("signals") or {}):
+            v = overlay_calibration({name: v}, ov)[name]
+        return _scale(v)
+
     # ---- introspection ----------------------------------------------------
 
     def list(self, station: str | None = None) -> list[dict]:
         out = []
-        for name, v in self.map_for(station).items():
+        own = self.map_for(station)
+        for name, v in own.items():
             out.append({
                 "name": name, "instance": v["instance"], "units": v.get("units"),
                 "readable": bool(v.get("read")), "writable": bool(v.get("write")),
                 "bound": self.instances.has(v["instance"]),
+            })
+        for name, v in self.shipped.get(self._station(station), {}).items():
+            if name in own or not v.get("instance"):
+                continue
+            out.append({
+                "name": name, "instance": v["instance"], "units": v.get("units"),
+                "readable": bool(v.get("read")), "writable": bool(v.get("write")),
+                "bound": self.instances.has(v["instance"]), "source": "shipped",
             })
         return sorted(out, key=lambda x: x["name"])
 
@@ -62,6 +91,8 @@ class VariableEngine:
     def _var(self, name: str, station: str | None) -> dict:
         v = self.map_for(station).get(name)
         if v is None:
+            v = self.shipped.get(self._station(station), {}).get(name)
+        if v is None:
             raise VariableError(f"unknown variable '{name}' on station '{self._station(station)}'",
                                 method="read")
         return v
@@ -72,7 +103,7 @@ class VariableEngine:
             raise VariableError(f"variable '{name}' is not readable", method="read")
         inst = self.instances.require(v["instance"])
         raw = await inst.invoke(v["read"], *(v.get("args") or []))
-        gain, offset = _scale(v)
+        gain, offset = self._scale_for(name, v, station)
         return {"name": name, "value": raw * gain + offset, "raw": raw, "units": v.get("units")}
 
     async def write(self, name: str, value: float, station: str | None = None) -> dict:
@@ -83,7 +114,7 @@ class VariableEngine:
         if was_clamped:
             self.diag.warning("variables", "value clamped", name=name, station=self._station(station),
                               requested=value, written=clamped, **_clamp_bounds(v))
-        gain, offset = _scale(v)
+        gain, offset = self._scale_for(name, v, station)
         scaled = (clamped - offset) / gain if gain else clamped
         inst = self.instances.require(v["instance"])
         await inst.invoke(v["write"], *(v.get("args") or []), scaled)

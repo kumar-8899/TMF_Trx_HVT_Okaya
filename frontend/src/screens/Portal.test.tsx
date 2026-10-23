@@ -3,10 +3,12 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api/client";
+import { APP_SCREENS } from "../app/registry";
 import { helpLink } from "../components/help/Markdown";
 import { Portal } from "./Portal";
 
-vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ can: () => true }) }));
+const perms = vi.hoisted(() => ({ denied: new Set<string>() }));
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ can: (p: string) => !perms.denied.has(p) }) }));
 
 const TREE = [
   { section: "Getting started", audience: "user", pages: [{ id: "user-getting-started", title: "Getting started", route: "/", audience: "user" }] },
@@ -34,7 +36,7 @@ function mockApi() {
   });
 }
 const SLOW = { timeout: 15000 };
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); perms.denied.clear(); delete APP_SCREENS["portal-test-sequence"]; });
 
 describe("Portal", () => {
   it("opens on the Manual tab, user pages only (no Developer toggle even for a developer)", async () => {
@@ -69,5 +71,29 @@ describe("Portal", () => {
   it("helpLink builds both portal and full-help URLs", () => {
     expect(helpLink("/help", "user-x", "top")).toBe("/help?page=user-x#top");
     expect(helpLink("/portal?tab=manual", "user-x")).toBe("/portal?tab=manual&page=user-x");
+  });
+  it("Test Sequence tab: shown to PORTAL.SEQUENCE holders with the framework placeholder", async () => {
+    mockApi();
+    renderAt("/portal");
+    await screen.findByRole("heading", { name: "Getting started" }, SLOW);
+    fireEvent.click(screen.getByRole("tab", { name: "Test Sequence" }));
+    expect(await screen.findByText(/has not published a test-sequence view yet/)).toBeInTheDocument();
+    expect(screen.getByTestId("where")).toHaveTextContent("/portal?tab=sequence");
+  });
+
+  it("Test Sequence tab: hidden without PORTAL.SEQUENCE, and ?tab=sequence falls back to Manual", async () => {
+    perms.denied.add("PORTAL.SEQUENCE");
+    mockApi();
+    renderAt("/portal?tab=sequence");
+    expect(await screen.findByRole("heading", { name: "Getting started" }, SLOW)).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Test Sequence" })).not.toBeInTheDocument();
+  });
+
+  it("a fork's 'portal-test-sequence' override replaces the placeholder", async () => {
+    APP_SCREENS["portal-test-sequence"] = () => <div>Step 1: Hipot — 1500 V for 60 s</div>;
+    mockApi();
+    renderAt("/portal?tab=sequence");
+    expect(await screen.findByText(/Step 1: Hipot/, undefined, SLOW)).toBeInTheDocument();
+    expect(screen.queryByText(/has not published/)).not.toBeInTheDocument();
   });
 });
