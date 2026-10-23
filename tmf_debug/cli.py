@@ -9,6 +9,7 @@
     tmf-debug why    --host bench1 --last-run                      (PR-G)
     tmf-debug instrument --host bench1 [--id psu1]                  passive instrument history
     tmf-debug export [out.zip] [--state-dir <deploy root>]          (air-gapped bench: one zip)
+    tmf-debug analyze <bundle.zip>                                  (read that zip back: analysis.md + analysis.json)
 
 Everything lands in `.debug/` at the app-repo root (gitignored). The app CLAUDE.md
 documents this so Claude Code always knows where to look.
@@ -137,6 +138,19 @@ def cmd_instrument(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """analyse an offline bundle zip -> .debug/<name>-<stamp>/analysis.md + analysis.json (+ digest.json)."""
+    from tmf_debug.bundle import BundleError, analyze
+    try:
+        a = analyze(args.zip, args.out, name=args.name)
+    except BundleError as exc:
+        print(f"analyze: {exc}", file=sys.stderr)
+        return 2
+    print("\n".join(a["look_here_first"]) or "nothing alarming found")
+    print(f"\nanalysis: {a['paths']['analysis_md']}\nfolder:   {a['paths']['folder']}")
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     """Offline export of a bench's diagnostics into ONE zip, for a PC with no network path to a laptop.
 
@@ -218,6 +232,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--id", default=None, help="one instrument instance id (default: all)")
     sp.add_argument("--limit", type=int, default=20000)
     sp.set_defaults(func=cmd_instrument)
+
+    sp = sub.add_parser("analyze", help="analyse an offline bundle zip -> analysis.md + analysis.json")
+    sp.add_argument("zip", help="the bundle (from `run.exe --debug-export` or the Debug Tool's Collect)")
+    sp.add_argument("--out", default=str(OUT_DIR), help="output root (default .debug)")
+    sp.add_argument("--name", default=None, help="label for the output folder (default: the zip name)")
+    sp.set_defaults(func=cmd_analyze)
 
     sp = sub.add_parser("export", help="pack a bench's diagnostics (recorder + logs + config) into one zip")
     sp.add_argument("out", nargs="?", default=None, help="output zip")

@@ -456,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     ctx = Ctx(repo=Path(args.repo))
     checks = run_checks(ctx)
     if args.fix:
-        done = apply_fixes(checks, ctx, say=(lambda s: print(s, file=sys.stderr)) if args.json else print)
+        apply_fixes(checks, ctx, say=(lambda s: print(s, file=sys.stderr)) if args.json else print)
         checks = run_checks(ctx)                       # report the state AFTER the fixes
     if args.json:
         print(json.dumps({"ok": not any(not c.ok and c.severity == "error" for c in checks),
