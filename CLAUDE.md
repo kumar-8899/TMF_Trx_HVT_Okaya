@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Testbench** — a high-voltage transformer test bench built by forking the `Super_Test_App`
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
-version is `app/okaya_hvt/VERSION` (`1.0.10` when last released), independent of the framework's
+version is `app/okaya_hvt/VERSION` (`1.0.11` when last released), independent of the framework's
 version (`backend/pyproject.toml`; merged through `v1.31.1`). Releases are cut with
 `deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
 repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
@@ -105,7 +105,10 @@ instruments, the variable map, or step types here.
   emits no row). The detail page's Duplicate opens the editor as a *new* recipe needing its own ID.
 - **Local framework patches (NOT yet upstream)** — this fork deliberately carries edits to
   framework-owned files; expect merge conflicts there on the next framework tag and offer each
-  upstream. ONE remains: `controller/controller/config.py` + `__main__.py`
+  upstream. TWO remain: (1) `backend/build_release.py` `_run()` resolves the executable with
+  `shutil.which` — a bare `npm` is `npm.cmd` on Windows and CreateProcess cannot find it, which aborted every
+  release once v1.31.0 made the frontend rebuild unconditional (still in upstream v1.31.1; take theirs if fixed).
+  (2) `controller/controller/config.py` + `__main__.py`
   (`instrument_call_timeout_s`, default 70 s — the StationVariables `ctx.invoke` timeout; upstream
   still hardcodes 10 s, which raced a 10 s hipot `test_time` on a cold start). `stop_on_fail`
   (`sequencer.py`), `recipe_id` validation (`recipe/variants/filesystem.py`) and the two deploy-script

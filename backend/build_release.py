@@ -88,7 +88,11 @@ DATA_PATTERNS = (
 
 def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
     print("+", " ".join(str(c) for c in cmd), flush=True)
-    subprocess.run(cmd, cwd=cwd, check=True, env=env)
+    # Resolve the executable like a shell would: on Windows `npm` is `npm.cmd`, which CreateProcess
+    # does not find by its bare name (no shell here) -> FileNotFoundError, once the frontend rebuild
+    # became unconditional (v1.31.0 D10). `which` returns the full path (or None: keep the name).
+    resolved = shutil.which(str(cmd[0]))
+    subprocess.run([resolved, *cmd[1:]] if resolved else cmd, cwd=cwd, check=True, env=env)
 
 
 def _app_build_env(product: str) -> dict:
