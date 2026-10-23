@@ -63,16 +63,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
     of = operator_file(data_dir)
     of.write_text(json.dumps({"host": args.bind, "port": args.port, "key": rt.operator_key, "pid": os.getpid()}), encoding="utf-8")
     print(f"data:  {data_dir}")
-    print(f"serve: http://{args.bind}:{args.port}   (sharing is OFF until the operator turns it on:  tmf-debug-tool share)")
+    url = f"http://{args.bind}:{args.port}/"
+    print(f"serve: {url}   (sharing is OFF until the operator turns it on)")
     server = uvicorn.Server(uvicorn.Config(app, host=args.bind, port=args.port, log_level="warning"))
-
-    async def main() -> None:
-        await server.serve()
-
     if sys.platform == "win32":                                    # aiomqtt needs the selector loop
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:
-        asyncio.run(main())
+        if args.no_window:
+            server.run()
+        else:
+            from debug_tool.window import run_with_window
+            run_with_window(server, url, browser_only=args.browser)
     finally:
         of.unlink(missing_ok=True)
     return 0
@@ -213,6 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, default=DEFAULT_PORT)
     sp.add_argument("--mode", choices=("own", "attach"), default=None, help="recorder mode (default: auto - attach if the in-app recorder is running)")
     sp.add_argument("--approval-timeout", type=float, default=120.0, help="seconds an action waits for a human before it is denied")
+    sp.add_argument("--no-window", action="store_true", help="headless: no window (use the operator commands or open the URL yourself)")
+    sp.add_argument("--browser", action="store_true", help="open the default browser instead of a native window")
     sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("share", help="operator: turn sharing ON and print the command for the developer")

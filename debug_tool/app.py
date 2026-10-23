@@ -210,4 +210,90 @@ def build_app(rt: Runtime, *, bind_host: str = "127.0.0.1", port: int = 8010, he
         recent = engine.ingestor.ring.query(limit=max(1, min(n, 500))) if engine.ingestor else []
         return {"live": engine.health()["live"], "events": [normalise(r) for r in recent]}
 
+    # -- the operator's own actions: the person at the PC is the human in the loop, so these need no approval card ------------
+    @app.post("/operator/collect", dependencies=op)
+    async def operator_collect(body: dict | None = None) -> dict:
+        body = body or {}
+        desktop = Path.home() / "Desktop"
+        try:
+            res = await engine.export_bundle(rows=max(100, min(int(body.get("rows", 5000)), 50_000)),
+                                             integrity=bool(body.get("integrity", True)),
+                                             out_dir=desktop if desktop.is_dir() else engine.cfg.data_dir / "bundles", register=False)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        log.write(event="operator_collect", file=res["path"], by=getpass.getuser())
+        return res
+
+    @app.get("/operator/scripts", dependencies=op)
+    def scripts_history() -> dict:
+        return {"busy": engine.scripts.busy, "history": engine.scripts.history(50)}
+
+    @app.post("/operator/scripts/run", dependencies=op)
+    async def scripts_run(body: dict) -> dict:
+        from debug_tool.scripts import ScriptBusy, ScriptError
+        from debug_tool.pyenv import PythonUnavailable
+        if engine.run_active() and not body.get("allow_during_run"):
+            raise HTTPException(409, "a test run is in progress - tick 'allow during a test' if this script cannot disturb it")
+        try:
+            res = await engine.scripts.run(str(body.get("interpreter", "")), str(body.get("script", "")),
+                                           timeout_s=body.get("timeout_s"), args=body.get("args"), approved_by=getpass.getuser())
+        except ScriptBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (ScriptError, PythonUnavailable) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        log.write(event="operator_script", sha256=res["sha256"], interpreter=res["interpreter"], exit_code=res["exit_code"],
+                  by=getpass.getuser())
+        return res
+
+    @app.get("/operator/python", dependencies=op)
+    async def python_status() -> dict:
+        import asyncio
+        return await asyncio.to_thread(engine.pyenv.status)
+
+    @app.post("/operator/python/extract", dependencies=op)
+    async def python_extract() -> dict:
+        import asyncio
+        from debug_tool.pyenv import PythonUnavailable
+        try:
+            return {"resolved": await asyncio.to_thread(engine.pyenv.resolve), "status": await asyncio.to_thread(engine.pyenv.status)}
+        except PythonUnavailable as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/operator/analyze", dependencies=op)
+    async def analyze_path(body: dict) -> dict:
+        import asyncio
+        from tmf_debug.bundle import BundleError
+        try:
+            return await asyncio.to_thread(engine.analyze_bundle, str(body.get("path", "")).strip().strip('"'))
+        except BundleError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/operator/analyze-upload", dependencies=op)
+    async def analyze_upload(request: Request, name: str = "bundle") -> dict:
+        import asyncio
+        from tmf_debug.bundle import BundleError
+        raw = await request.body()
+        if not raw:
+            raise HTTPException(400, "empty upload")
+        up = engine.cfg.data_dir / "uploads"
+        up.mkdir(parents=True, exist_ok=True)
+        dest = up / f"{_NAME_OK.sub('-', name.lower()).strip('-') or 'bundle'}-{secrets.token_hex(3)}.zip"
+        dest.write_bytes(raw)
+        try:
+            return await asyncio.to_thread(engine.analyze_bundle, dest)
+        except BundleError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    # -- the operator's page ------------------------------------------------------------------------------------------------
+    ui_file = Path(__file__).resolve().parent / "ui" / "index.html"
+
+    @app.get("/", include_in_schema=False)
+    def operator_ui(request: Request):
+        from fastapi.responses import HTMLResponse
+        host = request.client.host if request.client else ""
+        if host not in local:
+            raise HTTPException(403, "the operator page opens only on the client PC itself")
+        html = ui_file.read_text(encoding="utf-8").replace("__OPERATOR_KEY__", rt.operator_key).replace("__VERSION__", VERSION)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
     return app

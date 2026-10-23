@@ -383,19 +383,32 @@ class Engine:
     def capture_export(self, cid: str) -> str | None:
         return self.ingestor.export_jsonl(cid)
 
-    async def export_bundle(self, *, rows: int = 5000, integrity: bool = True) -> dict:
-        """Build the offline diagnostics bundle (the same zip as `run.exe --debug-export`) into the tool's own folder and
-        register it for download. Runs in a thread: it shells out to PowerShell/netstat and hashes the install."""
+    async def export_bundle(self, *, rows: int = 5000, integrity: bool = True, out_dir: Path | None = None,
+                            register: bool = True) -> dict:
+        """Build the offline diagnostics bundle (the same zip as `run.exe --debug-export`) into the tool's own folder (or
+        `out_dir`) and, for a remote request, register it for download. Runs in a thread: it shells out to PowerShell/netstat
+        and hashes the install."""
         from debug_server.export import export_bundle as _export
-        out_dir = self.cfg.data_dir / "bundles"
+        out_dir = Path(out_dir) if out_dir else self.cfg.data_dir / "bundles"
         name = f"tmf-debug-{time.strftime('%Y%m%d-%H%M%S')}.zip"
         out = out_dir / name
         if not self.app.found:
             raise RuntimeError("no app install found - nothing to export (pass --state-dir)")
+        out_dir.mkdir(parents=True, exist_ok=True)
         manifest = await asyncio.to_thread(_export, out, state_root=self.app.state_root, rows=rows,
                                            bundle_root_override=self.app.bundle_root, integrity=integrity)
-        import secrets
-        did = secrets.token_hex(8)
-        self.downloads[did] = out
-        return {"download_id": did, "file": name, "bytes": out.stat().st_size, "path": str(out),
-                "files": len(manifest["files"]), "missing": manifest["missing"], "download_url": f"/files/{did}"}
+        res = {"file": name, "bytes": out.stat().st_size, "path": str(out), "files": len(manifest["files"]),
+               "missing": manifest["missing"]}
+        if register:
+            import secrets
+            did = secrets.token_hex(8)
+            self.downloads[did] = out
+            res.update(download_id=did, download_url=f"/files/{did}")
+        return res
+
+    def analyze_bundle(self, zip_path: Path | str, *, name: str | None = None) -> dict:
+        """Read a bundle zip back (the same analyser `tmf-debug-tool analyze` uses) into the tool's own `analyses/` folder."""
+        from tmf_debug.bundle import analyze
+        a = analyze(Path(zip_path), self.cfg.data_dir / "analyses", name=name)
+        a["markdown"] = Path(a["paths"]["analysis_md"]).read_text(encoding="utf-8", errors="replace")
+        return a

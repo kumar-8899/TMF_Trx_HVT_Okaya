@@ -82,7 +82,7 @@ def test_serve_and_the_operator_commands_end_to_end(tmp_path):
     port = free_port()
     data = tmp_path / "tooldata"
     p = subprocess.Popen([sys.executable, "-m", "debug_tool", "serve", "--state-dir", str(app.state_root), "--port", str(port),
-                          "--data-dir", str(data), "--approval-timeout", "20"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                          "--data-dir", str(data), "--approval-timeout", "20", "--no-window"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         wait_http(f"http://127.0.0.1:{port}/healthz")
         assert (data / "operator.json").is_file()
@@ -112,7 +112,7 @@ def test_operator_command_without_a_running_tool_says_so(tmp_path):
 
 def test_serve_refuses_to_listen_on_all_interfaces(tmp_path):
     app = make_app(tmp_path)
-    r = run_cli("serve", "--bind", "0.0.0.0", "--state-dir", str(app.state_root), "--data-dir", str(tmp_path / "d"))
+    r = run_cli("serve", "--bind", "0.0.0.0", "--no-window", "--state-dir", str(app.state_root), "--data-dir", str(tmp_path / "d"))
     assert r.returncode != 0 and "specific address" in (r.stderr + r.stdout)
 
 
