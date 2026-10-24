@@ -25,8 +25,8 @@ in **air-gapped** mode you make a kit, the engineer runs it, and you analyse the
 
 ## Connected mode
 
-Prerequisites: the engineer started `tmf-debug-tool` on the bench PC and turned **Sharing ON**; the user ran the `claude mcp add --transport http …` command the
-tool shows (or `.mcp.json` + the env var). `X-Core-Token` (a core login) is only needed for `bench_level_get/set` and instrument probes.
+Prerequisites: the engineer started `tmf-debug-tool` on the bench PC and turned **Sharing ON**; the user ran `& $TOOL connect` (it verifies the bench, then registers it) or the `claude mcp add --transport http …` command the
+tool shows (or `.mcp.json` + the env var). The operator must have chosen the app folder in the tool first (it is idle until then). `X-Core-Token` (a core login) is only needed for `bench_level_get/set` and instrument probes.
 
 1. `bench_health` - app/framework version, `mode`, `live` sources (MQTT/DB/launcher), recorder drops, the **compat** verdict. If `live.mqtt` is `disconnected` say so: you are
    reading history, not the running app.

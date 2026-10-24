@@ -167,7 +167,7 @@ When a bench misbehaves on a client PC, use the **TMF Debug Tool** (`docs/DEBUG_
 1. **Get the tool once.** It is a signed release of the framework owner's **private** tool repo (its source is not in the framework or your fork, and you never build it):
    `python tools/debug_tool_delivery.py fetch --slug <your-app>` (needs `gh` access to that repo) caches it in `tools/debug-tool/` (gitignored);
    `python tools/debug_tool_delivery.py exe --slug <your-app>` prints the path to `tmf-debug-tool.exe`. `app/<slug>/debug-tool.json` records how this app delivers it (`on-demand` by default; `new-test-app` writes it).
-2. **Connected** — the engineer starts the tool on the bench PC and turns **Sharing ON**; they read you the `claude mcp add …` command (or you use the committed `.mcp.json`,
+2. **Connected** — the engineer starts the tool on the bench PC, chooses the app folder once, and turns **Sharing ON**; they read you the `claude mcp add …` command. Run `tmf-debug-tool.exe connect` and paste it: it verifies the bench and registers it with Claude Code for you (or you use the committed `.mcp.json`,
    which holds only `${TMF_DEBUG_TOKEN}` references — never a token). Then ask Claude Code to use the skill **`debug-client-bench`**. Everything that only *reads* just works;
    anything that changes or runs something on the PC waits for the engineer's **Approve** click, so say what you are about to request before you ask.
 3. **No connection** — ask the engineer to click **Collect** (or give them the collect kit: `tmf-debug-tool.exe kit collect`) and send you the one zip; then

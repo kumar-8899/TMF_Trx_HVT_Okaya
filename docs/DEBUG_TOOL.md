@@ -22,14 +22,12 @@ DEV LAPTOP  Claude Code ── remote MCP (HTTP + bearer token) ──> http://<
 
 ## 1. Quick start
 
-**Operator (client PC)** — double-click `tmf-debug-tool.exe` (or `tmf-debug-tool.exe serve --state-dir "<folder that contains run.dist>"`).
+**Operator (client PC)** — double-click `tmf-debug-tool.exe`. **First time only: choose the app.** The tool never guesses which app to debug: on the *Status* tab pick the folder where the app is installed (the one that contains `run.dist`; *Browse…* opens a folder dialog), press *Check* to see what it found, then *Use this folder*. The choice is saved and reused on every later start; *Change app folder…* (disabled while sharing is on) picks another. Until a folder is chosen the tool is idle and sharing is refused. Headless: `tmf-debug-tool.exe select-app <folder>`.
 *Share* tab → **Turn sharing ON** (1–24 h, default 4 h) → give the developer the command shown (the token appears **once** and is not stored).
 Keep the window open; decisions are on the *Approvals* tab. **Closing the window stops everything.** Headless/RDP-less: `serve --no-window`,
 then `tmf-debug-tool share | approvals | approve <id> | deny <id> | stop` from a second terminal.
 
-**Developer (laptop)** — run the command the operator gives you (`claude mcp add --transport http <name> http://<host>:8010/mcp --header "Authorization: Bearer …"`),
-or commit the `.mcp.json` snippet the Share page shows (it uses `${TMF_DEBUG_TOKEN}` / `${TMF_CORE_TOKEN}`; **never commit a token**). Then use the
-skill `debug-client-bench`. `X-Core-Token` (a core login) is needed only for log levels and instrument probes.
+**Developer (laptop)** — the easy way: `tmf-debug-tool connect`. Paste the operator's `claude mcp add ...` line (or just the token) at the hidden prompt. It verifies the bench (reachable? sharing on? token right?), says what it found or exactly what is wrong, and registers it with Claude Code (scope `local`, not committed). The token is never printed or put in shell history. When the session is over: `tmf-debug-tool disconnect <name>`. The manual way still works: run the operator's command yourself, or commit the `.mcp.json` snippet the Share page shows (env references only; **never commit a token**). Then use the skill `debug-client-bench`. `X-Core-Token` (a core login) is needed only for log levels and instrument probes.
 
 **No connection** — `Collect` tab (or `collect.ps1` from `tmf-debug-tool kit collect`) → one zip → `tmf-debug-tool analyze <zip>`.
 
@@ -115,6 +113,8 @@ Allowed: `identify` and the methods the app's own `GET /variables/capabilities` 
 ## 8. CLI
 
 ```
+select-app <folder>     (choose + save the app folder; switches a running tool live; refused while sharing is on)
+connect [--url U] [--name N] [--scope local|project|user] [--yes] [--check-only] [--print-only] | disconnect <name>     (DEVELOPER machine)
 serve [--state-dir D] [--bind ADDR] [--port 8010] [--mode own|attach] [--approval-timeout 120] [--no-window | --browser]
 share [--hours 4] [--name N] | stop | approvals | approve <id> [--allow-during-run] | deny <id>
 collect [out.zip|folder] [--state-dir D] [--rows 5000] [--no-integrity]
