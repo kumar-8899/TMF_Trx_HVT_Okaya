@@ -1,0 +1,14 @@
+{
+  "schema": "tmf-debug-tool/compat/1",
+  "tool_version": "1.0.0",
+  "framework": {
+    "min": "1.0.0",
+    "max_tested": "1.32.0"
+  },
+  "notes": [
+    "The tool reads the app's files (config/app.json, data/tmf.sqlite, data/launcher.log, data/debug/, run.dist/RELEASE.json) and its MQTT topics; it never imports the app.",
+    "A framework version newer than max_tested is still served: unknown fields are ignored and missing data degrades to fewer features, never to wrong data.",
+    "Builds older than 1.30 have no in-app flight recorder; the tool records from MQTT itself (own mode).",
+    "Builds older than 1.32 export bundles without system/*, install/integrity or instrument events; the collect kit fills the system facts in itself."
+  ]
+}

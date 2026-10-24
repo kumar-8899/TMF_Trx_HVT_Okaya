@@ -32,6 +32,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Report downstream edits to framework-owned files (informational)
+        shell: bash
+        continue-on-error: true
+        run: |
+          git remote add upstream "${{ vars.FRAMEWORK_REMOTE }}" 2>/dev/null || true
+          git fetch upstream --tags
+          python tools/fork_check.py || echo "::warning::framework-owned files differ from the base tag - the merge below may conflict (see fork_check output)"
+
       - name: Merge the newest same-MAJOR framework tag
         id: merge
         shell: bash

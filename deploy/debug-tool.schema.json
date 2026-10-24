@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf/debug-tool.schema.json",
+  "title": "app/<slug>/debug-tool.json - how the TMF Debug Tool reaches this app's client PCs (docs/DEBUG_TOOL.md)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["delivery"],
+  "properties": {
+    "delivery": {
+      "enum": ["bundle", "on-demand", "none"],
+      "description": "bundle: the pinned tool zip is copied into the delivery folder and the installer offers an optional, unticked task that installs it beside the app (outside run.dist). on-demand: nothing is shipped; the engineer carries the tool when a session is needed. none: this customer does not use it."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.([0-9]+|x))?(\\.([0-9]+|x))?$",
+      "description": "Pinned Debug Tool release: 1.x (newest 1.*), 1.2.x (newest 1.2.*) or 1.2.3 (exact). Required for delivery=bundle."
+    },
+    "note": {"type": "string", "description": "Free text for the handover checklist (e.g. the customer's consent reference)."}
+  },
+  "if": {"properties": {"delivery": {"const": "bundle"}}},
+  "then": {"required": ["version"]}
+}

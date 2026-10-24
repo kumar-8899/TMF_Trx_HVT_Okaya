@@ -10,6 +10,12 @@ this packs everything a developer needs into ONE file that can be carried out on
     config/app.json                 live app config, secrets redacted
     config/controller.generated.json  exactly what the supervised controller was started with
     environment.json                versions, OS, Python, frozen/source, paths, free disk, TMF_* env
+    logs/instrument_events.jsonl    the instrument diag events (commands/failures/link states) from the recorder
+    system/processes.json           relevant processes with PID + command line (v1.32.0)
+    system/ports.json               who listens on :8000/:1883/:8001/:8010/:5173
+    system/odbc.json                installed SQL Server ODBC drivers
+    system/health.json              what the running app answers on loopback (/healthz, /readyz, /modules/status)
+    install/integrity.json          every file of the installed build vs the hashes in RELEASE.json
     MANIFEST.json                   what was packed, sizes, and what was missing (never silently empty)
 
 Standard library only: it runs inside the frozen `run.exe` (`run.exe --debug-export [out.zip]`) as well as
@@ -87,12 +93,35 @@ def _environment(state: Path, bundle: Path | None) -> dict:
     return env
 
 
-def export_bundle(out: Path | str, *, state_root: Path | None = None, rows: int = _DEFAULT_ROWS) -> dict:
+def _instrument_events(dbg: Path, limit: int = 20000) -> list[str]:
+    """Instrument diag lines from the recorder files (rolling .jsonl / rotated .jsonl.gz), newest `limit` kept.
+    Cheap pre-filter on the text, then a real parse so a line that merely MENTIONS "instrument" is not included."""
+    import gzip
+    keep: list[str] = []
+    for f in sorted(p for p in dbg.rglob("*") if p.is_file() and (p.suffix == ".jsonl" or p.name.endswith(".jsonl.gz"))):
+        try:
+            fh = gzip.open(f, "rt", encoding="utf-8", errors="replace") if f.suffix == ".gz" else f.open("r", encoding="utf-8", errors="replace")
+            with fh:
+                for line in fh:
+                    if '"instrument"' not in line:
+                        continue
+                    try:
+                        if json.loads(line).get("subsystem") == "instrument":
+                            keep.append(line.rstrip("\n"))
+                    except ValueError:
+                        continue
+        except OSError:
+            continue
+    return keep[-limit:]
+
+
+def export_bundle(out: Path | str, *, state_root: Path | None = None, rows: int = _DEFAULT_ROWS,
+                  bundle_root_override: Path | None = None, integrity: bool = True) -> dict:
     """Write the zip to `out` and return its MANIFEST (also stored inside)."""
     from core.paths import bundle_root, state_root as _state_root
     state = Path(state_root) if state_root else _state_root()
     try:
-        bundle = bundle_root()
+        bundle = Path(bundle_root_override) if bundle_root_override else bundle_root()
     except Exception:  # noqa: BLE001
         bundle = None
     out = Path(out)
@@ -156,6 +185,20 @@ def export_bundle(out: Path | str, *, state_root: Path | None = None, rows: int 
             manifest["missing"].append(f"config/controller.generated.json ({gen} not found)")
 
         add_text("environment.json", json.dumps(_environment(state, bundle), indent=2))
+
+        # v1.32.0: what engineers used to be asked to run by hand (all read-only, none can fail the export)
+        from debug_server import sysinfo
+        if dbg.is_dir():
+            ev = _instrument_events(dbg)
+            if ev:
+                add_text("logs/instrument_events.jsonl", "\n".join(ev) + "\n")
+        procs = sysinfo.processes()
+        add_text("system/processes.json", json.dumps(procs, indent=2))
+        add_text("system/ports.json", json.dumps(sysinfo.ports(procs), indent=2))
+        add_text("system/odbc.json", json.dumps(sysinfo.odbc_drivers(), indent=2))
+        add_text("system/health.json", json.dumps(sysinfo.app_health(), indent=2))
+        add_text("install/integrity.json", json.dumps(
+            sysinfo.integrity(bundle) if integrity else {"status": "skipped", "note": "--no-integrity"}, indent=2))
         manifest["created"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         z.writestr("MANIFEST.json", json.dumps(manifest, indent=2))
     return manifest
@@ -167,9 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("out", nargs="?", help="output zip (default: tmf-debug-<host>-<timestamp>.zip in the cwd)")
     ap.add_argument("--state-dir", default=None, help="deploy/state root (default: TMF_STATE_DIR or backend/)")
     ap.add_argument("--rows", type=int, default=_DEFAULT_ROWS, help="max log rows per table")
+    ap.add_argument("--no-integrity", action="store_true", help="skip the install-integrity hash check (large installs on slow disks)")
     args = ap.parse_args(argv)
     out = Path(args.out or f"tmf-debug-{platform.node() or 'station'}-{time.strftime('%Y%m%d-%H%M%S')}.zip")
-    m = export_bundle(out, state_root=Path(args.state_dir) if args.state_dir else None, rows=args.rows)
+    m = export_bundle(out, state_root=Path(args.state_dir) if args.state_dir else None, rows=args.rows,
+                      integrity=not args.no_integrity)
     total = sum(f["bytes"] for f in m["files"])
     print(f"export: {len(m['files'])} file(s), {total / 1024:.0f} KB -> {out.resolve()}")
     for miss in m["missing"]:

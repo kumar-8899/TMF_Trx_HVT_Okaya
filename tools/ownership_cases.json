@@ -1,0 +1,24 @@
+{
+  "framework_modules": ["auth", "recipe", "runs"],
+  "cases": [
+    ["app/acme_eol/recipes/main.json", "app"],
+    ["instrument_libs/power/tenma.py", "app"],
+    ["frontend/src/app/overrides/runs.tsx", "app"],
+    ["labview/App/x.vi", "app"],
+    ["backend/config/app.json", "app"],
+    ["backend/modules/acme_eol/api.py", "app"],
+    ["backend/modules/recipe/api.py", "framework"],
+    ["backend/core/app.py", "framework"],
+    ["frontend/src/screens/Runs.tsx", "framework"],
+    ["controller/controller/serve.py", "framework"],
+    ["backend\\core\\app.py", "framework"],
+    ["./app/acme/VERSION", "app"],
+    [".github/workflows/release.yml", "app"],
+    ["CLAUDE.md", "app"],
+    ["docs/framework-cr/CR-1.md", "app"],
+    ["docs/TEMPLATE.md", "framework"],
+    ["debug_tool/server.py", "framework"],
+    ["app/acme/debug-tool.json", "app"],
+    ["deploy/cut-release.ps1", "framework"]
+  ]
+}

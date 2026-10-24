@@ -7,5 +7,9 @@
 # Vite frontend (:5173) with HMR, then opens the app in a native window. All the logic lives
 # in station.py (the single run entrypoint, source + frozen) — this file just forwards to it.
 $ErrorActionPreference = "Stop"
-python (Join-Path $PSScriptRoot "station.py") --dev @args
+# Prefer THIS repo's virtualenv when it has one (several forks on one PC share the global Python, and `pip install -e`
+# then points core/controller at whichever fork installed last - `python tools\doctor.py` reports that).
+$venvPy = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+$py = if (Test-Path $venvPy) { $venvPy } else { "python" }
+& $py (Join-Path $PSScriptRoot "station.py") --dev @args
 exit $LASTEXITCODE

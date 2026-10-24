@@ -5,6 +5,74 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.32.0 — 2026-10-24
+
+**Developer experience: setup, staying mergeable, and the TMF Debug Tool (MINOR).** Motivated by the Okaya/HVT work: forks lost time
+to a shared Python pointing at the wrong fork, stray processes on `:8000/:1883/:8001`, LF→CRLF churn, hand-patched framework files, a
+ten-step manual upgrade, and bench failures that could only be diagnosed by asking an engineer to run commands by hand.
+
+**Setup & environment**
+- `python tools/doctor.py [--json] [--fix]` — checks Python/venv, that the editable installs (`core`, `controller`, `instrumentlib`,
+  `tmf_debug`) resolve under THIS repo, extras, Node, Mosquitto, ports 8000/1883/8001/8010/5173 (and who holds them), `FRAMEWORK_REMOTE` /
+  `TMF_INSTRUMENT_LIBRARY`, live-config drift, the `upstream` remote and base tag, `.gitattributes`/CRLF drift, ODBC drivers, the app's
+  Debug Tool pin. `--fix` does only safe, reversible things (never kills processes, never edits global env vars, never re-points the
+  global interpreter). The scaffolding skills run it last; `add-bench-test` runs it first.
+- `.gitattributes` stores LF (files already committed as CRLF are listed `-text`, so introducing it produced no renormalisation diff).
+  `dev.ps1` / `station.py --dev` prefer `<repo>/.venv`.
+
+**Staying mergeable**
+- One machine-readable ownership rule set (`tools/ownership.py`, shared by the Developer Hub widget, doctor, fork_check and upgrade; a shared
+  fixture is tested in Python and vitest).
+- `tools/fork_check.py` lists framework-owned files a fork edited since its base tag (exit 1); the fork CI template (`docs/templates/ci.yml`,
+  written by `tools/new_app.py`) and `upstream-sync.yml` run it, so a fork learns on the PR, not at the next merge.
+- `tools/upgrade.py --to vX.Y.Z` + skill `upgrade-framework` replace the manual `TEMPLATE.md` §3 steps: preflight, merge (stops on conflicts with
+  their ownership class), reinstall, `config_doctor --apply`, tests, then "What's new for you" (CHANGELOG sections, `contract_version`
+  changes, overrides whose framework screen changed, a newer Debug Tool release). Never pushes; a MAJOR jump needs `--major`.
+- Skill `framework-change-request` + `docs/templates/framework-cr.md`: a framework fix is written up as `docs/framework-cr/CR-<n>.md` with a
+  `.diff` and a failing-then-passing test, never patched in the fork.
+
+**Offline diagnostics (Export v2) and the bundle analyser**
+- `run.exe --debug-export` / `tmf-debug export` now also collect `system/{processes,ports,odbc,health}.json`, `install/integrity.json` (every
+  `run.dist` file vs the `RELEASE.json` hashes) and `logs/instrument_events.jsonl` (stdlib-only, read-only on the station).
+- The zip is read back: `tmf-debug analyze <zip>` (`tmf_debug.bundle`) → `analysis.md` + `analysis.json` + `digest.json` (first fault, errors, instrument
+  table, port/process/driver/integrity findings, `MANIFEST.missing` as warnings, script output, "look here first").
+- `tmf_debug.api` (run selection + `why`, shared with the tool) and `tmf_debug.instrument` / `tmf-debug instrument` (passive instrument history: state
+  timeline, failures, latency percentiles — sends nothing to any instrument).
+
+**TMF Debug Tool 1.0.0** (`debug_tool/`, own release line `debug-tool-v<ver>`, `docs/DEBUG_TOOL.md`) — a SEPARATE installable program for a client PC,
+never in `run.dist` and never part of the app release gate:
+- **Connected mode**: hosts the MCP server (`/mcp`, token-protected, streamable HTTP) so Claude Code connects as a remote MCP server; reads the running
+  app live — MQTT for **every** station, the station DB (`error_log`/`action_log`, `mode=ro`), `launcher.log`, the recorder; bounded `bench_follow`.
+  Attach mode when the in-app recorder is running (one writer in `data/debug/`).
+- **A human approves every action**: sharing is off by default with an expiry and a Stop button; every script / instrument probe / file read /
+  log-level change / capture / export blocks until a person at the PC clicks Approve on the exact request (no standing approvals; no answer = denied;
+  the MCP token can never approve its own request). Bench text is labelled untrusted; results are size-capped.
+- **Scripts**: powershell / cmd / python, unelevated, scrubbed environment, one at a time, ≤ 300 s, output capped, process tree killed, refused during a
+  test run unless the approver allows it, every script saved with its SHA-256. A PC with no Python runs Python scripts on the bundled python.org
+  embeddable package (offline wheelhouse incl. the `tmf_support` wheel with `core.services.dbconn`).
+- **Instrument probes**: read-only (`identify` + methods the app's own capability catalog marks `read`), relayed through the running app's Test Bench
+  endpoint with the caller's core token — no new roles or permissions; refused during a run.
+- **Air-gapped mode**: one-click Collect, `collect.ps1` kit (fills in `system/*` for older builds), script kit (tamper check, timeout kill), `analyze`,
+  stdio MCP for kits + analysis.
+- **Operator UI** (Status / Share / Approvals / Live / Collect / Scripts / Analyze / Python) in a native window; closing it stops everything.
+- `tmf-debug-tool selftest` drives the whole tool against a fake install (the release gate for the frozen build and a readiness check for a client PC).
+  Packaging: `deploy/build-debug-tool.ps1` (PyInstaller onedir, optional signing) + `deploy/verify-debug-tool.ps1`; `COMPAT.json` states the
+  framework range it was tested with (a newer app is served, never refused, and says so). Delivery: `app/<slug>/debug-tool.json`
+  (`bundle` / `on-demand` / `none`; `new_app.py` writes `on-demand`), `tools/debug_tool_delivery.py`, `cut-release.ps1` step 7b and an optional,
+  UNTICKED installer task installing to `{app}\tools\debug-tool` outside `run.dist`. Skill `debug-client-bench`; in-app help page "Support session".
+
+**Verified here**: all unit/integration suites; the frozen exe passes its own selftest on this PC (including a script on the bundled interpreter,
+built from a stand-in embeddable package); the operator UI was driven in a browser against a live broker and a real MCP client.
+**NOT verified** (Stage 1 pilot required before `delivery: bundle` is offered to any customer): a real client PC behind a customer firewall,
+antivirus / Smart App Control behaviour on a customer machine (the build here is unsigned), the genuine python.org embeddable package and the
+driver wheelhouse (needs internet: build with `-FetchEmbed` and pin `-EmbedSha256`), real instrument hardware, Inno Setup compilation of the
+new optional task, and customer IT acceptance.
+**Fork files to take as-is**: everything under `debug_tool/`, `tools/` (doctor, ownership, fork_check, upgrade, debug_tool_*), `deploy/`
+(build/verify-debug-tool, `cut-release.ps1`, `build-installer.ps1`, `installer.iss.template`, `debug-tool.schema.json`), `.gitattributes`,
+`docs/templates/ci.yml`, `backend/pyproject.toml` (the `debug-tool` extra), the three new skills in both copies.
+**Forks**: add `app/<slug>/debug-tool.json` (`{"delivery": "on-demand", "version": "1.x"}`) and a token-free `.mcp.json`; nothing else changes
+and nothing is shipped to customers unless you choose `bundle`.
+
 ## v1.31.1 — 2026-10-15
 
 **SQL Server in a packaged app, from the Okaya fork (PATCH).**

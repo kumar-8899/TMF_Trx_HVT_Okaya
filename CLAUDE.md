@@ -9,7 +9,7 @@ Testbench** — a high-voltage transformer test bench built by forking the `Supe
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
 version is `app/okaya_hvt/VERSION` (`1.0.11` when last released), independent of the framework's
-version (`backend/pyproject.toml`; merged through `v1.31.1`). Releases are cut with
+version (`backend/pyproject.toml`; merged through `v1.32.0`). Releases are cut with
 `deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
 repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
 entries there.
@@ -261,6 +261,18 @@ driver (`create-instrument-library`, the one that produced this bench's
 `waveshare_modbus_relay` / `meco_smp72` / `ut5320r`). Skills also live as a marketplace plugin
 (`plugins/tmf-tools/`) for the terminal `claude` CLI — keep the two copies in sync when editing
 one. See `docs/DEVELOPER_ONBOARDING.md`.
+
+### Framework tooling added in v1.32.0 (use these before hand-rolling)
+
+- `python tools/doctor.py [--fix]` — environment check (editable installs resolve under THIS repo, ports 8000/1883/8001/8010/5173
+  and who holds them, Mosquitto, ODBC drivers, `upstream` remote, CRLF drift). Run it when a run/test behaves oddly.
+- `python tools/fork_check.py` — lists framework-owned files this fork edited since its base tag (our two remaining local
+  patches show up here); `python tools/upgrade.py --to vX.Y.Z` (skill `upgrade-framework`) replaces the manual merge steps.
+- A framework bug is written up with skill `framework-change-request` (`docs/framework-cr/CR-<n>.md` + `.diff` + failing test),
+  not patched in the fork. Candidates ready to write up: the `build_release.py` `_run` npm fix and `instrument_call_timeout_s`.
+- **TMF Debug Tool** (`docs/DEBUG_TOOL.md`, `debug_tool/`, own release line `debug-tool-v<ver>`): a SEPARATE program an engineer
+  starts on the client PC so Claude Code can read the live bench over MCP (every action needs a person at the PC to approve);
+  skill `debug-client-bench`. Never in `run.dist`, never part of the app release gate. `.gitattributes` now stores LF.
 
 ### Developer Hub (source-only, never in a build)
 

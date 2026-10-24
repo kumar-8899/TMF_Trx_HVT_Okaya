@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="operator-key" content="__OPERATOR_KEY__" />
+<title>TMF Debug Tool</title>
+<style>
+  :root { --bg:#0e1726; --panel:#16233a; --line:#26354f; --fg:#dce6f5; --mut:#8aa0c0; --pass:#3fb96a; --warn:#e8a020;
+          --fail:#e5484d; --info:#4a90e2; --mono:'JetBrains Mono',Consolas,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,'Segoe UI',sans-serif; display:flex; height:100vh; }
+  nav { width:176px; background:var(--panel); border-right:1px solid var(--line); padding:12px 8px; flex:none; display:flex; flex-direction:column; gap:3px; }
+  nav h1 { font-size:15px; margin:2px 8px 10px; } nav h1 small { display:block; color:var(--mut); font-weight:400; font-size:11px; }
+  nav button { text-align:left; background:none; border:1px solid transparent; color:var(--fg); padding:7px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+  nav button:hover { border-color:var(--line); } nav button.on { background:#0c1424; border-color:var(--info); }
+  nav .badge { float:right; background:var(--fail); color:#fff; border-radius:9px; padding:0 7px; font-size:11px; display:none; }
+  nav .share { margin-top:auto; padding:8px; border:1px solid var(--line); border-radius:6px; font-size:12px; }
+  main { flex:1; overflow:auto; padding:16px 20px; }
+  h2 { margin:0 0 12px; font-size:17px; } h3 { margin:18px 0 8px; font-size:14px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; }
+  input,select,textarea,button.btn { background:#0c1424; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; }
+  textarea { width:100%; font-family:var(--mono); font-size:12px; min-height:150px; }
+  button.btn { cursor:pointer; } button.btn:hover { border-color:var(--info); }
+  button.go { background:var(--pass); color:#04140a; border-color:var(--pass); font-weight:600; }
+  button.no { background:var(--fail); color:#fff; border-color:var(--fail); font-weight:600; }
+  button.btn:disabled { opacity:.5; cursor:default; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+  .card.pending { border-color:var(--warn); box-shadow:0 0 0 1px var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); } td.mono,.mono { font-family:var(--mono); }
+  pre { background:#0a111e; border:1px solid var(--line); border-radius:6px; padding:10px; overflow:auto; max-height:380px; font:12px/1.4 var(--mono); white-space:pre-wrap; margin:6px 0; }
+  .mut { color:var(--mut); } .ok { color:var(--pass); } .warn { color:var(--warn); } .bad { color:var(--fail); }
+  .lv-error,.lv-critical { color:var(--fail); } .lv-warning { color:var(--warn); } .lv-info { color:var(--info); } .lv-debug { color:var(--mut); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+  .kv { display:grid; grid-template-columns:170px 1fr; gap:3px 12px; font-size:13px; } .kv div:nth-child(odd) { color:var(--mut); }
+  .chip { display:inline-block; padding:1px 9px; border-radius:10px; border:1px solid var(--line); font-size:12px; margin-right:6px; }
+  .big { font-size:15px; padding:10px 18px; }
+  .note { border-left:3px solid var(--warn); padding:6px 10px; background:rgba(232,160,32,.08); margin:8px 0; font-size:13px; }
+  .token { font-family:var(--mono); word-break:break-all; background:#0a111e; border:1px dashed var(--warn); padding:8px; border-radius:6px; }
+</style>
+</head>
+<body>
+<nav>
+  <h1>TMF Debug Tool<small>v__VERSION__ · client PC</small></h1>
+  <button data-page="status" class="on">Status</button>
+  <button data-page="share">Share</button>
+  <button data-page="approvals">Approvals <span class="badge" id="badge">0</span></button>
+  <button data-page="live">Live</button>
+  <button data-page="collect">Collect</button>
+  <button data-page="scripts">Scripts</button>
+  <button data-page="analyze">Analyze</button>
+  <button data-page="python">Python</button>
+  <div class="share" id="sharebox">Sharing: <b>OFF</b></div>
+</nav>
+<main id="main"></main>
+
+<script>
+"use strict";
+const KEY = document.querySelector('meta[name="operator-key"]').content;
+const $ = (s, r = document) => r.querySelector(s);
+
+// ---- tiny DOM helper: ALWAYS textContent, never innerHTML - log lines and script output are untrusted text -----------------
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return e;
+}
+async function api(method, path, body, raw) {
+  const opt = { method, headers: { 'X-Operator-Key': KEY } };
+  if (raw !== undefined) { opt.body = raw; } else if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  let j = null; try { j = await r.json(); } catch (e) { /* no body */ }
+  if (!r.ok) throw new Error((j && (j.detail || j.title)) || (r.status + ' ' + r.statusText));
+  return j;
+}
+// Re-render only when the content actually changed: a button the operator is about to click must not be replaced under the pointer.
+const fill = (el, ...kids) => {
+  const t = h('div', {}, kids.flat(Infinity).filter(x => x != null && x !== false)); const sig = t.outerHTML;
+  if (el._sig === sig) return; el._sig = sig; el.replaceChildren(...t.childNodes);
+};
+const fmtTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : '';
+const kv = obj => h('div', { class: 'kv' }, Object.entries(obj).flatMap(([k, v]) => [h('div', {}, k), h('div', { class: 'mono' }, v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : v)]));
+const copyBtn = (text, label = 'Copy') => h('button', { class: 'btn', onclick: async e => { try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied'; } catch (x) { e.target.textContent = 'Select and copy by hand'; } } }, label);
+
+let page = 'status', timer = null, lastPending = 0, state = { sharing: null };
+
+// ---- pages --------------------------------------------------------------------------------------------------------------------
+const pages = {
+  async status(m) {
+    const s = await api('GET', '/operator/status'); const hth = s.health, app = hth.app;
+    fill(m, h('h2', {}, 'Status'),
+      h('div', { class: 'card' }, h('h3', {}, 'The app this tool is watching'),
+        app.found ? kv({ product: app.product, 'app version': app.app_version, 'framework': app.framework_version, 'install': app.state_root, 'found by': app.source, kind: app.kind })
+                  : h('div', { class: 'note' }, 'No app install found (' + app.source + '). Start the tool with --state-dir <folder that contains run.dist>.')),
+      h('div', { class: 'card' }, h('h3', {}, 'Live sources'),
+        h('div', { class: 'row' }, chip('MQTT ' + hth.live.mqtt, hth.live.mqtt === 'connected'), chip('station DB ' + hth.live.db, hth.live.db === 'available'),
+          chip('launcher log ' + hth.live.launcher_log, hth.live.launcher_log === 'available')),
+        kv({ broker: hth.live.broker, stations: hth.live.stations.join(', '), 'recorder mode': hth.mode, 'buffered records': hth.recorder.buffer_used, dropped: hth.recorder.dropped, 'MCP endpoint': s.mcp_url })),
+      hth.compat && hth.compat.status !== 'ok' ? h('div', { class: 'note' }, 'Version check: ' + hth.compat.note) : null,
+      Object.keys(hth.level_reverts_pending).length ? h('div', { class: 'note' }, 'Raised log levels waiting to revert: ' + JSON.stringify(hth.level_reverts_pending)) : null,
+      hth.notes.length ? h('div', { class: 'card' }, h('h3', {}, 'Notes'), hth.notes.map(n => h('div', { class: n.includes('FAILED') ? 'bad' : 'mut' }, n))) : null);
+  },
+
+  async share(m) {
+    const s = (await api('GET', '/operator/status')).sharing; const log = (await api('GET', '/operator/access?n=40')).entries;
+    const issued = state.issued;
+    fill(m, h('h2', {}, 'Share with the developer'),
+      h('div', { class: 'card' },
+        s.on ? [h('div', {}, h('b', { class: 'ok' }, 'Sharing is ON'), ' — ', Math.floor(s.seconds_left / 60), ' min left · token fingerprint ', h('span', { class: 'mono' }, s.fingerprint)),
+                h('div', { class: 'mut' }, s.session && s.session.remote ? 'Last seen from ' + s.session.remote + ' · ' + s.session.requests + ' requests' : 'Nobody has connected yet.'),
+                h('div', { class: 'row' }, h('button', { class: 'btn no big', onclick: stopSharing }, 'Stop sharing now'))]
+              : [h('div', {}, h('b', {}, 'Sharing is OFF'), ' — nothing on this PC is reachable.'),
+                 h('div', { class: 'row' }, 'For ', h('select', { id: 'hours' }, [1, 4, 8, 24].map(x => h('option', { value: x, selected: x === 4 }, x + ' hour' + (x > 1 ? 's' : '')))),
+                   h('input', { id: 'bname', placeholder: 'name in Claude Code (optional)' }),
+                   h('button', { class: 'btn go big', onclick: startSharing }, 'Turn sharing ON')),
+                 h('div', { class: 'mut' }, 'Turning it on lets the developer READ what the app records. Anything that changes or runs something on this PC still waits for your Approve click, every time.')]),
+      issued ? h('div', { class: 'card' }, h('h3', {}, 'Give the developer this — shown once'),
+                 h('div', { class: 'note' }, 'The token is not stored anywhere. If you lose it, stop sharing and start again.'),
+                 h('div', {}, 'Command to run on the developer\'s machine:'), h('div', { class: 'token' }, issued.claude_command), h('div', { class: 'row' }, copyBtn(issued.claude_command, 'Copy command')),
+                 h('div', {}, 'Or a .mcp.json entry (set the TMF_DEBUG_TOKEN environment variable to the token):'), h('pre', {}, JSON.stringify(issued.mcp_json, null, 2)),
+                 h('div', { class: 'mut' }, issued.note)) : null,
+      h('h3', {}, 'Last remote accesses'), accessTable(log));
+  },
+
+  async approvals(m) {
+    const a = await api('GET', '/operator/approvals');
+    fill(m, h('h2', {}, 'Approvals'),
+      a.pending.length ? a.pending.map(approvalCard) : h('div', { class: 'card mut' }, 'Nothing is waiting for your decision. When the developer asks for something that changes or runs on this PC, it appears here and the request waits for you.'),
+      h('h3', {}, 'Decisions'),
+      h('table', {}, h('tr', {}, ['time', 'what', 'decision', 'by'].map(x => h('th', {}, x))),
+        a.history.slice().reverse().map(r => h('tr', {}, h('td', { class: 'mono' }, fmtTime(r.ts)), h('td', {}, r.summary), h('td', { class: r.decision === 'approved' ? 'ok' : 'bad' }, r.decision), h('td', {}, r.by || '')))));
+  },
+
+  async live(m) {
+    const f = ($('#lf') || {}).value || ''; const l = await api('GET', '/operator/live?n=300');
+    const rows = l.events.filter(e => !f || JSON.stringify(e).toLowerCase().includes(f.toLowerCase())).slice(-150).reverse();
+    fill(m, h('h2', {}, 'Live — exactly what the developer can see'),
+      h('div', { class: 'row' }, chip('MQTT ' + l.live.mqtt, l.live.mqtt === 'connected'), h('input', { id: 'lf', placeholder: 'filter…', value: f, oninput: () => render() })),
+      h('table', {}, h('tr', {}, ['time', 'source', 'level', 'subsystem', 'message', 'station'].map(x => h('th', {}, x))),
+        rows.map(e => h('tr', {}, h('td', { class: 'mono' }, fmtTime(e.ts)), h('td', {}, e.source), h('td', { class: 'lv-' + e.level }, e.level), h('td', {}, e.subsystem || ''), h('td', {}, e.message || e.topic || ''), h('td', {}, e.station || '')))));
+    const nf = $('#lf'); if (nf && f) { nf.focus(); nf.setSelectionRange(f.length, f.length); }
+  },
+
+  async collect(m) {
+    fill(m, h('h2', {}, 'Collect a diagnostics bundle'),
+      h('div', { class: 'card' }, h('div', {}, 'Packs the app\'s recent diagnostics into ONE zip on your Desktop: recorder files, error/action logs, launcher log, redacted configuration, running processes and ports, ODBC drivers, app health, install integrity. Use this when the developer has no direct connection to this PC.'),
+        h('div', { class: 'row' }, 'Rows per log ', h('input', { id: 'rows', type: 'number', value: 5000, min: 100, max: 50000, style: 'width:90px' }),
+          h('label', {}, h('input', { id: 'integ', type: 'checkbox', checked: true }), ' check install integrity (slower)'),
+          h('button', { class: 'btn go big', id: 'cbtn', onclick: doCollect }, 'Collect now')),
+        h('div', { id: 'cres' })));
+  },
+
+  async scripts(m) {
+    const s = await api('GET', '/operator/scripts');
+    const keep = { src: ($('#sx') || {}).value || '', ip: ($('#si') || {}).value || 'powershell' };
+    fill(m, h('h2', {}, 'Scripts on this PC'),
+      h('div', { class: 'card' }, h('h3', {}, 'Run a script yourself'), h('div', { class: 'mut' }, 'Scripts the developer requests appear under Approvals. This box is for your own use; it runs under your Windows account with a time limit and the secrets in your environment removed.'),
+        h('div', { class: 'row' }, h('select', { id: 'si' }, ['powershell', 'cmd', 'python'].map(x => h('option', { value: x, selected: x === keep.ip }, x))), 'timeout (s) ', h('input', { id: 'st', type: 'number', value: 60, min: 1, max: 300, style: 'width:80px' }),
+          h('button', { class: 'btn go', id: 'sbtn', disabled: s.busy, onclick: runLocalScript }, s.busy ? 'A script is running…' : 'Run')),
+        h('textarea', { id: 'sx', spellcheck: 'false' }, keep.src), h('div', { id: 'sres' })),
+      h('h3', {}, 'History (newest first)'),
+      h('table', {}, h('tr', {}, ['time', 'interpreter', 'sha256', 'exit', 'seconds', 'approved by', 'file'].map(x => h('th', {}, x))),
+        s.history.map(r => h('tr', {}, h('td', { class: 'mono' }, r.ran_at), h('td', {}, r.interpreter), h('td', { class: 'mono' }, (r.sha256 || '').slice(0, 12)),
+          h('td', { class: r.exit_code === 0 ? 'ok' : 'bad' }, r.timed_out ? 'timeout' : r.exit_code), h('td', {}, r.elapsed_s), h('td', {}, r.approved_by || ''), h('td', { class: 'mono' }, r.script_file)))));
+  },
+
+  async analyze(m) {
+    fill(m, h('h2', {}, 'Analyze a bundle'),
+      h('div', { class: 'card' }, h('div', { class: 'mut' }, 'Open a bundle zip (from Collect, the collect kit or a script kit) and read what it found.'),
+        h('div', { class: 'row' }, h('input', { id: 'apath', placeholder: 'C:\\path\\to\\bundle.zip', style: 'width:420px' }), h('button', { class: 'btn go', onclick: () => doAnalyze(false) }, 'Analyze path'),
+          'or', h('input', { id: 'afile', type: 'file', accept: '.zip', onchange: () => doAnalyze(true) })),
+        h('div', { id: 'ares' })));
+  },
+
+  async python(m) {
+    const p = await api('GET', '/operator/python');
+    fill(m, h('h2', {}, 'Python for scripts'),
+      h('div', { class: 'card' }, h('div', { class: 'mut' }, 'Python scripts need an interpreter. This PC may have none: the tool brings its own (python.org embeddable package) and unpacks it on first use — no installer, no admin rights.'),
+        kv({ 'will use': p.will_use, 'extracted copy': p.extracted_path, 'bundled package': p.bundled_zip, 'system Python': p.system_python || p.system_python_note, wheelhouse: p.wheelhouses.join(', ') || '(none)', 'wheels installed': p.installed_wheels.map(w => w.name).join(', ') || '(none)' }),
+        h('div', { class: 'row' }, h('button', { class: 'btn go', onclick: async e => { e.target.disabled = true; try { const r = await api('POST', '/operator/python/extract'); $('#pnote').textContent = 'Ready: ' + r.resolved.kind + ' Python ' + r.resolved.version + ' · ' + r.resolved.notes.join(' · '); } catch (x) { $('#pnote').textContent = x.message; $('#pnote').className = 'bad'; } render(); } }, 'Prepare / extract now')),
+        h('div', { id: 'pnote', class: 'mut' })));
+  },
+};
+
+// ---- components ---------------------------------------------------------------------------------------------------------------
+const chip = (t, ok) => h('span', { class: 'chip ' + (ok ? 'ok' : 'bad') }, t);
+function accessTable(rows) {
+  return h('table', {}, h('tr', {}, ['time', 'event', 'detail'].map(x => h('th', {}, x))),
+    rows.slice().reverse().map(r => { const { ts, event, ...rest } = r; return h('tr', {}, h('td', { class: 'mono' }, fmtTime(ts)), h('td', {}, event), h('td', { class: 'mono' }, JSON.stringify(rest).slice(0, 220))); }));
+}
+function approvalCard(p) {
+  const d = p.details || {}; const tick = d.run_active_now != null ? h('input', { type: 'checkbox', id: 'allow-' + p.id }) : null;
+  const decide = async ok => { try { await api('POST', '/operator/approvals/' + p.id, { approve: ok, allow_during_run: !!(tick && tick.checked) }); } catch (e) { alert(e.message); } refreshAll(); };
+  return h('div', { class: 'card pending' }, h('div', {}, h('b', {}, p.summary)), h('div', { class: 'mut' }, p.kind + ' · denied automatically if nobody decides within ' + Math.round(p.timeout_s) + ' s'),
+    d.warning ? h('div', { class: 'note bad' }, d.warning) : null,
+    d.script != null ? [h('div', { class: 'mut' }, 'The script that would run (' + d.interpreter + ', sha256 ' + d.sha256.slice(0, 12) + '…):'), h('pre', {}, d.script)] : null,
+    h('div', { class: 'kv' }, Object.entries(d).filter(([k]) => !['script', 'warning'].includes(k)).flatMap(([k, v]) => [h('div', {}, k), h('div', { class: 'mono' }, typeof v === 'object' ? JSON.stringify(v) : String(v))])),
+    tick ? h('label', { class: 'row' }, tick, 'Also allow this while a test is running') : null,
+    h('div', { class: 'row' }, h('button', { class: 'btn go big', onclick: () => decide(true) }, 'Approve'), h('button', { class: 'btn no big', onclick: () => decide(false) }, 'Deny')));
+}
+async function startSharing() {
+  try { state.issued = await api('POST', '/operator/sharing/start', { hours: Number($('#hours').value), name: $('#bname').value || null }); } catch (e) { alert(e.message); }
+  render();
+}
+async function stopSharing() { await api('POST', '/operator/sharing/stop'); state.issued = null; render(); }
+async function doCollect(e) {
+  e.target.disabled = true; fill($('#cres'), h('div', { class: 'mut' }, 'Collecting… (the integrity check can take a minute)'));
+  try {
+    const r = await api('POST', '/operator/collect', { rows: Number($('#rows').value), integrity: $('#integ').checked });
+    fill($('#cres'), h('div', { class: 'note' }, 'Done. Send this ONE file to the developer (delete it after the case — it can contain operator names and serial numbers):'),
+      h('div', { class: 'token' }, r.path), h('div', { class: 'row' }, copyBtn(r.path, 'Copy path')), h('div', { class: 'mut' }, Math.round(r.bytes / 1024) + ' KB, ' + r.files + ' files'),
+      r.missing.length ? h('div', {}, h('b', {}, 'Could not collect:'), r.missing.map(x => h('div', { class: 'warn' }, x))) : null);
+  } catch (x) { fill($('#cres'), h('div', { class: 'note bad' }, x.message)); }
+  e.target.disabled = false;
+}
+async function runLocalScript(e) {
+  e.target.disabled = true; fill($('#sres'), h('div', { class: 'mut' }, 'Running…'));
+  try {
+    const r = await api('POST', '/operator/scripts/run', { interpreter: $('#si').value, script: $('#sx').value, timeout_s: Number($('#st').value) });
+    fill($('#sres'), h('div', { class: r.exit_code === 0 ? 'ok' : 'bad' }, 'exit ' + r.exit_code + (r.timed_out ? ' (timed out)' : '') + ' · ' + r.elapsed_s + ' s'),
+      h('pre', {}, r.stdout || '(no output)'), r.stderr ? h('pre', { class: 'bad' }, r.stderr) : null);
+  } catch (x) { fill($('#sres'), h('div', { class: 'note bad' }, x.message)); }
+  e.target.disabled = false;
+}
+async function doAnalyze(upload) {
+  fill($('#ares'), h('div', { class: 'mut' }, 'Analysing…'));
+  try {
+    let a;
+    if (upload) { const f = $('#afile').files[0]; a = await api('POST', '/operator/analyze-upload?name=' + encodeURIComponent(f.name.replace(/\.zip$/i, '')), undefined, await f.arrayBuffer()); }
+    else a = await api('POST', '/operator/analyze', { path: $('#apath').value });
+    fill($('#ares'), h('h3', {}, 'Look here first'), (a.look_here_first.length ? a.look_here_first : ['Nothing alarming found.']).map(x => h('div', {}, '• ' + x)),
+      h('h3', {}, 'Findings'), h('table', {}, h('tr', {}, ['severity', 'area', 'finding', 'hint'].map(x => h('th', {}, x))),
+        a.findings.map(f => h('tr', {}, h('td', { class: f.severity === 'error' ? 'bad' : f.severity === 'warning' ? 'warn' : 'mut' }, f.severity), h('td', {}, f.area), h('td', {}, f.title + (f.detail ? ' — ' + f.detail : '')), h('td', { class: 'mut' }, f.hint || '')))),
+      h('h3', {}, 'Full analysis'), h('pre', {}, a.markdown), h('div', { class: 'mut' }, 'Saved in ' + a.paths.folder));
+  } catch (x) { fill($('#ares'), h('div', { class: 'note bad' }, x.message)); }
+}
+
+// ---- shell --------------------------------------------------------------------------------------------------------------------
+function beep() { try { const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(); o.frequency.value = 880; o.connect(c.destination); o.start(); setTimeout(() => { o.stop(); c.close(); }, 250); } catch (e) { /* no audio */ } }
+async function poll() {
+  try {
+    const st = await api('GET', '/operator/status'); const n = st.pending_approvals; const s = st.sharing;
+    $('#badge').style.display = n ? 'inline-block' : 'none'; $('#badge').textContent = n; document.title = (n ? '(' + n + ') ' : '') + 'TMF Debug Tool';
+    if (n > lastPending) { beep(); if (page !== 'approvals') document.querySelector('[data-page=approvals]').click(); }
+    lastPending = n;
+    fill($('#sharebox'), 'Sharing: ', h('b', { class: s.on ? 'ok' : '' }, s.on ? 'ON · ' + Math.floor(s.seconds_left / 60) + ' min' : 'OFF'));
+  } catch (e) { $('#sharebox').textContent = 'Tool not reachable'; }
+}
+// Each render gets its own numbered view: a slow fetch from an earlier page must never paint over the page the operator is on now.
+let renderSeq = 0;
+function view() {
+  const seq = ++renderSeq, main = $('#main');
+  return { get _sig() { return main._sig; }, set _sig(v) { if (seq === renderSeq) main._sig = v; },
+           replaceChildren(...k) { if (seq === renderSeq) main.replaceChildren(...k); } };
+}
+async function render() {
+  const m = view();
+  try { await pages[page](m); } catch (e) { fill(m, h('div', { class: 'note bad' }, e.message)); }
+}
+function refreshAll() { poll(); render(); }
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on')); b.classList.add('on'); page = b.dataset.page; $('#main')._sig = null; render();
+}));
+const AUTO = new Set(['status', 'share', 'approvals', 'live']);
+setInterval(poll, 1000);
+setInterval(() => { if (AUTO.has(page) && !(document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) && page !== 'live')) render(); }, 2000);
+poll(); render();
+</script>
+</body>
+</html>

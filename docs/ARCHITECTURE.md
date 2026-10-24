@@ -100,8 +100,12 @@ backend/    Python — core/ platform + modules/ + tools/ + tests
   config/   app.example.json / license.example.json (live copies gitignored)
 labview/    controller + DQMH Bridge module + variables.json (catalog, future)
 frontend/   React app (src/: theme, components, screens, auth, hooks, api)
-deploy/     mosquitto vendor + helper scripts
+deploy/     mosquitto vendor + helper scripts (+ build/verify of the Debug Tool)
 docs/       contracts (this folder) + acceptance walks + how-tos
+tools/      doctor, ownership, fork_check, upgrade, Debug Tool delivery helpers
+tmf_debug/  developer-laptop client: digest, bundle analyser, `tmf-debug` CLI (REMOTE_DEBUG.md)
+debug_tool/ the TMF Debug Tool: a SEPARATE, installable support program for a client PC - operator UI, live collectors,
+            MCP server, human-approved actions, air-gapped collect/analyse (DEBUG_TOOL.md; own release line, not in run.dist)
 dev.ps1     one-shot launcher: mosquitto + backend + frontend + browser
 ```
 

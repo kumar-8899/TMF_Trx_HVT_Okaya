@@ -11,7 +11,8 @@ hardware needed), and open it in the UI. The details behind each step are in
 - Set FRAMEWORK_REMOTE and TMF_INSTRUMENT_LIBRARY, then reopen Claude Code
 - Create an empty GitHub repo for the new app (each app is its own repo)
 - Run the new-test-app skill (or clone-test-app) and answer its questions
-- Let it install dependencies (pip editable installs + npm install inside frontend/)
+- Let it install dependencies (pip editable installs + npm install inside frontend/) in the fork's own .venv
+- python tools/doctor.py reports no errors (fix what it names; --fix does the safe ones)
 - python app/<slug>/tools/run_sim.py prints VERDICT: PASS
 - python -m pytest app/<slug>/tests -q is green
 - python station.py opens the app; log in admin / admin and change the password

@@ -24,6 +24,14 @@ everything else under `app/<name>/` (`maps/`, `<name>_steps/`, `recipes/`, `cont
 
 ---
 
+## Step -1 — Is this machine set up? (30 seconds)
+
+Run `python tools\doctor.py --json` first. Stop and tell the user about any `error` (typically: an editable
+install importing ANOTHER fork's code, a stale live config missing new permissions, a stray process on
+:8000/:1883). Warnings can wait; errors make every later verify step meaningless.
+
+---
+
 ## Step 0 — Pin the spec (do not build until answered)
 
 For each test: what it drives/reads, the pass/fail logic, and the **limits + parameters from
@@ -149,4 +157,6 @@ shipped map, and set `"calibratable": false` on a signal that must not appear th
 - [ ] Recipe fills params + limits against those schemas — `dry_run` PASS
 - [ ] `run_sim` gives the intended verdict; a negative case FAILs
 - [ ] `specs/<test>.md` written for every test; `spec_lint.py` green (spec↔code in sync)
+- [ ] If this test exists because of a **field failure**, start from the evidence: `bench_why` / `bench_logs` (or the analysed bundle) via skill
+      `debug-client-bench` - quote the first fault in the spec, and add the failing case as a negative `run_sim` test
 - [ ] Only app-owned paths touched (TEMPLATE.md §1)

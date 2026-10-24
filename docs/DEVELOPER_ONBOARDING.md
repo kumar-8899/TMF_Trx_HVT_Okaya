@@ -119,6 +119,21 @@ A window opens with the app. Log in with `admin` / `admin`. Set up your instrume
 
 (For live UI development with instant reload, use `python station.py --dev` instead.)
 
+### Check the machine: `python tools/doctor.py`
+
+Run it after setup and whenever something behaves oddly (`--json` for scripts, `--fix` for the safe fixes). It checks:
+Python version; that you are in **this fork's** `.venv` (several forks sharing one global Python overwrite each
+other's `pip install -e`, so a test run can silently import another fork's code); that `core`, `controller`,
+`instrumentlib` resolve to THIS repo; the `dev`/`report-db` extras; `frontend/node_modules`; Mosquitto; who holds
+ports 8000/1883/8001/8010/5173 (it names the PID and command line); the env vars from step 4; missing or **stale
+live config** (new permissions you have not applied yet); the `upstream` remote (present, push-disabled);
+line-ending drift; installed SQL Server ODBC drivers. `--fix` creates `.venv`, re-runs the editable installs (only
+inside a virtualenv — it refuses to touch the global interpreter), copies missing live config from the examples,
+runs `npm install` and `config_doctor --apply`. It never kills a process and never edits a global environment
+variable; it prints the command for you to run.
+
+Give every fork its own virtualenv: `python -m venv .venv` then `.\.venv\Scripts\Activate.ps1`.
+
 ---
 
 ## Step 7 — Keep the app up to date
@@ -145,10 +160,28 @@ folder, make your change on a new branch, and open a Pull Request to
 
 ---
 
+## Step 9 — Debug a client's bench with Claude Code
+
+When a bench misbehaves on a client PC, use the **TMF Debug Tool** (`docs/DEBUG_TOOL.md`) instead of asking the engineer to run commands by hand.
+
+1. **Get the tool once.** It is a signed release asset (`debug-tool-v<ver>`), not something you build: `python tools/debug_tool_delivery.py fetch --slug <your-app>`
+   caches it in `tools/debug-tool/` (gitignored). `app/<slug>/debug-tool.json` records how this app delivers it (`on-demand` by default; `new-test-app` writes it).
+2. **Connected** — the engineer starts the tool on the bench PC and turns **Sharing ON**; they read you the `claude mcp add …` command (or you use the committed `.mcp.json`,
+   which holds only `${TMF_DEBUG_TOKEN}` references — never a token). Then ask Claude Code to use the skill **`debug-client-bench`**. Everything that only *reads* just works;
+   anything that changes or runs something on the PC waits for the engineer's **Approve** click, so say what you are about to request before you ask.
+3. **No connection** — ask the engineer to click **Collect** (or give them the collect kit: `python -m debug_tool kit collect`) and send you the one zip; then
+   `python -m debug_tool analyze <zip>` writes `.debug/<name>-<stamp>/analysis.md`. Same skill, air-gapped branch.
+4. Before any session on a new PC the engineer runs `tmf-debug-tool.exe selftest` (30 s) — it names blocked ports, a missing PowerShell or a security product in the way.
+
+Captures and analyses land in `.debug/` (gitignored). Delete them after the case.
+
+---
+
 ## Which skill for which job
 
 | You want to… | Skill |
 |--------------|-------|
+| Debug a running bench on a client PC (live, or from a bundle) | `debug-client-bench` |
 | Start a new app | `new-test-app` |
 | Start a new app that's similar to one you already have | `clone-test-app` |
 | Turn a spreadsheet of a system's I/O into an app's variable map | `system-blueprint` |
