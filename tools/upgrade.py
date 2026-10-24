@@ -154,12 +154,27 @@ def overrides_affected(repo: Path, git: fork_check.Git, old: str, new: str) -> l
     return res
 
 
+def _tool_versions() -> list[tuple[int, int, int]]:
+    """Released Debug Tool versions, from the PRIVATE tool repo's GitHub releases. Best effort: no `gh`, no access or no network just
+    means no news (the tool's source and releases are not in the framework, so git tags cannot tell us)."""
+    import debug_tool_delivery as dd
+    try:
+        out = dd._gh(["release", "list", "--repo", dd.tool_repo(), "--limit", "100", "--json", "tagName", "--jq", ".[].tagName"])
+    except (dd.DeliveryError, OSError, subprocess.SubprocessError):
+        return []
+    found = []
+    for t in out.split():
+        m = re.match(r"^(?:debug-tool-)?v(\d+)\.(\d+)\.(\d+)$", t.strip())
+        if m:
+            found.append(tuple(int(x) for x in m.groups()))
+    return found
+
+
 def newer_debug_tool(repo: Path, git: fork_check.Git) -> dict | None:
     """A Debug Tool release newer than what this fork has pinned / cached. `1.x` pins float within the major: only a release the
     fork does not have yet (not in its cache) is news; a release outside the pin (a new MAJOR) says to bump `version`."""
     import debug_tool_delivery as dd
-    tags = [t for t in git.run("tag", "-l", "debug-tool-v*").split()]
-    versions = [semver(t.replace("debug-tool-", "")) for t in tags if re.match(r"^debug-tool-v\d+\.\d+\.\d+$", t)]
+    versions = _tool_versions()
     if not versions:
         return None
     newest = max(versions)

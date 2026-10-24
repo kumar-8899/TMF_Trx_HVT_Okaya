@@ -43,9 +43,10 @@ tool shows (or `.mcp.json` + the env var). `X-Core-Token` (a core login) is only
 
 ## Air-gapped / no connection (or the connection failed)
 
-1. Make the kit: `python -m debug_tool kit collect` (the engineer runs `collect.ps1`) - or, to run ONE specific script, `python -m debug_tool kit script --script <file> --interpreter powershell|cmd|python`
+0. Get the tool on THIS machine once: `python tools/debug_tool_delivery.py fetch --slug <your-app>` (signed release of the private tool repo; needs `gh` access), then `$TOOL = python tools/debug_tool_delivery.py exe --slug <your-app> | ConvertFrom-Json | % exe` (or just use the path it prints).
+1. Make the kit: `& $TOOL kit collect` (the engineer runs `collect.ps1`) - or, to run ONE specific script, `& $TOOL kit script --script <file> --interpreter powershell|cmd|python`
    (the engineer **reads the script first** - say plainly what it does and that it only reads). In Claude Code with the stdio MCP: `bench_collect_kit`, `bench_script_kit`.
-2. The engineer sends back the ONE zip. `python -m debug_tool analyze <zip>` (or `bench_analyze_bundle`) writes `.debug/<name>-<stamp>/analysis.md` + `analysis.json`.
+2. The engineer sends back the ONE zip. `& $TOOL analyze <zip>` (or `bench_analyze_bundle`) writes `.debug/<name>-<stamp>/analysis.md` + `analysis.json`.
 3. Read `look_here_first`, then the findings (processes, ports, drivers, install integrity, first fault, instruments, `MANIFEST.missing`). **Missing items are gaps in the evidence, not clean results.**
 4. If a second look is needed, make a script kit for exactly that - one question per kit.
 

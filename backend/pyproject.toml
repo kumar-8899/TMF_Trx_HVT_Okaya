@@ -1,6 +1,6 @@
 [project]
 name = "tmf-backend"
-version = "1.32.0"
+version = "1.32.1"
 description = "Test & Measurement Framework — Python platform (core + modules)"
 requires-python = ">=3.11"
 dependencies = [
@@ -33,13 +33,6 @@ release = [
 ]
 # Native desktop window for the one-click launcher (station.py). WebView2 on Win11.
 desktop = [
-    "pywebview>=5.0",
-]
-# TMF Debug Tool (repo-root debug_tool/, docs/DEBUG_TOOL.md): MCP server + operator window. Needed to run its tests and to
-# build it (deploy/build-debug-tool.ps1). The starlette pin is deliberate: mcp pulls starlette and FastAPI 0.115 needs <0.42.
-debug-tool = [
-    "mcp>=1.12,<2",
-    "starlette>=0.41,<0.42",
     "pywebview>=5.0",
 ]
 dev = [

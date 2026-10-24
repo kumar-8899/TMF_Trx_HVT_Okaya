@@ -347,12 +347,10 @@ def _delivery():
 def check_debug_tool(ctx: Ctx) -> list[Check]:
     out = []
     dd = _delivery()
-    pins = False
     for slug in _apps(ctx):
         f = ctx.repo / "app" / slug / "debug-tool.json"
         if not f.is_file():
             continue
-        pins = True
         try:
             cfg = dd.load_config(slug, ctx.repo)
         except dd.DeliveryError as exc:
@@ -366,12 +364,6 @@ def check_debug_tool(ctx: Ctx) -> list[Check]:
             out.append(Check(f"debug_tool_zip_{slug}", False, "warning",
                              f"delivery=bundle pins Debug Tool {cfg['version']} but no tmf-debug-tool-*.zip is cached - cut-release.ps1 will stop at step 7b",
                              f"python tools/debug_tool_delivery.py fetch --slug {slug}"))
-    if pins:
-        has_mcp = ctx.find_origin("mcp") is not None
-        out.append(Check("debug_tool_extra", has_mcp, "info",
-                         "the `mcp` package is installed (python -m debug_tool serve / mcp-stdio / its tests work)" if has_mcp else
-                         "the `mcp` package is not installed - only needed to run the Debug Tool from source, `mcp-stdio` or its tests",
-                         "cd backend && pip install -e \".[dev,debug-tool]\""))
     mcp = ctx.repo / ".mcp.json"
     if mcp.is_file() and ctx.http_ok is not None:
         try:

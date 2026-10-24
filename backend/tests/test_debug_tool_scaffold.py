@@ -55,13 +55,13 @@ def test_an_existing_mcp_config_is_never_overwritten(tmp_path):
     assert json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"] == {"mine": {"type": "stdio", "command": "x"}}
 
 
-def test_the_new_files_are_app_owned_and_the_tool_is_framework_owned():
+def test_the_new_files_are_app_owned_and_the_delivery_side_is_framework_owned():
     sys.path.insert(0, str(REPO / "tools"))
     import ownership
     mods = ownership.framework_modules()
     for rel in ("app/acme_eol/debug-tool.json", ".mcp.json"):
         assert ownership.owner_of(rel, mods) == "app", rel
-    for rel in ("debug_tool/engine.py", "deploy/build-debug-tool.ps1", "tools/debug_tool_delivery.py", "docs/DEBUG_TOOL.md"):
+    for rel in ("deploy/debug-tool.schema.json", "tools/debug_tool_delivery.py", "docs/DEBUG_TOOL.md"):
         assert ownership.owner_of(rel, mods) == "framework", rel
 
 

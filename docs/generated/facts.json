@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.32.0"
+    "version": "1.32.1"
   },
   "releases": [
+    {
+      "version": "1.32.1",
+      "date": "2026-10-24",
+      "bump": "PATCH",
+      "summary": "The Debug Tool's source leaves the framework (PATCH). The TMF Debug Tool is now private IP: its source moved to the PRIVATE `kumar-8899/TMF_Debug_Tool` repo (history preserved), so no framework release from v1.32.1 on - and no fork created from one - carries it. v1.32.0 (one day old) did ship the source; forks that already took it are not recalled.",
+      "body": "**The Debug Tool's source leaves the framework (PATCH).** The TMF Debug Tool is now private IP: its source moved to the PRIVATE `kumar-8899/TMF_Debug_Tool` repo (history preserved), so no framework release from v1.32.1 on - and no fork created from one - carries it. v1.32.0 (one day old) did ship the source; forks that already took it are not recalled.\n\n- Removed from the framework: `debug_tool/`, `deploy/build-debug-tool.ps1`, `deploy/verify-debug-tool.ps1`, `deploy/debug-tool-README-FIRST.txt`, `tools/debug_tool_support_wheel.py`, the `debug-tool` pip extra, and the tool-internals gotchas. Building, signing and releasing the tool is now the framework owner's job in the tool repo.\n- Kept (the delivery side): `docs/DEBUG_TOOL.md` (the operator / customer-IT / deployment contract), `app/<slug>/debug-tool.json` + `deploy/debug-tool.schema.json`, `tools/debug_tool_delivery.py`, `cut-release.ps1` step 7b and the optional unticked installer task, the in-app `Support session` help page, the skill `debug-client-bench`.\n- `tools/debug_tool_delivery.py` now fetches the signed zip from the private tool repo's releases (`TMF_DEBUG_TOOL_REMOTE` overrides; the reader needs `gh` access), and has a new `exe` command that prints the path to the unpacked `tmf-debug-tool.exe` for the developer machine. `upgrade.py` finds newer tool releases from the same place (best effort, silent offline).\n- The skill `debug-client-bench`, onboarding and CLAUDE.md now use the downloaded exe instead of `python -m debug_tool`. Doctor no longer expects the tool's Python packages.\n- **Fork action:** none required. To use the tool: `python tools/debug_tool_delivery.py fetch --slug <app>` (needs read access to the private repo). A fork that merged v1.32.0 and wants the source gone can delete `debug_tool/` (it merges cleanly with v1.32.1, which deletes it)."
+    },
     {
       "version": "1.32.0",
       "date": "2026-10-24",

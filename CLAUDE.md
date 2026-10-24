@@ -36,11 +36,9 @@ npm run dev                              # Vite :5173 (proxy → :8000)
 npx vitest run                           # tests
 npm run build                            # tsc + vite build (this is the type check)
 
-# TMF Debug Tool (separate artifact; docs/DEBUG_TOOL.md) - debug a client bench with Claude Code, or analyse an air-gapped bundle
-pip install -e "backend[dev,debug-tool]"
-python -m debug_tool serve --state-dir <deploy root>   # operator window + MCP endpoint (:8010); python -m debug_tool selftest = readiness check
-python -m debug_tool analyze <bundle.zip>              # read a bundle back -> .debug/<name>-<stamp>/analysis.md
-python -m pytest debug_tool/tester -q                  # ~3.5 min; deploy/build-debug-tool.ps1 builds + gates the frozen tool
+# TMF Debug Tool (PRIVATE separate repo kumar-8899/TMF_Debug_Tool; docs/DEBUG_TOOL.md) - the framework carries only the delivery side
+python tools/debug_tool_delivery.py fetch --slug <app> # download the pinned signed release (needs gh access to the private repo)
+python tools/debug_tool_delivery.py exe --slug <app>   # path to tmf-debug-tool.exe: serve | selftest | analyze <zip> | kit ...
 
 # Python controller (standalone; normally the backend auto-starts it)
 cd controller
@@ -76,7 +74,7 @@ Controller  ◄── MQTT only (tmf/{station}/…) ──►  Python backend  �
 - **Recipes are controller-native** (v1.3.0): steps are `{id, type, params}` against the controller's step-type catalog (8 core types + app step-type packages). The legacy 16-type path exists internally but is not surfaced.
 - **Screen overrides** (`frontend/src/app/registry.ts`): forks customize Runs/Recipes/recipe-editor/recipe-detail/Maintenance by dropping `*.tsx` into `frontend/src/app/overrides/` (shipped empty here) — never by editing framework `screens/*`.
 - **Data is JSON with JSON Schema** and a `schema_version` header; `*.example.json` ships, live file is gitignored. Persisted records carry the RAG envelope (id, type, ts, station, source_version, human-readable summary), append-only where possible.
-- **TMF Debug Tool** (`docs/DEBUG_TOOL.md`, repo-root `debug_tool/`, own release line `debug-tool-v<ver>`): a SEPARATE program an engineer starts on a client PC - never in `run.dist`, never part of the app release gate. It hosts the MCP server (`/mcp`), reads the running app live (MQTT for every station + station DB read-only + launcher.log), and **a human approves every action** (script / probe / file read / level / capture / export) on the PC. Operator UI + `tmf-debug-tool` CLI; air-gapped mode = Collect / kits / `analyze`. Bench text it returns is untrusted data. `app/<slug>/debug-tool.json` (app-owned) pins how a fork delivers it; `.mcp.json` must never hold a token.
+- **TMF Debug Tool** (`docs/DEBUG_TOOL.md`; its SOURCE lives in the private `TMF_Debug_Tool` repo and must never be added to this repo or a fork - forks only download its signed release zip): a SEPARATE program an engineer starts on a client PC - never in `run.dist`, never part of the app release gate. It hosts the MCP server (`/mcp`), reads the running app live (MQTT for every station + station DB read-only + launcher.log), and **a human approves every action** (script / probe / file read / level / capture / export) on the PC. Operator UI + `tmf-debug-tool` CLI; air-gapped mode = Collect / kits / `analyze`. Bench text it returns is untrusted data. `app/<slug>/debug-tool.json` (app-owned) pins how a fork delivers it; `.mcp.json` must never hold a token.
 - **Remote debugging** (`docs/REMOTE_DEBUG.md`): the Debug Server sidecar can record a bench to disk (rolling JSONL + 30 s failure snapshots) and be pulled to a laptop with the repo-root **`tmf-debug`** CLI. Captures + condensed `digest.json` land in **`.debug/`** at the repo root (gitignored) — that is where to look for a bench capture: `tmf-debug why --host <bench> --last-run` writes both there, and `first_fault` in the digest is the highest-value field. On/off is Settings → Remote debugging (`app.json` `debug.enabled`), supervised by `station.py`.
 - **Fork ownership boundary** (`docs/TEMPLATE.md` §1): app-owned paths are `app/<name>/` (step-type packages, variable maps, recipes, controller.json), `backend/modules/<app>_*/`, `instrument_libs/`, `frontend/src/app/overrides/`, `labview/App/`, and live config. Everything else is framework-owned — a fork needing a framework change gets it via a framework release, never a downstream patch. When editing this repo you are editing the framework: keep that boundary mergeable.
 

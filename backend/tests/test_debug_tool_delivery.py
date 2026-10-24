@@ -121,14 +121,14 @@ class FakeGh:
             return subprocess.CompletedProcess(argv, 0, "\n".join(self.tags) + "\n", "")
         if argv[1:3] == ["release", "download"]:
             tag = argv[3]
-            make_zip(self.repo, tag.replace("debug-tool-v", ""))
+            make_zip(self.repo, tag.replace("debug-tool-", "").lstrip("v"))
             return subprocess.CompletedProcess(argv, 0, "", "")
         return subprocess.CompletedProcess(argv, 1, "", "unexpected")
 
 
 def test_fetch_downloads_the_newest_matching_release_asset(repo):
     pin(repo, delivery="bundle", version="1.x")
-    gh = FakeGh(repo, ["debug-tool-v1.0.0", "debug-tool-v1.4.2", "debug-tool-v2.0.0", "v1.31.1", "debug-tool-v1.10.0"])
+    gh = FakeGh(repo, ["debug-tool-v1.0.0", "debug-tool-v1.4.2", "debug-tool-v2.0.0", "debug-tool-v1.10.0"])
     z = dd.fetch("acme", "owner/fw", repo, runner=gh)
     assert z.name == "tmf-debug-tool-1.10.0.zip"
     dl = next(c for c in gh.calls if c[2] == "download")
@@ -160,9 +160,47 @@ def test_cut_release_and_build_installer_pass_the_staged_tool_through():
 
 
 @pytest.mark.skipif(not PS, reason="PowerShell parser needed")
-@pytest.mark.parametrize("script", ["build-debug-tool.ps1", "verify-debug-tool.ps1", "cut-release.ps1", "build-installer.ps1"])
+@pytest.mark.parametrize("script", ["cut-release.ps1", "build-installer.ps1"])
 def test_the_powershell_scripts_parse(script):
     cmd = ("$e=$null;$t=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('%s',[ref]$t,[ref]$e);"
            "$e | ForEach-Object { $_.Message + ' @' + $_.Extent.StartLineNumber }" % str(ROOT / "deploy" / script))
     r = subprocess.run([PS, "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, text=True, timeout=60)
     assert r.stdout.strip() == "", r.stdout
+
+
+def test_exe_unpacks_the_pinned_zip_once_for_use_on_the_developer_machine(repo):
+    pin(repo, delivery="on-demand", version="1.x")
+    with pytest.raises(dd.DeliveryError, match="fetch --slug acme"):
+        dd.exe("acme", repo)                                                          # nothing cached yet: say how to get it
+    make_zip(repo, "1.2.3")
+    path = dd.exe("acme", repo)
+    assert path.name == "tmf-debug-tool.exe" and path.is_file() and path.parent.parent == repo / "tools" / "debug-tool"
+    path.write_bytes(b"MZ-edited")
+    assert dd.exe("acme", repo).read_bytes() == b"MZ-edited"                          # second call does not re-unpack over it
+    pin(repo, delivery="bundle")                                                      # invalid pin (no version): refused
+    with pytest.raises(dd.DeliveryError, match="version"):
+        dd.exe("acme", repo)
+
+
+def test_the_tool_is_fetched_from_the_private_tool_repo_never_the_framework(repo, monkeypatch):
+    monkeypatch.delenv("TMF_DEBUG_TOOL_REMOTE", raising=False)
+    assert dd.tool_repo() == "kumar-8899/TMF_Debug_Tool" == dd.TOOL_REPO_DEFAULT
+    monkeypatch.setenv("TMF_DEBUG_TOOL_REMOTE", "https://github.com/acme/our-tool.git")
+    assert dd.tool_repo() == "acme/our-tool"
+    monkeypatch.setenv("TMF_DEBUG_TOOL_REMOTE", "acme/other")
+    assert dd.tool_repo() == "acme/other"
+    pin(repo, delivery="bundle", version="1.x")
+    gh = FakeGh(repo, ["v1.0.0", "v1.1.0"])                                           # the tool repo tags releases plainly: v<ver>
+    z = dd.fetch("acme", dd.tool_repo(), repo, runner=gh)
+    assert z.name == "tmf-debug-tool-1.1.0.zip"
+    assert all(c[c.index("--repo") + 1] == "acme/other" for c in gh.calls if "--repo" in c)
+
+
+def test_the_framework_does_not_contain_the_tool_source():
+    """The Debug Tool is private IP (separate repo): nothing of it may come back into the framework tree."""
+    assert not (ROOT / "debug_tool").exists()
+    for rel in ("deploy/build-debug-tool.ps1", "deploy/verify-debug-tool.ps1", "tools/debug_tool_support_wheel.py"):
+        assert not (ROOT / rel).exists(), rel
+    tracked = subprocess.run(["git", "ls-files"], capture_output=True, text=True, cwd=ROOT).stdout.splitlines()
+    assert not [f for f in tracked if f.startswith("debug_tool/")]
+    assert "mcp" not in (ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")       # no dependency on the tool's stack
