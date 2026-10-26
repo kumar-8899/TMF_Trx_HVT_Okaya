@@ -11,6 +11,16 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 import upgrade  # noqa: E402
 
+ORIG_TOOL_VERSIONS = upgrade._tool_versions
+
+
+@pytest.fixture(autouse=True)
+def tool_releases(monkeypatch):
+    """The Debug Tool's releases live in the PRIVATE tool repo (not in framework git tags): tests inject them."""
+    releases = [(1, 2, 0)]
+    monkeypatch.setattr(upgrade, "_tool_versions", lambda: list(releases))
+    return releases
+
 
 def git(repo, *args, check=True):
     r = subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", *args],
@@ -58,7 +68,6 @@ def world(tmp_path):
                           "frontend/src/screens/Runs.tsx": "runs v2\n"}, "- **New**: a feature.\n- Runs screen reworked.")
     release(up, "1.1.1", {"docs/TEMPLATE.md": "t2\n"}, "- A fix.")
     release(up, "2.0.0", {"docs/TEMPLATE.md": "t3\n"}, "- A breaking change.")
-    git(up, "tag", "debug-tool-v1.2.0")
     return up, fork
 
 
@@ -225,11 +234,10 @@ def test_cli_json_output(world, capsys, monkeypatch):
     assert rc in (0, 1) and set(out) == {"ok", "target", "error", "steps", "new"} and (rc == 0) == out["ok"]
 
 
-def test_a_floating_debug_tool_pin_only_reports_releases_the_fork_does_not_have_yet(world):
+def test_a_floating_debug_tool_pin_only_reports_releases_the_fork_does_not_have_yet(world, tool_releases):
     up, fork = world
     from fork_check import Git
     write(fork, "app/acme/debug-tool.json", json.dumps({"delivery": "bundle", "version": "1.x"}))
-    git(fork, "fetch", "-q", "upstream", "--tags")
     g = Git(fork)
     news = upgrade.newer_debug_tool(fork, g)                                  # 1.2.0 exists, nothing cached: fetch it
     assert news["newest"] == "1.2.0" and news["in_pin"] is True and "debug_tool_delivery.py fetch --slug acme" in news["advice"]
@@ -237,10 +245,27 @@ def test_a_floating_debug_tool_pin_only_reports_releases_the_fork_does_not_have_
     cache.mkdir(parents=True)
     (cache / "tmf-debug-tool-1.2.0.zip").write_bytes(b"PK")
     assert upgrade.newer_debug_tool(fork, g) is None                          # already cached: no news
-    git(up, "tag", "debug-tool-v2.0.0")
-    git(fork, "fetch", "-q", "upstream", "--tags")
+    tool_releases.append((2, 0, 0))
     major = upgrade.newer_debug_tool(fork, Git(fork))
     assert major["newest"] == "2.0.0" and major["in_pin"] is False and "bump `version`" in major["advice"]
+
+
+def test_tool_versions_come_from_the_private_tool_repos_releases_and_fail_quietly(monkeypatch):
+    import debug_tool_delivery as dd
+    calls = []
+
+    def gh(args, runner=None):
+        calls.append(args)
+        return "\n".join(["v1.0.0", "v1.3.2", "debug-tool-v1.4.0", "not-a-version"]) + "\n"
+    monkeypatch.setattr(dd, "_gh", gh)
+    monkeypatch.delenv("TMF_DEBUG_TOOL_REMOTE", raising=False)
+    assert sorted(ORIG_TOOL_VERSIONS()) == [(1, 0, 0), (1, 3, 2), (1, 4, 0)]
+    assert calls[0][calls[0].index("--repo") + 1] == dd.TOOL_REPO_DEFAULT
+
+    def no_gh(args, runner=None):
+        raise dd.DeliveryError("gh not authenticated")
+    monkeypatch.setattr(dd, "_gh", no_gh)
+    assert ORIG_TOOL_VERSIONS() == []                                         # offline / no access: no news, no crash
 
 
 def test_the_upgrade_never_tries_to_pip_install_the_debug_tool_dir():

@@ -20,9 +20,10 @@ application**: it never starts by itself, it is not a Windows service, and closi
 ## Start a session
 
 1. Open the **TMF Debug Tool** (Start menu, or `tools\debug-tool\tmf-debug-tool.exe` in the application folder).
-2. **Share → Turn sharing ON**, then read the shown command to the developer. Keep the window open.
-3. When a request arrives the **Approvals** tab opens and the window title shows a number. Read the request; **Approve** or **Deny**.
-4. When you are done, **Stop sharing** and close the window.
+2. **First time only:** on the **Status** tab choose the folder where the application is installed (the one that contains `run.dist`), press **Check**, then **Use this folder**. The tool never guesses and remembers your choice. Until then it does nothing and sharing is refused.
+3. **Share → Turn sharing ON**, then read the shown command to the developer. Keep the window open.
+4. When a request arrives the **Approvals** tab opens and the window title shows a number. Read the request; **Approve** or **Deny**.
+5. When you are done, **Stop sharing** and close the window.
 
 ## No connection to the developer?
 

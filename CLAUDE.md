@@ -9,7 +9,7 @@ Testbench** — a high-voltage transformer test bench built by forking the `Supe
 framework at a release tag (`upstream` remote, **push-disabled**) and adding app-owned content
 on top (`docs/APP_REPO.md`, `docs/TEMPLATE.md` §1 is the ownership contract). The app's own
 version is `app/okaya_hvt/VERSION` (`1.0.11` when last released), independent of the framework's
-version (`backend/pyproject.toml`; merged through `v1.32.0`). Releases are cut with
+version (`backend/pyproject.toml`; merged through `v1.32.2`). Releases are cut with
 `deploy/cut-release.ps1` (tag `app-vX.Y.Z` → GitHub Release on `origin`). `CHANGELOG.md` at the
 repo root is still the **framework's** changelog (inherited, not app-specific) — don't add app
 entries there.
@@ -270,9 +270,14 @@ one. See `docs/DEVELOPER_ONBOARDING.md`.
   patches show up here); `python tools/upgrade.py --to vX.Y.Z` (skill `upgrade-framework`) replaces the manual merge steps.
 - A framework bug is written up with skill `framework-change-request` (`docs/framework-cr/CR-<n>.md` + `.diff` + failing test),
   not patched in the fork. Candidates ready to write up: the `build_release.py` `_run` npm fix and `instrument_call_timeout_s`.
-- **TMF Debug Tool** (`docs/DEBUG_TOOL.md`, `debug_tool/`, own release line `debug-tool-v<ver>`): a SEPARATE program an engineer
-  starts on the client PC so Claude Code can read the live bench over MCP (every action needs a person at the PC to approve);
-  skill `debug-client-bench`. Never in `run.dist`, never part of the app release gate. `.gitattributes` now stores LF.
+- **TMF Debug Tool** (`docs/DEBUG_TOOL.md`; own release line `debug-tool-v<ver>`): a SEPARATE program an engineer
+  starts on the client PC so Claude Code can read the live bench over MCP (every action needs a person at the PC to
+  approve); skill `debug-client-bench`. Never in `run.dist`, never part of the app release gate. Since v1.32.1 its SOURCE
+  is NOT in the framework (private repo `kumar-8899/TMF_Debug_Tool`; `debug_tool/` and `build-debug-tool.ps1` are gone).
+  This fork's pin is `app/okaya_hvt/debug-tool.json` (`on-demand`); `.mcp.json` holds only env-var references
+  (never commit a token). Get the signed zip with `python tools/debug_tool_delivery.py fetch --slug okaya_hvt` (needs `gh`
+  read access to the private repo), `... exe` prints the unpacked `tmf-debug-tool.exe`. On first run the operator picks the
+  app's install folder once (Status tab); the tool refuses to share until then. `.gitattributes` stores LF.
 
 ### Developer Hub (source-only, never in a build)
 

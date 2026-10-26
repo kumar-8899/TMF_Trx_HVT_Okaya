@@ -546,7 +546,7 @@ instrument`) is built from the same captured events and sends nothing to any ins
 ## 15. The TMF Debug Tool (v1.32.0) - the next step after the sidecar
 
 The sidecar's weaknesses on a client PC: it exists only in builds >= 1.30, dies with the app, is configured inside the app, and has no
-consent UI. The **TMF Debug Tool** (`DEBUG_TOOL.md`, repo-root `debug_tool/`) is its evolution as a **separate, installable program**:
+consent UI. The **TMF Debug Tool** (`DEBUG_TOOL.md`; source in the private `TMF_Debug_Tool` repo, distributed only as a signed release) is its evolution as a **separate, installable program**:
 
 - it reuses this document's engine (`debug_server` ring/rolling sink/snapshots/log discipline/export, `tmf_debug` digest and analysis) - nothing is rewritten;
 - it **hosts the MCP server itself** (`/mcp`), so Claude Code connects as a remote MCP server and the developer installs nothing;

@@ -1,9 +1,11 @@
 # Framework facts (generated — do not edit)
 
-Super_Test_App **v1.32.0**. Regenerate: `python tools/gen_devguide.py`.
+Super_Test_App **v1.32.2**. Regenerate: `python tools/gen_devguide.py`.
 
 ## Latest releases
 
+- **v1.32.2** (2026-10-26, PATCH) — Docs only (PATCH): the Debug Tool's first-run app selection and the developer-side `connect` helper. Tool release v1.0.0 (private repo) no longer auto-detects the app: the operator chooses the app's install folder once (Status tab, *Browse…*, *Check*, *Use this folder*), the choice is saved, and the tool stays idle - sharing refused - until then. It also gained `tmf-debug-tool connect` / `disconnect` for the developer's machine.
+- **v1.32.1** (2026-10-24, PATCH) — The Debug Tool's source leaves the framework (PATCH). The TMF Debug Tool is now private IP: its source moved to the PRIVATE `kumar-8899/TMF_Debug_Tool` repo (history preserved), so no framework release from v1.32.1 on - and no fork created from one - carries it. v1.32.0 (one day old) did ship the source; forks that already took it are not recalled.
 - **v1.32.0** (2026-10-24, MINOR) — Developer experience: setup, staying mergeable, and the TMF Debug Tool (MINOR). Motivated by the Okaya/HVT work: forks lost time to a shared Python pointing at the wrong fork, stray processes on `:8000/:1883/:8001`, LF→CRLF churn, hand-patched framework files, a ten-step manual upgrade, and bench failures that could only be diagnosed by asking an engineer to run commands by hand.
 - **v1.31.1** (2026-10-15, PATCH) — SQL Server in a packaged app, from the Okaya fork (PATCH).
 - **v1.31.0** (2026-10-15, MINOR) — Okaya field defects, folded into the framework so forks can drop their local patches (MINOR).
@@ -12,8 +14,6 @@ Super_Test_App **v1.32.0**. Regenerate: `python tools/gen_devguide.py`.
 - **v1.28.0** (2026-10-06, MINOR) — Reports export to Excel (.xlsx) and TDMS in the customer's template layout, with selectable per-test columns (MINOR).
 - **v1.27.4** (2026-10-03, PATCH) — Exit station no longer leaves the controller running; the recipe editor shows the selected group's steps (PATCH).
 - **v1.27.3** (2026-10-03, PATCH) — new-test-app / add-bench-test: ship a verified `run_sim.py` template (PATCH).
-- **v1.27.2** (2026-10-03, PATCH) — A fresh install no longer boots with the station offline (PATCH).
-- **v1.27.1** (2026-09-29, PATCH) — run_station.exe: also replace Nuitka with PyInstaller (PATCH).
 
 ## Modules
 

@@ -5,14 +5,17 @@ A fork never builds the tool: it pins a released, signed zip in `app/<slug>/debu
   plan   reads + validates the pin and finds the zip in the local cache (`tools/debug-tool/`, then `release-build-tool/`)
   stage  for delivery=bundle: unpacks it to a staging folder the installer picks up (an OPTIONAL, unticked installer task that puts it
          beside the app, outside run.dist) and copies the zip into the delivery folder; for on-demand / none it ships nothing
-  fetch  downloads the pinned release asset (`debug-tool-v<version>`) from the framework's GitHub releases into the cache
+  fetch  downloads the pinned release asset (`v<version>`) from the PRIVATE `TMF_Debug_Tool` repo's GitHub releases into the cache
+         (needs `gh` access to that repo; the tool's source is never part of the framework or of a fork)
+  exe    prints the path to the pinned `tmf-debug-tool.exe` for use on this developer machine (unpacks the cached zip once)
 
 `deploy/cut-release.ps1` calls `stage`. A pin that cannot be satisfied stops the release loudly - a customer must never receive a build
 that silently lacks (or has a different version of) a tool the handover sheet says is there.
 
     python tools/debug_tool_delivery.py plan  --slug <slug> [--json]
     python tools/debug_tool_delivery.py stage --slug <slug> --stage-dir release-build/debug-tool --delivery-dir deploy/Output [--json]
-    python tools/debug_tool_delivery.py fetch --slug <slug> [--repo owner/name]
+    python tools/debug_tool_delivery.py fetch --slug <slug> [--repo owner/name]      # default: TMF_DEBUG_TOOL_REMOTE or the default tool repo
+    python tools/debug_tool_delivery.py exe   --slug <slug>                          # e.g.  & (python tools/debug_tool_delivery.py exe --slug x) analyze <zip>
 """
 
 from __future__ import annotations
@@ -89,7 +92,7 @@ def plan(slug: str, root: Path = ROOT) -> dict:
         z = find_zip(cfg["version"], root)
         if z is None:
             out["problems"].append(f"no tmf-debug-tool-{cfg['version']}.zip in {', '.join(CACHE_DIRS)} - run: "
-                                   f"python tools/debug_tool_delivery.py fetch --slug {slug}   (or build it: deploy/build-debug-tool.ps1)")
+                                   f"python tools/debug_tool_delivery.py fetch --slug {slug}   (the signed zip is a release of the private TMF_Debug_Tool repo)")
         else:
             out["zip"] = str(z)
             sums = z.with_name("SHA256SUMS.txt")
@@ -99,6 +102,44 @@ def plan(slug: str, root: Path = ROOT) -> dict:
                 if z.name in want and want[z.name].lower() != got:
                     out["problems"].append(f"{z.name} does not match SHA256SUMS.txt (got {got}) - the cached zip is corrupt or was replaced")
     return out
+
+
+def _unpack(z: Path, dest: Path) -> None:
+    """Unzip the release into `dest`, flattening the zip's single top folder; refuse path escapes and a package without the exe."""
+    dest = Path(dest)
+    with zipfile.ZipFile(z) as zf:
+        top = {n.split("/")[0] for n in zf.namelist() if n.strip("/")}
+        root_name = top.pop() if len(top) == 1 else None
+        for info in zf.infolist():
+            rel = info.filename.split("/", 1)[1] if root_name and "/" in info.filename else info.filename
+            if not rel or info.is_dir():
+                continue
+            target = (dest / rel).resolve()
+            if dest.resolve() not in target.parents:
+                raise DeliveryError(f"{z.name} contains a path that escapes the staging folder: {info.filename!r}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(zf.read(info))
+    if not (dest / "tmf-debug-tool.exe").is_file():
+        raise DeliveryError(f"{z.name} does not contain tmf-debug-tool.exe")
+
+
+def exe(slug: str, root: Path = ROOT) -> Path:
+    """Path to the pinned tool's `tmf-debug-tool.exe` for use on THIS (developer) machine: unpacks the cached zip once into
+    `tools/debug-tool/<zip name>/` (gitignored cache). Raises when the pin cannot be satisfied (run `fetch` first)."""
+    cfg = load_config(slug, root)
+    problems = validate(cfg, root)
+    if problems:
+        raise DeliveryError("; ".join(problems))
+    z = find_zip(cfg.get("version") or "1.x", root)
+    if z is None:
+        raise DeliveryError(f"no tmf-debug-tool zip cached for pin {cfg.get('version') or '1.x'!r} - run: "
+                            f"python tools/debug_tool_delivery.py fetch --slug {slug}")
+    dest = root / CACHE_DIRS[0] / z.stem
+    if not (dest / "tmf-debug-tool.exe").is_file():
+        if dest.exists():
+            shutil.rmtree(dest)
+        _unpack(z, dest)
+    return dest / "tmf-debug-tool.exe"
 
 
 def stage(slug: str, stage_dir: Path, delivery_dir: Path, root: Path = ROOT) -> dict:
@@ -112,20 +153,7 @@ def stage(slug: str, stage_dir: Path, delivery_dir: Path, root: Path = ROOT) -> 
         p["staged"] = False
         return p
     z = Path(p["zip"])
-    with zipfile.ZipFile(z) as zf:
-        top = {n.split("/")[0] for n in zf.namelist() if n.strip("/")}
-        root_name = top.pop() if len(top) == 1 else None
-        for info in zf.infolist():                                  # flatten the zip's single top folder; refuse path escapes
-            rel = info.filename.split("/", 1)[1] if root_name and "/" in info.filename else info.filename
-            if not rel or info.is_dir():
-                continue
-            target = (stage_dir / rel).resolve()
-            if stage_dir.resolve() not in target.parents:
-                raise DeliveryError(f"{z.name} contains a path that escapes the staging folder: {info.filename!r}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(zf.read(info))
-    if not (stage_dir / "tmf-debug-tool.exe").is_file():
-        raise DeliveryError(f"{z.name} does not contain tmf-debug-tool.exe")
+    _unpack(z, stage_dir)
     delivery_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(z, delivery_dir / z.name)
     p.update(staged=True, stage_dir=str(stage_dir), delivered_zip=str(delivery_dir / z.name))
@@ -143,7 +171,7 @@ def latest_tag(spec: str, repo: str, runner=subprocess.run) -> str:
     tags = [ln.split("\t")[0] for ln in _gh(["release", "list", "--repo", repo, "--limit", "100", "--json", "tagName", "--jq", ".[].tagName"], runner).splitlines()]
     found = []
     for t in tags:
-        m = re.match(r"^debug-tool-v(\d+)\.(\d+)\.(\d+)$", t.strip())
+        m = re.match(r"^(?:debug-tool-)?v(\d+)\.(\d+)\.(\d+)$", t.strip())
         if m and matches(spec, tuple(int(x) for x in m.groups())):
             found.append((tuple(int(x) for x in m.groups()), t.strip()))
     if not found:
@@ -167,20 +195,22 @@ def fetch(slug: str, repo: str, root: Path = ROOT, runner=subprocess.run) -> Pat
     return Path(got["zip"]) if got["zip"] else zips[-1]
 
 
-def _framework_repo() -> str:
+TOOL_REPO_DEFAULT = "kumar-8899/TMF_Debug_Tool"
+
+
+def tool_repo() -> str:
+    """The PRIVATE repo whose releases carry the signed tool zip. Override with TMF_DEBUG_TOOL_REMOTE (owner/name or a GitHub URL).
+    The reader needs `gh` access to that repo; the framework itself never contains the tool's source."""
     import os
-    env = os.environ.get("FRAMEWORK_REMOTE", "")
-    for src in (env, subprocess.run(["git", "remote", "get-url", "upstream"], capture_output=True, text=True, cwd=ROOT).stdout):
-        m = re.search(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?\s*$", src.strip())
-        if m:
-            return m.group(1)
-    raise DeliveryError("cannot tell which GitHub repo publishes the Debug Tool - pass --repo owner/name (or set FRAMEWORK_REMOTE)")
+    src = os.environ.get("TMF_DEBUG_TOOL_REMOTE", "").strip() or TOOL_REPO_DEFAULT
+    m = re.search(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?\s*$", src)
+    return m.group(1) if m else src
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("plan", "stage", "fetch"):
+    for name in ("plan", "stage", "fetch", "exe"):
         sp = sub.add_parser(name)
         sp.add_argument("--slug", required=True)
         sp.add_argument("--json", action="store_true")
@@ -195,8 +225,10 @@ def main(argv: list[str] | None = None) -> int:
             out = plan(a.slug)
         elif a.cmd == "stage":
             out = stage(a.slug, ROOT / a.stage_dir, ROOT / a.delivery_dir)
+        elif a.cmd == "exe":
+            out = {"exe": str(exe(a.slug))}
         else:
-            out = {"zip": str(fetch(a.slug, a.repo or _framework_repo()))}
+            out = {"zip": str(fetch(a.slug, a.repo or tool_repo()))}
     except DeliveryError as exc:
         print(json.dumps({"error": str(exc)}) if a.json else f"debug-tool delivery: {exc}", file=sys.stderr if not a.json else sys.stdout)
         return 1

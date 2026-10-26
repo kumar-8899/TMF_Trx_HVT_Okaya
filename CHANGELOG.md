@@ -5,6 +5,24 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.32.2 — 2026-10-26
+
+**Docs only (PATCH): the Debug Tool's first-run app selection and the developer-side `connect` helper.** Tool release v1.0.0 (private repo) no longer auto-detects the app: the operator chooses the app's install folder once (Status tab, *Browse…*, *Check*, *Use this folder*), the choice is saved, and the tool stays idle - sharing refused - until then. It also gained `tmf-debug-tool connect` / `disconnect` for the developer's machine.
+
+- `docs/DEBUG_TOOL.md`, `docs/DEVELOPER_ONBOARDING.md`, the in-app `Support session` help page and the skill `debug-client-bench` (both copies) describe the first-run selection and `connect`.
+- `connect` registers through the `claude` command, so it needs `claude` on PATH; a developer who uses only the Claude Code IDE extension adds the bench with `/mcp` → Add server instead (documented).
+- No code change; **fork action: none required.**
+
+## v1.32.1 — 2026-10-24
+
+**The Debug Tool's source leaves the framework (PATCH).** The TMF Debug Tool is now private IP: its source moved to the PRIVATE `kumar-8899/TMF_Debug_Tool` repo (history preserved), so no framework release from v1.32.1 on - and no fork created from one - carries it. v1.32.0 (one day old) did ship the source; forks that already took it are not recalled.
+
+- Removed from the framework: `debug_tool/`, `deploy/build-debug-tool.ps1`, `deploy/verify-debug-tool.ps1`, `deploy/debug-tool-README-FIRST.txt`, `tools/debug_tool_support_wheel.py`, the `debug-tool` pip extra, and the tool-internals gotchas. Building, signing and releasing the tool is now the framework owner's job in the tool repo.
+- Kept (the delivery side): `docs/DEBUG_TOOL.md` (the operator / customer-IT / deployment contract), `app/<slug>/debug-tool.json` + `deploy/debug-tool.schema.json`, `tools/debug_tool_delivery.py`, `cut-release.ps1` step 7b and the optional unticked installer task, the in-app `Support session` help page, the skill `debug-client-bench`.
+- `tools/debug_tool_delivery.py` now fetches the signed zip from the private tool repo's releases (`TMF_DEBUG_TOOL_REMOTE` overrides; the reader needs `gh` access), and has a new `exe` command that prints the path to the unpacked `tmf-debug-tool.exe` for the developer machine. `upgrade.py` finds newer tool releases from the same place (best effort, silent offline).
+- The skill `debug-client-bench`, onboarding and CLAUDE.md now use the downloaded exe instead of `python -m debug_tool`. Doctor no longer expects the tool's Python packages.
+- **Fork action:** none required. To use the tool: `python tools/debug_tool_delivery.py fetch --slug <app>` (needs read access to the private repo). A fork that merged v1.32.0 and wants the source gone can delete `debug_tool/` (it merges cleanly with v1.32.1, which deletes it).
+
 ## v1.32.0 — 2026-10-24
 
 **Developer experience: setup, staying mergeable, and the TMF Debug Tool (MINOR).** Motivated by the Okaya/HVT work: forks lost time

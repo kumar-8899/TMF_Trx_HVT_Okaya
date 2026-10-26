@@ -1,6 +1,6 @@
 # TMF Debug Tool
 
-**Status:** v1.0.0 (own release line, tags `debug-tool-v<ver>`), introduced with framework v1.32.0. Source: repo-root `debug_tool/`.
+**Status:** v1.0.0 (own release line: releases `v<ver>` of the PRIVATE `TMF_Debug_Tool` repo), introduced with framework v1.32.0. **The source is not part of the framework or of any fork** - the framework carries only this contract, the delivery side (`app/<slug>/debug-tool.json`, `deploy/debug-tool.schema.json`, `tools/debug_tool_delivery.py`, `cut-release.ps1` step 7b, the optional installer task) and the in-app help.
 Governing decisions: the tool **extends** the Debug Server sidecar (`REMOTE_DEBUG.md`) instead of replacing it; a **human approves
 every action** on the client PC; **no relay** (direct connection only); it is **never part of the app** (`run.dist`) or the app release gate.
 
@@ -22,14 +22,12 @@ DEV LAPTOP  Claude Code ── remote MCP (HTTP + bearer token) ──> http://<
 
 ## 1. Quick start
 
-**Operator (client PC)** — double-click `tmf-debug-tool.exe` (or `tmf-debug-tool.exe serve --state-dir "<folder that contains run.dist>"`).
+**Operator (client PC)** — double-click `tmf-debug-tool.exe`. **First time only: choose the app.** The tool never guesses which app to debug: on the *Status* tab pick the folder where the app is installed (the one that contains `run.dist`; *Browse…* opens a folder dialog), press *Check* to see what it found, then *Use this folder*. The choice is saved and reused on every later start; *Change app folder…* (disabled while sharing is on) picks another. Until a folder is chosen the tool is idle and sharing is refused. Headless: `tmf-debug-tool.exe select-app <folder>`.
 *Share* tab → **Turn sharing ON** (1–24 h, default 4 h) → give the developer the command shown (the token appears **once** and is not stored).
 Keep the window open; decisions are on the *Approvals* tab. **Closing the window stops everything.** Headless/RDP-less: `serve --no-window`,
 then `tmf-debug-tool share | approvals | approve <id> | deny <id> | stop` from a second terminal.
 
-**Developer (laptop)** — run the command the operator gives you (`claude mcp add --transport http <name> http://<host>:8010/mcp --header "Authorization: Bearer …"`),
-or commit the `.mcp.json` snippet the Share page shows (it uses `${TMF_DEBUG_TOKEN}` / `${TMF_CORE_TOKEN}`; **never commit a token**). Then use the
-skill `debug-client-bench`. `X-Core-Token` (a core login) is needed only for log levels and instrument probes.
+**Developer (laptop)** — the easy way: `tmf-debug-tool connect`. Paste the operator's `claude mcp add ...` line (or just the token) at the hidden prompt. It verifies the bench (reachable? sharing on? token right?), says what it found or exactly what is wrong, and registers it with Claude Code (scope `local`, not committed). The token is never printed or put in shell history. When the session is over: `tmf-debug-tool disconnect <name>`. `connect` registers through the `claude` command, so it needs `claude` on PATH; a developer who works only in the Claude Code IDE extension adds the bench in the chat panel instead (`/mcp` → Add server: the `…/mcp` address and the `Authorization: Bearer …` header). The manual way still works: run the operator's command yourself, or commit the `.mcp.json` snippet the Share page shows (env references only; **never commit a token**). Then use the skill `debug-client-bench`. `X-Core-Token` (a core login) is needed only for log levels and instrument probes.
 
 **No connection** — `Collect` tab (or `collect.ps1` from `tmf-debug-tool kit collect`) → one zip → `tmf-debug-tool analyze <zip>`.
 
@@ -115,12 +113,14 @@ Allowed: `identify` and the methods the app's own `GET /variables/capabilities` 
 ## 8. CLI
 
 ```
+select-app <folder>     (choose + save the app folder; switches a running tool live; refused while sharing is on)
+connect [--url U] [--name N] [--scope local|project|user] [--yes] [--check-only] [--print-only] | disconnect <name>     (DEVELOPER machine)
 serve [--state-dir D] [--bind ADDR] [--port 8010] [--mode own|attach] [--approval-timeout 120] [--no-window | --browser]
 share [--hours 4] [--name N] | stop | approvals | approve <id> [--allow-during-run] | deny <id>
 collect [out.zip|folder] [--state-dir D] [--rows 5000] [--no-integrity]
 analyze <zip> [--out .debug] | kit collect|script … | mcp-stdio [--workdir .] | selftest [--json] [--require-python]
 ```
-`--bind` takes **one** address (127.0.0.1, or the PC's VPN/LAN address); `0.0.0.0`/`::` are refused. From source: `python -m debug_tool …`.
+`--bind` takes **one** address (127.0.0.1, or the PC's VPN/LAN address); `0.0.0.0`/`::` are refused. The CLI is `tmf-debug-tool.exe` (`python tools/debug_tool_delivery.py exe --slug <app>` prints its path).
 
 ## 9. Where things live
 
@@ -145,11 +145,9 @@ Honest limit: an approved script is arbitrary code on a machine that drives inst
 
 ## 11. Packaging, versions, compatibility
 
-- **Version** `debug_tool/VERSION`; **`COMPAT.json`** states the framework range it was tested with. A newer/older app is **never an error**: the tool serves what it understands, and `bench_health` + the Status page say "newer than tested".
-- **Build** `deploy/build-debug-tool.ps1` — PyInstaller onedir → payload (COMPAT, README-FIRST, wheelhouse incl. `tmf_support`, bundled embeddable Python) → sign (`deploy/sign-binaries.ps1`; unsigned is reported loudly) → **gate** `deploy/verify-debug-tool.ps1`
-  (package layout, version agreement, signature, and the frozen exe's own `selftest`) → `release-build-tool/tmf-debug-tool-<ver>.zip` + `SHA256SUMS.txt`. A release must bundle the **genuine python.org package** (`-EmbedZip`/`-FetchEmbed`, pinned with `-EmbedSha256`).
-- **Not in `cut-release.ps1`'s gate**; published by hand as release `debug-tool-v<ver>` (zip + SHA256SUMS.txt). Dependencies: `pip install -e "backend[dev,debug-tool]"` to run it or its tests, plus `release` (PyInstaller) to build it (the `starlette>=0.41,<0.42` pin is deliberate: FastAPI 0.115 needs it).
-- **Tests** `python -m pytest debug_tool/tester -q` (~2 min); `backend/tests/test_debug_tool_*.py` for the delivery/support-wheel pieces.
+- **Version** and **`COMPAT.json`** (the framework range it was tested with) ship inside the release zip. A newer/older app is **never an error**: the tool serves what it understands, and `bench_health` + the Status page say "newer than tested".
+- **Build, signing and release** are done by the framework owner in the private tool repo (PyInstaller onedir, bundled python.org embeddable interpreter, signing with the framework's `sign-binaries.ps1`, a frozen-exe `selftest` gate). It is **not** part of `cut-release.ps1`'s gate. Forks never build it: they download the signed zip (section 12).
+- **Tests of this repo's delivery side** (pin schema, staging, installer task, no tool source in the framework): `backend/tests/test_debug_tool_*.py`.
 
 ## 12. Deployment: framework → forks → client builds
 
@@ -157,13 +155,13 @@ The tool is a *service engineer's toolkit*: never in the swap unit (`run.dist`),
 
 | Tier | Gets | How |
 |---|---|---|
-| Framework repo | source + build/verify scripts | built on the maintainer's PC, signed, published as `debug-tool-v<ver>` |
+| Private tool repo (framework owner) | source + build/verify scripts | built on the owner's PC, signed, published as a GitHub release; **never given to forks** |
 | Forked apps | the signed zip (no source build) | `app/<slug>/debug-tool.json` pins `{ "delivery": "bundle"\|"on-demand"\|"none", "version": "1.x" }`; `python tools/debug_tool_delivery.py fetch --slug <slug>` caches it in `tools/debug-tool/` (gitignored); `fork_check` guards `debug_tool/` |
 | App release packages | optionally the same zip | `cut-release.ps1` step 7b → `bundle` copies the pinned zip into `deploy/Output/` and the installer offers an **optional, UNTICKED** task installing to `{app}\tools\debug-tool` (outside `run.dist`); an unsatisfiable pin **stops the release** |
 | Client PC in use | the tool, started by an engineer | double-click; Sharing On; hand the developer the token by phone/chat; close afterwards |
 
 **Rollout stages (each has an exit gate; do not skip):**
-0. *Framework + simulator (this repo)* — all tests, `verify-debug-tool.ps1` pass. **Done at v1.32.0.**
+0. *Tool repo + simulator* - all tool tests and the frozen-exe `selftest` pass. **Done at v1.0.0.**
 1. *Internal pilot on ONE real bench, engineer-carried, `on-demand`* — measure antivirus/Smart App Control behaviour, whether broker/DB/log tails see real traffic, approval latency, one real fault diagnosed connected **and** air-gapped. Exit: written pilot report; this document corrected from fact.
 2. *Forks* — pin `debug-tool.json` (`on-demand` default); `new-test-app`/`clone-test-app` write it; consent checklist in `DEPLOY_STATION.md`. Exit: two forks diagnosed a real issue with it.
 3. *Client builds* — per customer choose `bundle` / `on-demand` / `none` in the delivery sign-off; give customer IT the `README-FIRST.txt` note; record consent. Exit: customer IT acceptance recorded.
@@ -172,21 +170,8 @@ The tool is a *service engineer's toolkit*: never in the swap unit (`run.dist`),
 **Rollback / removal:** delete the folder (and the Start-menu shortcut). A bad release is withdrawn by deleting the release asset and the pin.
 **Data handling:** bundles can contain serial numbers and operator names (secrets redacted). On the developer's machine they land in the gitignored `.debug/`; delete after the case; never commit or paste into public issues.
 
-**Not verifiable from the framework repo** (so Stage 1 is mandatory before bundling for any customer): a real client PC behind a customer firewall, antivirus/Smart App Control on a customer machine, real instrument hardware, customer IT acceptance.
+**Not verifiable from the repos** (so Stage 1 is mandatory before bundling for any customer): a real client PC behind a customer firewall, antivirus/Smart App Control on a customer machine, real instrument hardware, customer IT acceptance.
 
 ## 13. Developer notes
 
-| Module | Role |
-|---|---|
-| `consent.py` | `SharingState`, `ApprovalQueue`, `AccessLog` — pure, injectable clock |
-| `engine.py` | recorder (own/attach), passive reads, bounded `follow`, level TTL, export, analyse |
-| `live.py` | all-station MQTT subscriber with reconnect |
-| `tails.py` | read-only DB / launcher-log tails |
-| `appinfo.py` | find the install (explicit → running `run.exe` → next to the tool → source checkout) |
-| `mcp_server.py`, `actions.py` | tool set; `Host.action` = the approval gate; `actions.py` = script/file/probe |
-| `scripts.py`, `pyenv.py`, `files.py`, `probe.py` | the containment layers |
-| `app.py` | FastAPI: token/sharing gate (pure ASGI), operator API, `/files`, `/mcp` |
-| `kits.py`, `local_mcp.py`, `cli.py`, `window.py`, `selftest.py`, `compat.py`, `ui/index.html` | |
-
-To add a tool: write the function in `mcp_server.py` (passive) or `actions.py` (action, through `h.action`), add its name to `PASSIVE_TOOLS`/`ACTION_TOOLS`, extend `selftest` only if it changes the contract, update §3 here and the skill `debug-client-bench`, and run `python tools/gen_devguide.py`.
-Windows gotchas (selector loop has no asyncio subprocess; `BaseHTTPMiddleware` breaks streaming; paths with spaces in `Start-Process`) are in `docs/help/dev/guide/gotchas.md`.
+The module map, how to add a tool, and the Windows gotchas are in the private tool repo (`docs/DEBUG_TOOL.md` there, `docs/GOTCHAS.md`). The framework side is only the delivery contract above.

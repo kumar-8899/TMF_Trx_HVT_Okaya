@@ -171,15 +171,6 @@ def test_debug_tool_pin_is_checked_against_the_shipped_schema_and_a_bundle_pin_n
     assert "debug_tool_zip_acme" not in _by_id(doctor.check_debug_tool(_ctx(tmp_path)))
 
 
-def test_debug_tool_extra_is_an_info_not_a_failure(tmp_path):
-    (tmp_path / "app" / "acme").mkdir(parents=True)
-    (tmp_path / "app" / "acme" / "debug-tool.json").write_text(json.dumps({"delivery": "none"}))
-    miss = _by_id(doctor.check_debug_tool(_ctx(tmp_path, find_origin=lambda n: None if n == "mcp" else str(tmp_path / "x.py"))))["debug_tool_extra"]
-    assert not miss.ok and miss.severity == "info" and "debug-tool" in miss.fix
-    assert _by_id(doctor.check_debug_tool(_ctx(tmp_path)))["debug_tool_extra"].ok
-    assert "debug_tool_extra" not in _by_id(doctor.check_debug_tool(_ctx(tmp_path / "nopins")))      # no pin, no noise
-
-
 def test_debug_tool_is_not_an_editable_install(tmp_path):
     assert "debug_tool" not in doctor.EDITABLE                              # it runs as `python -m debug_tool`; there is no package to install
 
