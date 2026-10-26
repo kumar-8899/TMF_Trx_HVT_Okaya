@@ -5,6 +5,14 @@ Framework releases. Semver (`docs/TEMPLATE.md` §versioning): **MAJOR** = a modu
 features · **PATCH** = fixes. Every release is a git tag `v<version>`; the backend
 stamps it into every record and diag event as `source_version`.
 
+## v1.32.2 — 2026-10-26
+
+**Docs only (PATCH): the Debug Tool's first-run app selection and the developer-side `connect` helper.** Tool release v1.0.0 (private repo) no longer auto-detects the app: the operator chooses the app's install folder once (Status tab, *Browse…*, *Check*, *Use this folder*), the choice is saved, and the tool stays idle - sharing refused - until then. It also gained `tmf-debug-tool connect` / `disconnect` for the developer's machine.
+
+- `docs/DEBUG_TOOL.md`, `docs/DEVELOPER_ONBOARDING.md`, the in-app `Support session` help page and the skill `debug-client-bench` (both copies) describe the first-run selection and `connect`.
+- `connect` registers through the `claude` command, so it needs `claude` on PATH; a developer who uses only the Claude Code IDE extension adds the bench with `/mcp` → Add server instead (documented).
+- No code change; **fork action: none required.**
+
 ## v1.32.1 — 2026-10-24
 
 **The Debug Tool's source leaves the framework (PATCH).** The TMF Debug Tool is now private IP: its source moved to the PRIVATE `kumar-8899/TMF_Debug_Tool` repo (history preserved), so no framework release from v1.32.1 on - and no fork created from one - carries it. v1.32.0 (one day old) did ship the source; forks that already took it are not recalled.

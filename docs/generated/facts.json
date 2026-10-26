@@ -2,9 +2,16 @@
   "schema_version": 1,
   "framework": {
     "name": "Super_Test_App",
-    "version": "1.32.1"
+    "version": "1.32.2"
   },
   "releases": [
+    {
+      "version": "1.32.2",
+      "date": "2026-10-26",
+      "bump": "PATCH",
+      "summary": "Docs only (PATCH): the Debug Tool's first-run app selection and the developer-side `connect` helper. Tool release v1.0.0 (private repo) no longer auto-detects the app: the operator chooses the app's install folder once (Status tab, *Browse…*, *Check*, *Use this folder*), the choice is saved, and the tool stays idle - sharing refused - until then. It also gained `tmf-debug-tool connect` / `disconnect` for the developer's machine.",
+      "body": "**Docs only (PATCH): the Debug Tool's first-run app selection and the developer-side `connect` helper.** Tool release v1.0.0 (private repo) no longer auto-detects the app: the operator chooses the app's install folder once (Status tab, *Browse…*, *Check*, *Use this folder*), the choice is saved, and the tool stays idle - sharing refused - until then. It also gained `tmf-debug-tool connect` / `disconnect` for the developer's machine.\n\n- `docs/DEBUG_TOOL.md`, `docs/DEVELOPER_ONBOARDING.md`, the in-app `Support session` help page and the skill `debug-client-bench` (both copies) describe the first-run selection and `connect`.\n- `connect` registers through the `claude` command, so it needs `claude` on PATH; a developer who uses only the Claude Code IDE extension adds the bench with `/mcp` → Add server instead (documented).\n- No code change; **fork action: none required.**"
+    },
     {
       "version": "1.32.1",
       "date": "2026-10-24",
