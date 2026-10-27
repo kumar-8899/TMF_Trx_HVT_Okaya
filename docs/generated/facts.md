@@ -25,6 +25,7 @@ Super_Test_App **v1.32.2**. Regenerate: `python tools/gen_devguide.py`.
 | help | 1.0.0 | 1 |  | HELP.VIEW |
 | logs | 1.0.0 | 1 | /logs | DIAGNOSTICS.PURGE, DIAGNOSTICS.VIEW |
 | mes | 1.0.0 | 1 |  | SYSTEM.SETTINGS, TEST.RUN |
+| okaya_mes | 1.0.0 | 1 |  | SYSTEM.SETTINGS, TEST.RUN |
 | portal | 1.0.0 | 1 |  | PORTAL.MANAGE, PORTAL.UPLOAD, PORTAL.VIEW |
 | recipe | 1.0.0 | 1 | /recipes | RECIPE.EDIT, RECIPE.VIEW |
 | report | 1.0.0 | 1 | /reports | REPORT.EXPORT, REPORT.VIEW, SYSTEM.SETTINGS |

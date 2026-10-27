@@ -924,6 +924,83 @@
       ]
     },
     {
+      "id": "okaya_mes",
+      "display_name": "MES (Okaya table)",
+      "description": "Writes one wide row per finished run into Okaya's legacy MES table (per-test min/max/actual/result, overall result, first failed test). App-owned; the framework mes publish stays off.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "okaya_mes",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "diagnostics",
+        "config",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "SYSTEM.SETTINGS",
+        "TEST.RUN"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/okaya-mes/alerts"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/alerts/{run_id}/dismiss"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/alerts/{run_id}/retry"
+        },
+        {
+          "method": "GET",
+          "path": "/okaya-mes/config"
+        },
+        {
+          "method": "PUT",
+          "path": "/okaya-mes/config"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/db/databases"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/db/tables"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/db/test"
+        },
+        {
+          "method": "GET",
+          "path": "/okaya-mes/preview/{run_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/runs/{run_id}/send"
+        },
+        {
+          "method": "GET",
+          "path": "/okaya-mes/status"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/table/check"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-mes/table/create"
+        }
+      ]
+    },
+    {
       "id": "portal",
       "display_name": "User Portal",
       "description": "The customer-facing support surface that replaces the printed software manual: a searchable library of PDFs (hardware manuals, drawings) users upload or an app ships. Later: a troubleshooting assistant and case log. No MQTT — it reasons over stored data.",

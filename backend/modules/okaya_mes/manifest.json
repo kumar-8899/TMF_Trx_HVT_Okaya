@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "okaya_mes",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "MES (Okaya table)",
+    "description": "Writes one wide row per finished run into Okaya's legacy MES table (per-test min/max/actual/result, overall result, first failed test). App-owned; the framework mes publish stays off."
+  },
+  "entitlement_key": "okaya_mes",
+  "variants": [
+    "default"
+  ],
+  "core_dependencies": [
+    "db",
+    "diagnostics",
+    "config",
+    "web"
+  ],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [
+      "event/#"
+    ],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/okaya_mes.config.schema.json"
+}

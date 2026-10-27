@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:okaya_mes/okaya_mes.config.schema.json",
+  "title": "Okaya MES (wide-row table) module config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "write a row per finished run (editable on the MES (Okaya table) page)"
+    },
+    "station_name": {
+      "type": "string",
+      "default": "HV Testing",
+      "maxLength": 50,
+      "description": "value of the station_name column"
+    },
+    "database": {
+      "type": "string"
+    },
+    "table": {
+      "type": "string"
+    },
+    "connection": {
+      "type": "object",
+      "description": "{provider: mysql|sqlserver|sqlite, host, port, user, password, odbc_driver, path}"
+    },
+    "timeout_s": {
+      "type": "number",
+      "default": 10
+    }
+  }
+}

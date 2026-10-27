@@ -103,9 +103,23 @@ instruments, the variable map, or step types here.
   **Stop on first failure** switch (recipe-level `stop_on_fail`, default OFF; the Python
   controller skips every step after the first FAIL — `PYTHON_CONTROLLER.md` §6; a skipped test
   emits no row). The detail page's Duplicate opens the editor as a *new* recipe needing its own ID.
+- **Okaya MES table (`okaya_mes`, app-owned module)** — Okaya's MES holds three older benches' results in one WIDE table
+  (`txr_testtable`: per-test min/max/actual/result + `result` + `failed_test`), so this bench writes that table through its own
+  module `backend/modules/okaya_mes/` (`rowbuilder.py` pure row, `writer.py` idempotent write by `(serial_no, date_time)`,
+  `variants/default.py`, `api.py`) and the page `frontend/src/app/overrides/okaya-mes.tsx` → `okaya_hvt/OkayaMesPage.tsx`
+  (`/app/okaya-mes`). The framework `mes` publish stays OFF (it would write its header-only row into that table). Rules, column map,
+  rollout and the not-verified-on-real-SQL-Server caveat: [app/okaya_hvt/docs/OKAYA_MES.md](app/okaya_hvt/docs/OKAYA_MES.md). A NEW
+  module needs `okaya_mes` in the live `license.json` + `app.json` — a frozen install never reconciles, run
+  `app/okaya_hvt/tools/enable_okaya_mes.ps1`. In frontend tests import MUI icons by path (`@mui/icons-material/Save`), never from
+  the barrel: the barrel makes vitest collect for minutes.
 - **Local framework patches (NOT yet upstream)** — this fork deliberately carries edits to
   framework-owned files; expect merge conflicts there on the next framework tag and offer each
-  upstream. TWO remain: (1) `backend/build_release.py` `_run()` resolves the executable with
+  upstream. THREE remain: (0) `controller/controller/__main__.py` `diag_publisher()` — `level`/`message` are
+  positional-only (`lambda level, message, /, **f`): the framework sequencer (v1.31.0 D5) logs `step.end` with a `message=` field,
+  which collided with the callable's `message` parameter (`TypeError ... multiple values for argument 'message'`) and ABORTED EVERY RUN
+  AFTER ITS FIRST STEP — app-v1.0.11 shipped with it (1.0.8-1.0.10 did not); still in upstream v1.32.2. Test:
+  `controller/tester/test_diag_callback.py` (uses the production callable; upstream's fake diag names the parameter `msg`, so it
+  never saw this). (1) `backend/build_release.py` `_run()` resolves the executable with
   `shutil.which` — a bare `npm` is `npm.cmd` on Windows and CreateProcess cannot find it, which aborted every
   release once v1.31.0 made the frontend rebuild unconditional (still in upstream v1.31.1; take theirs if fixed).
   (2) `controller/controller/config.py` + `__main__.py`

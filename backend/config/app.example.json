@@ -91,6 +91,11 @@
       }
     },
     {
+      "id": "okaya_mes",
+      "variant": "default",
+      "config": { "enabled": false, "station_name": "HV Testing" }
+    },
+    {
       "id": "health",
       "variant": "default",
       "config": { "data_root": "data", "disk_min_gb": 1.0 }
