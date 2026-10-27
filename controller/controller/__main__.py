@@ -35,6 +35,19 @@ def _log(level: str, message: str) -> None:
     print(f"[{level}] {message}", flush=True)
 
 
+def diag_publisher(client):
+    """The sequencer / run-engine / `ctx.diag` diagnostics callable: publishes to the exact `diag` topic (not
+    `diag/sequencer`) so the logs module ingests it and warnings/errors (teardown failed, a failed step.end, ...)
+    reach error_log instead of only the live tail.
+
+    `level` and `message` are POSITIONAL-ONLY on purpose: a caller may pass a context field that is itself called
+    `message` (the sequencer's `step.end` does, v1.31.0 D5) and that must land in `context`, not collide with the
+    parameter - `TypeError: got multiple values for argument 'message'` aborted every run after its first step."""
+    return lambda level, message, /, **f: client.publish("diag", {
+        "ts": time.time(), "level": level, "subsystem": "sequencer", "message": message,
+        "context": f, "exception": None})
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     config_path = argv[0] if argv else "controller.json"
@@ -85,13 +98,6 @@ def main(argv: list[str] | None = None) -> int:
                 raise RuntimeError((r.get("error") or {}).get("message", "recipe.fetch failed"))
             return r.get("result") or {}
         return fetch
-
-    def _diag(client):
-        # exact `diag` topic (not `diag/sequencer`): the logs module ingests `diag`, so sequencer
-        # warnings/errors (teardown failed, ...) reach error_log instead of only the live tail.
-        return lambda level, message, **f: client.publish("diag", {
-            "ts": time.time(), "level": level, "subsystem": "sequencer", "message": message,
-            "context": f, "exception": None})
 
     # Load every station's map, then enforce the shared-instrument no-lease rule ACROSS
     # sockets before starting anything (§9.3, fail-closed — a write on a shared device is
@@ -147,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         register_station_ops(c, variables, registry, loop)
         engine = RunEngine(st.station, variables=variables, emit=_emit(c), recipe_fetch=_fetch(c),
                            safe_state=(lambda s=st.station: loop.run(registry.safe_state_station(s))),
-                           diag=_diag(c), abort_grace_ms=cfg.abort_grace_ms,
+                           diag=diag_publisher(c), abort_grace_ms=cfg.abort_grace_ms,
                            teardown_timeout_ms=cfg.teardown_timeout_ms)
         register_run_ops(c, engine)
         if st.variable_map:
