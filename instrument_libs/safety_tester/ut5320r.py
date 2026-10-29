@@ -272,7 +272,7 @@ class Ut5320r(InstrumentBase, ISafetyTester):
                     raise GarbageResponse(
                         f"step {step} reports mode {fields[1]!r}, expected {mode!r}",
                         instance_id=self.instance_id, method=method, detail=raw)
-                return self._num(fields[3], method, raw), fields[4].strip()
+                return self._reading(fields[3], method, raw), fields[4].strip()
             raise GarbageResponse(f"malformed FETCh? segment {fields!r}",
                                   instance_id=self.instance_id, method=method, detail=raw)
 
@@ -284,6 +284,23 @@ class Ut5320r(InstrumentBase, ISafetyTester):
                 return seg
         raise GarbageResponse(f"no step {step} segment in FETCh? reply",
                               instance_id=self.instance_id, method=method, detail=raw)
+
+    def _reading(self, raw: str, method: str, detail: str) -> float:
+        """Parse a FETCh? measurement field (leakage mA / insulation MΩ), tolerating the tester's
+        OVER-RANGE sentinel. When the current exceeds the active range's full scale the UT5320
+        reports the magnitude as ">20.0" (a leading '>'/'<' comparator) instead of a bare number —
+        confirmed live (2026-10, TMF_Trx_HVT_Okaya) on a SHORT, where the leakage rails past the
+        ~20 mA full scale. `float('>20.0')` raises, which used to crash this read as a
+        GarbageResponse and MISLABEL a genuine SHORT as a "tester error — GarbageResponse" ERROR row
+        BEFORE the sorting token (SHORT/ARC/GFI/VOLT ERR, fields[4]) was ever acted on. Strip the
+        comparator and return the boundary magnitude so the reading stays numeric and the sorting
+        result governs the pass/fail — a railed SHORT then becomes a clean, visible FAIL row naming
+        the trip, with the leakage reported at the range boundary. The read-back path keeps the
+        strict `_num` (a comparator there would mean the tester ignored a write, still an error)."""
+        s = (raw or "").strip()
+        if s[:1] in (">", "<"):
+            s = s[1:].strip()
+        return self._num(s, method, detail)
 
     def _num(self, raw: str, method: str, detail: str) -> float:
         try:

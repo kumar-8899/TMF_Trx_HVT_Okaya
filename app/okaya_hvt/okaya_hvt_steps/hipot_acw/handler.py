@@ -76,6 +76,12 @@ class HipotAcw:
 
         for sig in route:
             ctx.write(sig, 1)
+        # Relay actuation is a digital OUTPUT — written, never polled — so nothing about which tap
+        # is energised reaches the value/ stream or the flight recorder. Emit edge diags (captured
+        # in the diag/ class) so the route's ON/OFF timeline IS visible in a capture: this is the
+        # only way to see, across two consecutive test points, whether the previous point's route
+        # actually opened before the next one's closed (the suspected contactor-overlap case).
+        ctx.diag("info", "hipot_acw.route_closed", step_name=name, route=route)
         try:
             ctx.wait(settle_s)
             # measure_acw polls the tester's FETCh? page until the step's sorting result posts
@@ -101,6 +107,7 @@ class HipotAcw:
         finally:
             for sig in route:
                 ctx.write(sig, 0)
+            ctx.diag("info", "hipot_acw.route_open", step_name=name, route=route)
             ctx.wait(settle_off_s)
 
         if error is not None:

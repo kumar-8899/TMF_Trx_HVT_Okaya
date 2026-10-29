@@ -175,3 +175,24 @@ def test_last_acw_result_reports_the_testers_own_token():
     leak, brk = _run(d.measure_acw(1500, 3.0, 1))
     assert (leak, brk) == (0.34, True)                            # low mA, still a breakdown ...
     assert _run(d.last_acw_result()) == "ARC"                     # ... and now we can say which
+
+
+def test_over_range_short_is_a_clean_breakdown_not_a_parse_crash():
+    """Seen live (2026-10): on a SHORT the leakage rails past full scale and the tester reports the
+    current as ">20.0". float(">20.0") used to raise -> GarbageResponse, so a genuine SHORT was
+    MISLABELLED as a tester error BEFORE the SHORT token was read. Now the comparator is stripped:
+    numeric boundary reading + the SHORT token flows through as a breakdown FAIL."""
+    class OverRangeShort(FakeTransport):
+        async def query(self, cmd):
+            if cmd == "FETCh?":
+                self.log.append(("q", cmd))
+                n = sum(1 for k, c in self.log if c == "FETCh?")
+                return "1,AC,0.000,0.000" if n == 1 else "1,AC,0.000,>20.0,SHORT"
+            return await super().query(cmd)
+
+    d = Ut5320r("hipot", simulated=True)
+    d.simulated = False
+    d.transport = OverRangeShort()
+    leak, brk = _run(d.measure_acw(2500, 5.0, 1, current_limit_ma=10.0))
+    assert (leak, brk) == (20.0, True)                            # boundary magnitude, breakdown=True
+    assert _run(d.last_acw_result()) == "SHORT"
