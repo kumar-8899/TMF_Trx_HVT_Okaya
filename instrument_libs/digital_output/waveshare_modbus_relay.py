@@ -105,7 +105,22 @@ class WaveshareModbusRelay(InstrumentBase, IDigitalOutput, IDigitalInput):
 
     async def safe_state(self):
         for ch in range(self._ch_max + 1):
-            await self.transport.write(self.CMD["write_coil"].format(ch=ch, s="OFF"))
+            try:
+                await self.transport.write(self.CMD["write_coil"].format(ch=ch, s="OFF"))
+            except DeviceError as exc:
+                if self._is_absent_coil(exc):
+                    break                        # past the real coils (num_channels set too high)
+                raise
+
+    @staticmethod
+    def _is_absent_coil(exc: DeviceError) -> bool:
+        """True when the board rejected a coil address as illegal (Modbus exception 0x02) — i.e.
+        the board has no such coil. Coils are contiguous 0..n-1, so the first illegal address marks
+        the end of the real board, and an all-coils sweep can stop there instead of failing. This
+        guards against `num_channels` configured higher than the card really has (its default is 32;
+        this bench's routing card is 8ch), which would otherwise fail the whole interlock and block
+        the test before anything energises."""
+        return getattr(exc, "code", None) == "modbus:illegal_data_address"
 
     async def emergency_disable(self):
         await self.safe_state()
@@ -125,21 +140,35 @@ class WaveshareModbusRelay(InstrumentBase, IDigitalOutput, IDigitalInput):
         the external contactor's mechanical position. It catches a LOST or ignored OFF command (the
         coil is still energised), NOT a contactor that merely drops out slowly after its coil went
         cold — a real inter-step dead-time (the step's settle_off_s) is what covers that case."""
-        channels = list(range(self._ch_max + 1))
-        pending = channels
+        present: list[int] | None = None        # discovered on the first OFF sweep (see _is_absent_coil)
+        pending: list[int] = []
         for _ in range(max(1, int(retries) + 1)):
-            for ch in pending:
-                await self.transport.write(self.CMD["write_coil"].format(ch=ch, s="OFF"))
+            targets = pending if present is not None else range(self._ch_max + 1)
+            written: list[int] = []
+            for ch in targets:
+                try:
+                    await self.transport.write(self.CMD["write_coil"].format(ch=ch, s="OFF"))
+                except DeviceError as exc:
+                    if present is None and self._is_absent_coil(exc):
+                        break                    # real board ends here; stop sweeping ghost coils
+                    raise
+                written.append(ch)
+            if present is None:
+                present = written
+                pending = written
+                if not present:
+                    raise DeviceError(
+                        "relay card rejected coil 0 as an illegal address — no coils to open "
+                        "(check num_channels / wiring)",
+                        instance_id=self.instance_id, method="open_all_verified")
             if settle_s > 0:
                 await asyncio.sleep(float(settle_s))
-            still_closed = []
-            for ch in pending:
-                if self._bool(await self.transport.query(self.CMD["read_coil"].format(ch=ch)),
-                              "open_all_verified"):
-                    still_closed.append(ch)
+            still_closed = [ch for ch in pending
+                            if self._bool(await self.transport.query(self.CMD["read_coil"].format(ch=ch)),
+                                          "open_all_verified")]
             pending = still_closed
             if not pending:
-                return {"channels": len(channels), "verified_open": True}
+                return {"channels": len(present), "verified_open": True}
         raise DeviceError(
             f"relay coil(s) {pending} still read CLOSED after {int(retries) + 1} open "
             f"attempt(s) — refusing to energise a route over a live contactor",

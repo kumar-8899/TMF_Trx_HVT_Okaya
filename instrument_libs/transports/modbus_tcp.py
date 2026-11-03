@@ -102,7 +102,13 @@ class ModbusTcpTransport(Transport):
                                         detail=f"{self.host}:{self.port}") from exc
         if body and (body[0] & 0x80):             # exception response: fn|0x80, exc code
             code = body[1] if len(body) > 1 else 0
-            raise DeviceError(f"Modbus exception 0x{code:02X}", detail=f"fn=0x{body[0] & 0x7F:02X}")
+            # Structured `code` so a caller can branch on the specific Modbus exception without
+            # parsing the message (0x02 = illegal data address = "no such coil/register").
+            names = {0x01: "illegal_function", 0x02: "illegal_data_address",
+                     0x03: "illegal_data_value", 0x04: "device_failure"}
+            raise DeviceError(f"Modbus exception 0x{code:02X}",
+                              code=f"modbus:{names.get(code, f'0x{code:02X}')}",
+                              detail=f"fn=0x{body[0] & 0x7F:02X}")
         return body
 
     def _txn_tcp(self, pdu: bytes) -> bytes:

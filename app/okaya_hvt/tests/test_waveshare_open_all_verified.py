@@ -18,16 +18,23 @@ class FakeModbus:
     """Minimal FC05/FC01 relay model. `ignores` maps a channel -> how many OFF writes it drops
     (a stuck/slow coil that keeps reading CLOSED); `preset` seeds coils already energised."""
 
-    def __init__(self, ignores=None, preset=()):
+    def __init__(self, ignores=None, preset=(), absent_from=None):
         self.coils = {ch: True for ch in preset}
         self.ignores = dict(ignores or {})
+        self.absent_from = absent_from          # coils at/after this address don't exist (0x02)
         self.writes: list[str] = []
         self.reads: list[str] = []
+
+    def _check_present(self, ch):
+        if self.absent_from is not None and ch >= self.absent_from:
+            raise DeviceError("Modbus exception 0x02", code="modbus:illegal_data_address",
+                              detail="fn=0x05")
 
     async def write(self, cmd):                 # "W5 {ch} ON|OFF"
         self.writes.append(cmd)
         _, ch, state = cmd.split()
         ch = int(ch)
+        self._check_present(ch)
         if state == "OFF" and self.ignores.get(ch, 0) > 0:
             self.ignores[ch] -= 1               # this OFF is dropped on the wire
         else:
@@ -36,16 +43,17 @@ class FakeModbus:
     async def query(self, cmd):                 # "R1 {ch}" -> coil state
         self.reads.append(cmd)
         _, ch = cmd.split()
+        self._check_present(int(ch))
         return "1" if self.coils.get(int(ch)) else "0"
 
     async def connect(self): ...
     async def disconnect(self): ...
 
 
-def _drv(ignores=None, preset=()):
-    d = WaveshareModbusRelay("relay1", simulated=True, params={"num_channels": 8})
+def _drv(ignores=None, preset=(), num_channels=8, absent_from=None):
+    d = WaveshareModbusRelay("relay1", simulated=True, params={"num_channels": num_channels})
     d.simulated = False
-    d.transport = FakeModbus(ignores, preset)
+    d.transport = FakeModbus(ignores, preset, absent_from=absent_from)
     return d
 
 
@@ -75,6 +83,28 @@ def test_a_dropped_off_write_is_re_issued_and_then_verifies():
 def test_a_permanently_stuck_coil_raises_naming_the_channel():
     d = _drv(ignores={4: 99}, preset=(4,))     # ch4 never accepts OFF
     with pytest.raises(DeviceError, match=r"\[4\]"):
+        _run(d.open_all_verified(settle_s=0, retries=2))
+
+
+def test_num_channels_set_higher_than_the_board_auto_bounds_at_the_first_absent_coil():
+    # The field defect: relay1 took the driver default num_channels=32 but the card is 8ch, so the
+    # sweep wrote coil 8, the board answered Modbus 0x02 (illegal data address), and the whole
+    # interlock failed -> test FAIL before anything energised. Now the sweep stops at the first
+    # absent coil and verifies only the coils that exist.
+    d = _drv(num_channels=32, absent_from=8, preset=(0, 3))
+    out = _run(d.open_all_verified(settle_s=0, retries=2))
+    assert out == {"channels": 8, "verified_open": True}       # 0..7 real, 8..31 ghost -> bounded
+    assert all(v is False for v in d.transport.coils.values())  # the real coils were opened
+    # it stopped at the first ghost: coil 9+ was never written or read
+    assert not any(w.startswith("W5 9 ") for w in d.transport.writes)
+    assert not any(r == "R1 9" for r in d.transport.reads)
+
+
+def test_coil_zero_rejected_as_absent_is_a_real_error_not_a_silent_pass():
+    # If even coil 0 is illegal, something is genuinely wrong (wrong unit / wiring) — do NOT report
+    # a clean open. The interlock must fail loudly rather than wave through an unverified board.
+    d = _drv(num_channels=8, absent_from=0)
+    with pytest.raises(DeviceError, match="no coils to open"):
         _run(d.open_all_verified(settle_s=0, retries=2))
 
 
