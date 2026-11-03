@@ -49,6 +49,7 @@ class InstrumentRegistry:
         self._resources: set[str] = set()
         self._faulted: set[str] = set()                   # instances a safety trip disabled (§10.3)
         self.skipped: list[dict] = []
+        self._connect_retries: dict = {}                  # instance_id -> background re-connect task
 
     def build(self, instruments: list[dict], *, simulation: bool = False, on_command=None) -> None:
         for cfg in instruments or []:
@@ -134,13 +135,45 @@ class InstrumentRegistry:
     def all(self) -> list:
         return list(self._by_id.values())
 
-    async def connect_all(self) -> None:
+    async def connect_all(self, *, retry_interval_s: float = 5.0) -> None:
+        """Connect every instance once. An instance that does NOT come up is not treated as a
+        permanent fault: some hardware (e.g. a safety tester that needs tens of seconds after
+        power-on before it answers VISA, and does not even ping until then) is simply not ready
+        yet at software start. Such an instance gets a background task that retries connect()
+        every `retry_interval_s` seconds until it connects, so the controller boots immediately
+        and the instance comes up on its own — the run-start gate in the UI clears the moment
+        `status()` reports it `connected`. Simulated instances never fail to connect, so this
+        only ever covers real hardware."""
         for inst in self._by_id.values():
             try:
                 await inst.connect()
             except Exception as exc:  # noqa: BLE001 — one bad instrument must not block the rest
                 if self._log:
-                    self._log("warning", f"instance connect failed: {inst.instance_id}: {exc}")
+                    self._log("warning", f"instance connect failed: {inst.instance_id}: {exc} "
+                                         f"— retrying every {retry_interval_s:g}s in the background")
+                if not inst.simulated:
+                    self._start_connect_retry(inst, retry_interval_s)
+
+    def _start_connect_retry(self, inst, interval_s: float) -> None:
+        existing = self._connect_retries.get(inst.instance_id)
+        if existing and not existing.done():
+            return
+        self._connect_retries[inst.instance_id] = asyncio.create_task(
+            self._connect_retry_loop(inst, interval_s))
+
+    async def _connect_retry_loop(self, inst, interval_s: float) -> None:
+        while inst.state != inst.CONNECTED:
+            await asyncio.sleep(interval_s)
+            if inst.state == inst.CONNECTED:        # came up via a mid-run reconnect meanwhile
+                return
+            try:
+                await inst.connect()
+                if self._log:
+                    self._log("info", f"instance connected on retry: {inst.instance_id}")
+                return
+            except Exception as exc:  # noqa: BLE001 — still not answering; keep waiting
+                if self._log:
+                    self._log("info", f"instance still not ready: {inst.instance_id}: {exc}")
 
     async def safe_state_all(self) -> None:
         """Drive every instance to its safe state (run teardown, §5.2). Never raises."""
@@ -160,6 +193,9 @@ class InstrumentRegistry:
                 pass
 
     async def disconnect_all(self) -> None:
+        for task in self._connect_retries.values():
+            task.cancel()
+        self._connect_retries.clear()
         for inst in self._by_id.values():
             try:
                 await inst.disconnect()

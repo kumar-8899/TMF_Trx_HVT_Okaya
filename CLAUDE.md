@@ -114,7 +114,16 @@ instruments, the variable map, or step types here.
   the barrel: the barrel makes vitest collect for minutes.
 - **Local framework patches (NOT yet upstream)** — this fork deliberately carries edits to
   framework-owned files; expect merge conflicts there on the next framework tag and offer each
-  upstream. THREE remain: (0) `controller/controller/__main__.py` `diag_publisher()` — `level`/`message` are
+  upstream. FIVE remain: (3) `controller/controller/instruments/registry.py` `connect_all()` — an
+  instance that fails to connect at boot now gets a background task that retries `connect()` every
+  5 s until it comes up (the UT5320R safety tester needs tens of seconds after power-on before it
+  answers VISA / even pings), instead of being left `disconnected` after one best-effort attempt;
+  simulated instances are never retried. Test: `controller/tester/test_connect_retry.py`. (4)
+  `frontend/src/screens/Runs.tsx` (+ `Runs.test.tsx`) — the Start-test dialog blocks the run and
+  lists which instruments are still connecting (polls `/variables/instances`, `connected`/`skipped`
+  = ready) until all are up; UI-gate only, no backend `/runs/start` guard. Both are good upstream
+  CR candidates ("don't start a run over a disconnected instrument" is generic). (0)
+  `controller/controller/__main__.py` `diag_publisher()` — `level`/`message` are
   positional-only (`lambda level, message, /, **f`): the framework sequencer (v1.31.0 D5) logs `step.end` with a `message=` field,
   which collided with the callable's `message` parameter (`TypeError ... multiple values for argument 'message'`) and ABORTED EVERY RUN
   AFTER ITS FIRST STEP — app-v1.0.11 shipped with it (1.0.8-1.0.10 did not); still in upstream v1.32.2. Test:

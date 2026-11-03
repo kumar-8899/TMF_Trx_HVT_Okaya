@@ -19,6 +19,7 @@ function baseRoutes(barcodeCfg: any) {
     "GET /config/barcode": { body: barcodeCfg },
     "GET /config/shift/current": { body: { enabled: false } },
     "GET /recipes": { body: [{ recipe_id: "inv", name: "Inverter" }] },
+    "GET /variables/instances": { body: [] },   // all instruments ready unless a test overrides
   };
 }
 
@@ -45,6 +46,38 @@ describe("Runs — config load failures are shown, never swallowed (D11)", () =>
     await openStartDialog();
     expect(await screen.findByText(/Could not load the barcode settings/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+  });
+});
+
+describe("Runs — a run is blocked until every instrument is connected", () => {
+  it("shows which instruments are still connecting and disables Start; never POSTs /runs/start", async () => {
+    localStorage.setItem("tmf.token", "t");
+    let posted = false;
+    const disabledCfg = { ...BARCODE_CFG, enabled: false };
+    globalThis.fetch = (async (url: any, opts: any = {}) => {
+      const method = (opts.method || "GET").toUpperCase();
+      const path = String(url).split("?")[0];
+      if (path === "/variables/instances") {
+        return { ok: true, status: 200, text: async () => JSON.stringify(
+          [{ id: "hipot", state: "reconnecting" }, { id: "relay1", state: "connected" }]) } as Response;
+      }
+      if (method === "POST" && path === "/runs/start") {
+        posted = true;
+        return { ok: true, status: 200, text: async () => JSON.stringify({ run_id: "r1" }) } as Response;
+      }
+      const route = (baseRoutes(disabledCfg) as Record<string, any>)[`GET ${path}`];
+      return route
+        ? { ok: true, status: 200, text: async () => JSON.stringify(route.body) } as Response
+        : { ok: false, status: 404, text: async () => "" } as Response;
+    }) as any;
+
+    await openStartDialog();
+    // the gate banner names the not-ready instrument and Start is disabled (findBy: waits for the poll)
+    expect(await screen.findByText(/Waiting for instruments to connect/)).toBeInTheDocument();
+    expect(screen.getByText("hipot")).toBeInTheDocument();
+    expect(screen.queryByText("relay1")).not.toBeInTheDocument();   // connected ones aren't listed
+    expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+    expect(posted).toBe(false);
   });
 });
 

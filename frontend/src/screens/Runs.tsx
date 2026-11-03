@@ -31,6 +31,12 @@ interface BarcodeConfig {
 }
 const NO_BARCODE: BarcodeConfig = { enabled: false, length: 0, parts: [], recipe_part: null };
 
+interface InstanceRow { id: string; state: string }
+// An instance is "ready" once it reports connected; `skipped` (no driver / not built on this PC)
+// is not something an operator can clear, so it never blocks a run. Everything else — disconnected,
+// connecting, reconnecting, faulted — means not yet usable.
+const READY_STATES = new Set(["connected", "skipped"]);
+
 const FINAL = new Set(["PASS", "FAIL", "ABORTED"]);
 
 export function Runs() {
@@ -54,6 +60,7 @@ export function Runs() {
   const [barcode, setBarcode] = useState("");
   const [pickRecipe, setPickRecipe] = useState("");
   const [recipes, setRecipes] = useState<{ recipe_id: string; name: string }[]>([]);
+  const [instances, setInstances] = useState<InstanceRow[]>([]);
 
   const [station, setStation] = useState<string | null>(null);   // multi-socket: which DUT position
   const values = useValues("/instruments/values/ws");
@@ -83,6 +90,21 @@ export function Runs() {
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Instrument readiness — a run must not start until every instrument is connected. Some
+  // hardware (the HV safety tester) does not answer VISA for tens of seconds after power-on;
+  // the controller retries connecting in the background (every 5 s), and this poll shows the
+  // operator exactly which instruments are still coming up and blocks Start until they do.
+  useEffect(() => {
+    const load = () => api.get("/variables/instances")
+      .then((rows) => { setInstances(Array.isArray(rows) ? rows : []); clearLoad("instrument status"); })
+      .catch((e) => noteLoad("instrument status", e));
+    load();
+    const id = setInterval(load, 3000);
+    return () => clearInterval(id);
+  }, []);
+  const notReady = instances.filter((i) => !READY_STATES.has(i.state));
+  const instrumentsReady = notReady.length === 0;
 
   const running = runStatus === "running";
   const recipeSlicePart = barcodeCfg.parts.find((p) => p.name === barcodeCfg.recipe_part);
@@ -141,6 +163,7 @@ export function Runs() {
   };
 
   const startRun = async () => {
+    if (!instrumentsReady) return;   // gated: the dialog shows which instruments are still connecting
     setError(null);
     try {
       const reqBody: any = barcodeCfg.enabled ? { barcode } : { recipe_id: pickRecipe };
@@ -223,6 +246,20 @@ export function Runs() {
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Start test</DialogTitle>
         <DialogContent>
+          {!instrumentsReady && (
+            <Alert severity="warning" sx={{ mb: 1.5 }}>
+              Waiting for instruments to connect — a test cannot start until every instrument is
+              ready. The controller is retrying every 5&nbsp;s; this clears on its own once the
+              hardware answers.
+              <Box component="ul" sx={{ m: "0.5em 0 0", pl: 2.5 }}>
+                {notReady.map((i) => (
+                  <li key={i.id}>
+                    <b style={{ fontFamily: MONO_STACK }}>{i.id}</b> — {i.state}
+                  </li>
+                ))}
+              </Box>
+            </Alert>
+          )}
           {barcodeCfg.enabled ? (
             <Stack spacing={1.5} sx={{ mt: 1 }}>
               <TextField label="Serial number" value={barcode} autoFocus
@@ -250,7 +287,7 @@ export function Runs() {
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="contained" startIcon={<PlayArrow />}
-            disabled={Boolean(loadErrors["barcode settings"]) || (barcodeCfg.enabled ? !barcode : !pickRecipe)}
+            disabled={!instrumentsReady || Boolean(loadErrors["barcode settings"]) || (barcodeCfg.enabled ? !barcode : !pickRecipe)}
             onClick={startRun}>Start</Button>
         </DialogActions>
       </Dialog>
