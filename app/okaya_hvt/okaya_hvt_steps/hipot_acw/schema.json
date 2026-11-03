@@ -70,6 +70,33 @@
       "type": "string",
       "title": "Measurement name",
       "description": "Base name recorded for the measurements (defaults to \"leakage_current\"; a \"_breakdown\" suffix names the dielectric-fault flag)."
+    },
+    "routing_action": {
+      "type": "string",
+      "default": "routing",
+      "title": "Relay interlock action",
+      "description": "Variable-map action bound to the multiplexing relay card's digital_output capability (maps/st1.json \"actions\"). Before each energise the step calls its open_all_verified() to drive every routing coil open and read it back, so a tap is never closed over a live one. Set to \"\" to disable the interlock (not recommended on a live-HV bench)."
+    },
+    "verify_settle_s": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0.3,
+      "title": "Interlock read-back settle (s)",
+      "description": "Dwell after the interlock drives all coils OFF, before reading them back (lets the relay module update)."
+    },
+    "verify_retries": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 2,
+      "title": "Interlock re-open attempts",
+      "description": "How many extra times a coil that still reads CLOSED has its OFF re-issued and re-read before the interlock fails the test."
+    },
+    "retries": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 1,
+      "title": "Test retries on failure",
+      "description": "Re-run the whole test (interlock + energise + measure) this many more times if it FAILs. Default 1 = one retry; an intermittent overlap artifact clears on the clean retry, a real fault stays FAIL. 0 disables retrying."
     }
   }
 }

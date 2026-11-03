@@ -28,27 +28,39 @@ from controller.results import FAIL, PASS, finalize
 from controller.sequencer import Sequencer
 from okaya_hvt_steps.hipot_acw.handler import HipotAcw
 
+# retries=0: the single-attempt tests assert one energise cycle, so they opt out of the
+# default retry; the retry behaviour has its own tests below.
 _PARAMS = {
     "route": ["hipot_route_pri_sec"],
     "voltage": 1500.0,
     "test_time": 3.0,
     "max_current_ma": 5.0,
+    "retries": 0,
 }
 
 
 class FakeCtx:
-    """Records writes/waits/diags; returns or raises whatever the test scripts for invoke()."""
+    """Records writes/waits/diags; returns or raises whatever the test scripts for invoke().
+
+    invoke() handles three methods: the relay interlock `open_all_verified` (counted; raises
+    `interlock_error` if set, else reports all-open), the `last_acw_result` explanation lookup,
+    and the `measure_acw` measurement. `invoke_seq` scripts one measurement result/Exception per
+    attempt (for retry tests); otherwise every measurement uses invoke_result / invoke_error."""
 
     def __init__(self, invoke_result=None, invoke_error=None, wait_error=None,
-                 reason="ARC", reason_error=None):
+                 reason="ARC", reason_error=None, interlock_error=None, invoke_seq=None):
         self.reason = reason                 # what last_acw_result() reports
         self.reason_error = reason_error
         self.writes: list[tuple[str, float]] = []
         self.waited: list[float] = []
         self.diags: list[tuple[str, str, dict]] = []
         self.invoked_with = None
+        self.measure_calls = 0
+        self.interlock_calls = 0
         self._invoke_result = invoke_result
         self._invoke_error = invoke_error
+        self._invoke_seq = list(invoke_seq) if invoke_seq is not None else None
+        self._interlock_error = interlock_error
         self._wait_error = wait_error
 
     def write(self, name, value):
@@ -61,11 +73,22 @@ class FakeCtx:
             raise self._wait_error
 
     def invoke(self, action, method, args=None):
+        if method == "open_all_verified":    # the relay interlock, not the measurement
+            self.interlock_calls += 1
+            if self._interlock_error is not None:
+                raise self._interlock_error
+            return {"verified_open": True}
         if method == "last_acw_result":      # the explanation lookup, not the measurement
             if self.reason_error is not None:
                 raise self.reason_error
             return self.reason
         self.invoked_with = (action, method, args)
+        self.measure_calls += 1
+        if self._invoke_seq is not None:
+            item = self._invoke_seq.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
         if self._invoke_error is not None:
             raise self._invoke_error
         return self._invoke_result
@@ -212,9 +235,89 @@ def test_a_human_readable_name_passes_through_unchanged():
     assert result.measurements[0].name == "Primary to Secondary"
 
 
-def test_bindings_declare_the_route_signals_and_action():
+def test_bindings_declare_the_route_signals_and_both_actions():
     b = HipotAcw.bindings({**_PARAMS, "action": "hipot"})
+    assert b == {"signals": ["hipot_route_pri_sec"], "actions": ["hipot", "routing"]}
+
+
+def test_bindings_omit_the_routing_action_when_the_interlock_is_disabled():
+    b = HipotAcw.bindings({**_PARAMS, "action": "hipot", "routing_action": ""})
     assert b == {"signals": ["hipot_route_pri_sec"], "actions": ["hipot"]}
+
+
+# ---- relay interlock: verified all-open BEFORE energising -------------------
+
+def test_interlock_runs_before_energising_on_a_nominal_pass():
+    ctx = FakeCtx(invoke_result=(1.0, False))
+    result = HipotAcw().execute(_PARAMS, ctx)
+    assert ctx.interlock_calls == 1                         # open_all_verified called once
+    assert result.measurements[0].status is None or result.measurements[0].value == 1.0
+    assert any(m == "hipot_acw.interlock_ok" for _, m, _ in ctx.diags)
+    # interlock proven, THEN the route energised and opened
+    assert _route_states(ctx) == [("hipot_route_pri_sec", 1), ("hipot_route_pri_sec", 0)]
+
+
+def test_interlock_failure_is_a_visible_fail_and_the_route_is_never_energised():
+    ctx = FakeCtx(invoke_result=(1.0, False), interlock_error=RuntimeError("coil [2] still CLOSED"))
+    result = HipotAcw().execute(_PARAMS, ctx)              # must NOT raise
+    finalize(result.measurements)
+    (row,) = result.measurements
+    assert row.value == "ERROR" and row.status == FAIL
+    assert "interlock failed" in result.message and "coil [2] still CLOSED" in result.message
+    assert ctx.writes == []                                # nothing energised — safe state unproven
+    assert ctx.measure_calls == 0                          # the tester was never asked to apply HV
+    assert any(m == "hipot_acw.interlock_failed" and lvl == "error" for lvl, m, _ in ctx.diags)
+
+
+def test_interlock_disabled_skips_the_verify_but_still_runs_the_test():
+    ctx = FakeCtx(invoke_result=(1.0, False))
+    HipotAcw().execute({**_PARAMS, "routing_action": ""}, ctx)
+    assert ctx.interlock_calls == 0
+    assert _route_states(ctx) == [("hipot_route_pri_sec", 1), ("hipot_route_pri_sec", 0)]
+
+
+# ---- retry once on failure --------------------------------------------------
+
+def test_retry_clears_an_intermittent_breakdown_and_the_pass_is_recorded():
+    # attempt 1 SHORTs (overlap artifact), attempt 2 is clean -> PASS, two full cycles
+    ctx = FakeCtx(invoke_seq=[(20.0, True), (1.0, False)])
+    result = HipotAcw().execute({**_PARAMS, "retries": 1}, ctx)
+    finalize(result.measurements)
+    assert result.measurements[0].value == 1.0 and result.measurements[0].status == PASS
+    assert ctx.measure_calls == 2 and ctx.interlock_calls == 2      # interlock re-run each attempt
+    assert _route_states(ctx) == [("hipot_route_pri_sec", 1), ("hipot_route_pri_sec", 0)] * 2
+    assert any(m == "hipot_acw.retry" for _, m, _ in ctx.diags)
+
+
+def test_retry_exhausted_keeps_the_fail():
+    ctx = FakeCtx(invoke_seq=[(20.0, True), (20.0, True)])          # fails both times
+    result = HipotAcw().execute({**_PARAMS, "retries": 1}, ctx)
+    finalize(result.measurements)
+    assert result.measurements[0].status == FAIL and result.measurements[0].value == 20.0
+    assert ctx.measure_calls == 2
+
+
+def test_over_limit_leakage_is_retried_then_passes():
+    ctx = FakeCtx(invoke_seq=[(8.0, False), (0.3, False)])          # 8.0 > 5.0 limit, then clean
+    result = HipotAcw().execute({**_PARAMS, "retries": 1}, ctx)
+    finalize(result.measurements)
+    assert result.measurements[0].value == 0.3 and result.measurements[0].status == PASS
+    assert ctx.measure_calls == 2
+
+
+def test_a_clean_pass_is_not_retried():
+    ctx = FakeCtx(invoke_seq=[(1.0, False), (9.9, False)])          # 2nd would FAIL if ever used
+    result = HipotAcw().execute({**_PARAMS, "retries": 1}, ctx)
+    finalize(result.measurements)
+    assert result.measurements[0].value == 1.0 and result.measurements[0].status == PASS
+    assert ctx.measure_calls == 1                                   # stopped after the first PASS
+
+
+def test_abort_is_never_retried():
+    ctx = FakeCtx(invoke_error=StepAborted())
+    with pytest.raises(StepAborted):
+        HipotAcw().execute({**_PARAMS, "retries": 1}, ctx)
+    assert ctx.measure_calls == 1
 
 
 # ---- end to end through the REAL sequencer ----------------------------------
@@ -223,7 +326,7 @@ def test_bindings_declare_the_route_signals_and_action():
 # dwell param is 0.
 
 _FAST = {"voltage": 1500.0, "test_time": 0.0, "max_current_ma": 5.0,
-         "settle_s": 0.0, "settle_off_s": 0.0, "off_margin_s": 0.0}
+         "settle_s": 0.0, "settle_off_s": 0.0, "off_margin_s": 0.0, "retries": 0}
 _LABELS = {"pri_sec": "Primary to Secondary", "pri_core": "Primary to Core",
            "sec_core": "Secondary to Core"}
 
@@ -244,6 +347,8 @@ class _Vars:
         return {"written": value}
 
     def invoke(self, action, method, args=None):
+        if method == "open_all_verified":    # the relay interlock, not a measurement
+            return {"verified_open": True}
         if method == "last_acw_result":      # explanation lookup after a breakdown, not a measurement
             return "ARC"
         reply = self.replies.pop(0)

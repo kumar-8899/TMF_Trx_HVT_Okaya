@@ -76,6 +76,7 @@
     }
   },
   "actions": {
-    "hipot": { "instance": "hipot", "capability": "safety_tester" }
+    "hipot": { "instance": "hipot", "capability": "safety_tester" },
+    "routing": { "instance": "relay1", "capability": "digital_output" }
   }
 }

@@ -17,6 +17,15 @@ the re-query intermittently got `GarbageResponse: step N has no completed result
 measure_acw itself had already completed cleanly. Reverted to the single trusted read; do not
 reintroduce the second FETCh? query without a stable repro on real hardware.
 
+Before each energise the step runs a RELAY INTERLOCK (`routing_action` -> the mux card's
+`open_all_verified`): drive every routing coil open and FC01 read it back, so a tap is never
+closed on top of a still-live one (the confirmed two-contactors-on fault). If the safe state
+cannot be proven the route is NOT energised and the row is a visible interlock FAIL. The whole
+test is also retried once by default (`retries`) on any FAIL/breakdown/error — an intermittent
+overlap artifact clears on the clean retry, a real fault stays FAIL. (The interlock's read-back
+catches a LOST open command; a contactor that is merely slow to drop out is covered by the
+inter-step dead-time `settle_off_s`.)
+
 Produces exactly ONE measurement row per run, named by the `name` param (the recipe form passes
 the human test-point label, e.g. "Primary to Secondary", so the Results table reads naturally):
 the leakage current in mA, judged against `max_current_ma`. A test that FAILS is always visible
@@ -56,31 +65,76 @@ class HipotAcw:
     def bindings(params):
         route = list(params.get("route") or [])
         action = params.get("action") or "hipot"
-        return {"signals": route, "actions": [action]}
+        actions = [action]
+        routing = params.get("routing_action", "routing")
+        if routing and routing not in actions:
+            actions.append(routing)
+        return {"signals": route, "actions": actions}
 
     def execute(self, params, ctx) -> StepResult:
         route = list(params.get("route") or [])
         action = params.get("action") or "hipot"
+        routing_action = params.get("routing_action", "routing")   # falsy disables the interlock
         step = int(params.get("step", 1))
         voltage = float(params["voltage"])
         test_time = float(params["test_time"])
         settle_s = float(params.get("settle_s", 1.0))
         settle_off_s = float(params.get("settle_off_s", 2.0))
         off_margin_s = float(params.get("off_margin_s", 4.0))
+        verify_settle_s = float(params.get("verify_settle_s", 0.3))
+        verify_retries = int(params.get("verify_retries", 2))
+        retries = int(params.get("retries", 1))         # re-run the whole test once more on FAIL
         name = params.get("name") or "leakage_current"
         limits = Limits(max=float(params["max_current_ma"]))
 
+        attempts = max(1, retries + 1)
+        leakage_ma = breakdown = error = energized = None
+        for attempt in range(1, attempts + 1):
+            leakage_ma, breakdown, error, energized = self._attempt(
+                ctx, route=route, action=action, routing_action=routing_action,
+                voltage=voltage, test_time=test_time, step=step, limits=limits, name=name,
+                settle_s=settle_s, settle_off_s=settle_off_s, off_margin_s=off_margin_s,
+                verify_settle_s=verify_settle_s, verify_retries=verify_retries)
+            if not self._is_fail(leakage_ma, breakdown, error, limits) or attempt == attempts:
+                break
+            ctx.diag("warning", "hipot_acw.retry", step_name=name, attempt=attempt,
+                     reason=("interlock" if (error is not None and not energized)
+                             else "error" if error is not None
+                             else "breakdown" if breakdown else "over_limit"))
+
+        return self._result(ctx, leakage_ma=leakage_ma, breakdown=breakdown, error=error,
+                            energized=energized, action=action, name=name, limits=limits)
+
+    def _attempt(self, ctx, *, route, action, routing_action, voltage, test_time, step, limits,
+                 name, settle_s, settle_off_s, off_margin_s, verify_settle_s, verify_retries):
+        """One full cycle: prove the mux is all-open, energise the route, measure, open again.
+        Returns (leakage_ma, breakdown, error, energized). `energized` is False when the
+        pre-energise interlock failed — the route was NEVER closed in that case (r3 safety)."""
         leakage_ma = None
         breakdown = False
         error: Exception | None = None
+
+        # Interlock (r3): never energise a route on top of a live one. Drive EVERY routing coil
+        # open and FC01-read it back FIRST; a coil that will not read open (a dropped OFF write
+        # that left a contactor energised — the confirmed two-contactors-on fault) makes this
+        # raise, and we return WITHOUT energising, as a visible ERROR/FAIL row (not a raise: a
+        # raised step emits no test-result).
+        if routing_action:
+            try:
+                ctx.invoke(routing_action, "open_all_verified", [verify_settle_s, verify_retries])
+            except StepAborted:
+                raise
+            except Exception as exc:  # noqa: BLE001 — safe state unproven -> never energise
+                ctx.diag("error", "hipot_acw.interlock_failed", step_name=name,
+                         error=f"{type(exc).__name__}: {exc}")
+                return None, False, exc, False
+            ctx.diag("info", "hipot_acw.interlock_ok", step_name=name, route=route)
 
         for sig in route:
             ctx.write(sig, 1)
         # Relay actuation is a digital OUTPUT — written, never polled — so nothing about which tap
         # is energised reaches the value/ stream or the flight recorder. Emit edge diags (captured
-        # in the diag/ class) so the route's ON/OFF timeline IS visible in a capture: this is the
-        # only way to see, across two consecutive test points, whether the previous point's route
-        # actually opened before the next one's closed (the suspected contactor-overlap case).
+        # in the diag/ class) so the route's ON/OFF timeline IS visible in a capture.
         ctx.diag("info", "hipot_acw.route_closed", step_name=name, route=route)
         try:
             ctx.wait(settle_s)
@@ -109,9 +163,28 @@ class HipotAcw:
                 ctx.write(sig, 0)
             ctx.diag("info", "hipot_acw.route_open", step_name=name, route=route)
             ctx.wait(settle_off_s)
+        return leakage_ma, breakdown, error, True
 
+    @staticmethod
+    def _is_fail(leakage_ma, breakdown, error, limits) -> bool:
+        """Mirror the framework's own PASS/FAIL rule so the retry loop can decide: an error or a
+        reported breakdown is a FAIL; a non-numeric reading is a FAIL (ERROR vs numeric limits);
+        otherwise it is a FAIL only when the leakage exceeds the limit."""
+        if error is not None or breakdown:
+            return True
+        if not isinstance(leakage_ma, (int, float)):
+            return True
+        return leakage_ma > limits.max
+
+    def _result(self, ctx, *, leakage_ma, breakdown, error, energized, action, name, limits):
         if error is not None:
             detail = f"{type(error).__name__}: {error}"
+            if not energized:   # the interlock blocked this test — the route was never closed
+                ctx.diag("error", "hipot_acw.measure_failed", step_name=name, error=detail)
+                return StepResult(
+                    measurements=[Measurement(name, "ERROR", "mA", limits=limits)],
+                    message=f"{name}: relay interlock failed (safe state not confirmed) — {detail}",
+                )
             ctx.diag("error", "hipot_acw.measure_failed", step_name=name, error=detail)
             return StepResult(
                 measurements=[Measurement(name, "ERROR", "mA", limits=limits)],

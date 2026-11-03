@@ -23,6 +23,13 @@ import sys
 import time
 from pathlib import Path
 
+# Recipe limits print as "≤ 10.0" (U+2264); a Windows console defaults to cp1252 and would raise
+# UnicodeEncodeError mid-print, which the sequencer then counts as a failed run. Print UTF-8.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # noqa: BLE001 — best-effort; older/odd stdouts just keep their encoding
+    pass
+
 APP_DIR = Path(__file__).resolve().parents[1]        # app/okaya_hvt
 FORK_ROOT = APP_DIR.parents[1]                       # repo root (holds instrument_libs/)
 CONTROLLER_DIR = FORK_ROOT / "controller"            # the controller package repo

@@ -22,8 +22,10 @@ Sim + conformance run headless (no card).
 
 from __future__ import annotations
 
+import asyncio
+
 from instrumentlib import IDigitalInput, IDigitalOutput, InstrumentBase, SimTransport
-from instrumentlib.errors import GarbageResponse, NotSupported
+from instrumentlib.errors import DeviceError, GarbageResponse, NotSupported
 
 from instrument_libs.transports import ModbusTcpTransport
 
@@ -107,6 +109,41 @@ class WaveshareModbusRelay(InstrumentBase, IDigitalOutput, IDigitalInput):
 
     async def emergency_disable(self):
         await self.safe_state()
+
+    # ---- multiplexer interlock: prove every coil is OPEN, with read-back ----
+
+    async def open_all_verified(self, settle_s: float = 0.3, retries: int = 2) -> dict:
+        """Drive EVERY relay coil OFF (FC05) and then FC01 read-back each one to CONFIRM it
+        reports open. Any coil that does not read open — a dropped/ignored write that left a
+        contactor energised (the two-contactors-on fault on this bench) — has its OFF re-issued
+        and is re-read, up to `retries` further passes. If a coil is still closed after that,
+        raise DeviceError naming the channel(s): the caller must NOT energise a new route on top
+        of a live one (r3 safety). `settle_s` is waited once after each round of OFF writes,
+        before the read-back, to let the module (and any mechanical contactor) settle.
+
+        NOTE on what the read-back proves: FC01 returns the relay MODULE's own coil register, not
+        the external contactor's mechanical position. It catches a LOST or ignored OFF command (the
+        coil is still energised), NOT a contactor that merely drops out slowly after its coil went
+        cold — a real inter-step dead-time (the step's settle_off_s) is what covers that case."""
+        channels = list(range(self._ch_max + 1))
+        pending = channels
+        for _ in range(max(1, int(retries) + 1)):
+            for ch in pending:
+                await self.transport.write(self.CMD["write_coil"].format(ch=ch, s="OFF"))
+            if settle_s > 0:
+                await asyncio.sleep(float(settle_s))
+            still_closed = []
+            for ch in pending:
+                if self._bool(await self.transport.query(self.CMD["read_coil"].format(ch=ch)),
+                              "open_all_verified"):
+                    still_closed.append(ch)
+            pending = still_closed
+            if not pending:
+                return {"channels": len(channels), "verified_open": True}
+        raise DeviceError(
+            f"relay coil(s) {pending} still read CLOSED after {int(retries) + 1} open "
+            f"attempt(s) — refusing to energise a route over a live contactor",
+            instance_id=self.instance_id, method="open_all_verified")
 
     # ---- helper: a read is a value or an error, never a wrong bit ----------
 
