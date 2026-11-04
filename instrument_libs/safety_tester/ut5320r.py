@@ -67,6 +67,9 @@ _ACW_RESULTS = _ACW_BREAKDOWN | {"PASS", "HI-Limit", "LO-Limit"}
 _IR_RESULTS = frozenset({"PASS", "HI-Limit", "LO-Limit", "Charge Lo"})
 
 _POLL_S = 0.2
+# VISA read-timeout headroom over the dwell for the FETCh? poll: a blocking FETCh? must outlast
+# rise + dwell + fall + instrument latency, so the result read never times out mid-measurement.
+_FETCH_READ_MARGIN_MS = 15000
 _AC_LIMIT_MIN_MA, _AC_LIMIT_MAX_MA = 0.001, 20.0     # UT5320 series, manual §1.5.11
 
 
@@ -152,7 +155,13 @@ class Ut5320r(InstrumentBase, ISafetyTester):
         await self.transport.write(self.CMD["ac_ttim"].format(step=step, t=float(dwell)))
         if current_limit_ma is not None:
             await self._program_ac_current_limit(step, float(current_limit_ma))
-        leakage_ma, result = await self._run_and_fetch(step, "AC", "measure_acw")
+        # Cover the whole rise+dwell+fall with the VISA read timeout: a FETCh? blocks until the
+        # tester posts a reading, and with the 5 s default a 5 s dwell raced it to VI_ERROR_TMO —
+        # the test PASSED on the instrument but our read gave up and it surfaced as an ERROR row
+        # (field defect 2026-11). Scale from the dwell so any test length is covered.
+        read_timeout_ms = int(float(dwell) * 1000) + _FETCH_READ_MARGIN_MS
+        leakage_ma, result = await self._run_and_fetch(step, "AC", "measure_acw",
+                                                       read_timeout_ms=read_timeout_ms)
         self._last_acw_result = result            # recorded BEFORE validation: unknown tokens are kept too
         if result not in _ACW_RESULTS:
             raise DeviceError(f"unexpected ACW sorting result {result!r} on step {step}",
@@ -237,7 +246,8 @@ class Ut5320r(InstrumentBase, ISafetyTester):
                               f"(reads back {mode!r}) — low leakage would read as 0.000 mA",
                               instance_id=self.instance_id, method="measure_acw")
 
-    async def _run_and_fetch(self, step: int, mode: str, method: str) -> tuple[float, str]:
+    async def _run_and_fetch(self, step: int, mode: str, method: str,
+                             read_timeout_ms: int | None = None) -> tuple[float, str]:
         """TEST, then poll FETCh? until `step`'s segment carries a GENUINELY NEW sorting result
         (5 comma fields) — 4 fields means the step hasn't finished yet (§1.12 Additional Notes).
 
@@ -252,29 +262,43 @@ class Ut5320r(InstrumentBase, ISafetyTester):
         state change, not a timing guess. Skipped in sim (`self.simulated`): the canned sim
         reply is a static 5-field string with no in-progress state to observe, so requiring one
         would hang forever."""
-        await self.transport.write(self.CMD["start"])
-        seen_in_progress = self.simulated
-        while True:
-            raw = await self.transport.query(self.CMD["fetch"])
-            fields = self._segment(raw, step, method).split(",")
-            if len(fields) == 4:
-                seen_in_progress = True
-                await asyncio.sleep(_POLL_S)
-                continue
-            if len(fields) >= 5:
-                if not seen_in_progress:
-                    # Still the stale result from the PREVIOUS test on this step — keep polling
-                    # until the page actually flips to in-progress, so a leftover reading is
-                    # never reported as this test's own.
+        # Raise the per-read VISA timeout to cover the whole test (restored in the finally): a
+        # FETCh? blocks until the tester posts a reading, which for a multi-second dwell runs past
+        # the transport's short default and would otherwise time out mid-test (see measure_acw).
+        set_timeout = getattr(self.transport, "set_read_timeout_ms", None)
+        prev_timeout = getattr(self.transport, "timeout_ms", None)
+        restore = False
+        if (set_timeout and read_timeout_ms and prev_timeout is not None
+                and read_timeout_ms > prev_timeout):
+            await set_timeout(read_timeout_ms)
+            restore = True
+        try:
+            await self.transport.write(self.CMD["start"])
+            seen_in_progress = self.simulated
+            while True:
+                raw = await self.transport.query(self.CMD["fetch"])
+                fields = self._segment(raw, step, method).split(",")
+                if len(fields) == 4:
+                    seen_in_progress = True
                     await asyncio.sleep(_POLL_S)
                     continue
-                if fields[1] != mode:
-                    raise GarbageResponse(
-                        f"step {step} reports mode {fields[1]!r}, expected {mode!r}",
-                        instance_id=self.instance_id, method=method, detail=raw)
-                return self._reading(fields[3], method, raw), fields[4].strip()
-            raise GarbageResponse(f"malformed FETCh? segment {fields!r}",
-                                  instance_id=self.instance_id, method=method, detail=raw)
+                if len(fields) >= 5:
+                    if not seen_in_progress:
+                        # Still the stale result from the PREVIOUS test on this step — keep polling
+                        # until the page actually flips to in-progress, so a leftover reading is
+                        # never reported as this test's own.
+                        await asyncio.sleep(_POLL_S)
+                        continue
+                    if fields[1] != mode:
+                        raise GarbageResponse(
+                            f"step {step} reports mode {fields[1]!r}, expected {mode!r}",
+                            instance_id=self.instance_id, method=method, detail=raw)
+                    return self._reading(fields[3], method, raw), fields[4].strip()
+                raise GarbageResponse(f"malformed FETCh? segment {fields!r}",
+                                      instance_id=self.instance_id, method=method, detail=raw)
+        finally:
+            if restore:
+                await set_timeout(prev_timeout)
 
     def _segment(self, raw: str, step: int, method: str) -> str:
         prefix = f"{step},"

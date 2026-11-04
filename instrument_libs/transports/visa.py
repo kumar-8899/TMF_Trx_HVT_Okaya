@@ -39,6 +39,14 @@ class VisaTransport(Transport):
         except Exception as exc:  # noqa: BLE001 — surface as a structured disconnect
             raise TransportDisconnected(f"VISA open failed: {exc}", detail=self.resource) from exc
 
+    async def set_read_timeout_ms(self, ms: int) -> None:
+        """Change the per-read VISA timeout. A safety tester's FETCh? can block for the whole
+        rise+dwell+fall of a test, which runs well past the 5 s default — the driver raises this to
+        cover the test before polling, then restores it."""
+        self.timeout_ms = int(ms)
+        if self._inst is not None:
+            await self._run(lambda: setattr(self._inst, "timeout", self.timeout_ms))
+
     async def disconnect(self) -> None:
         if self._inst is not None:
             try:

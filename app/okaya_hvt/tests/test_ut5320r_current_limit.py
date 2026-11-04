@@ -16,6 +16,12 @@ class FakeTransport:
         self.log: list[tuple[str, str]] = []
         self.uppc_readback = uppc_readback
         self.range_readback = "AUTO"
+        self.timeout_ms = 5000                   # the VISA default this driver ships with
+        self.read_timeouts: list[int] = []       # every value measure_acw sets the read timeout to
+
+    async def set_read_timeout_ms(self, ms):
+        self.timeout_ms = int(ms)
+        self.read_timeouts.append(int(ms))
 
     async def write(self, cmd):
         self.log.append(("w", cmd))
@@ -55,6 +61,17 @@ def test_limit_is_programmed_after_type_volt_ttim_and_before_test_then_read_back
                         "FUNC:AC:RANG 1,AUTO", "FUNC:AC:RANG? 1"]
     assert cmds.index("TEST") > cmds.index("FUNC:AC:RANG? 1")      # limit + range set BEFORE HV starts
     assert (leak, brk) == (3.2, False)
+
+
+def test_visa_read_timeout_is_raised_to_cover_the_dwell_then_restored():
+    # Field defect (2026-11): a 5 s test with the 5000 ms VISA default raced the FETCh? read, which
+    # timed out (VI_ERROR_TMO) even though the tester PASSED -> surfaced as an ERROR row. The poll's
+    # read timeout must cover dwell + rise/fall, and be put back afterwards.
+    d = _drv()
+    _run(d.measure_acw(1500, 5.0, 1, current_limit_ma=10.0))
+    assert d.transport.read_timeouts, "measure_acw must raise the VISA read timeout for the poll"
+    assert max(d.transport.read_timeouts) >= 5000 + 15000      # dwell(ms) + margin
+    assert d.transport.timeout_ms == 5000                       # restored to the original after
 
 
 def test_range_is_forced_to_auto_with_a_limit_and_a_fixed_readback_is_an_error():
