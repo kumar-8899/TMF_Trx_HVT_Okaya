@@ -100,6 +100,11 @@
       "config": { "enabled": false, "station_name": "HV Testing" }
     },
     {
+      "id": "okaya_tower",
+      "variant": "default",
+      "config": { "enabled": true, "buzzer_enabled": true, "buzzer_duration_s": 5.0, "result_hold_s": 5.0 }
+    },
+    {
       "id": "health",
       "variant": "default",
       "config": { "data_root": "data", "disk_min_gb": 1.0 }

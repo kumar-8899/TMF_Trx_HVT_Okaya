@@ -112,6 +112,18 @@ instruments, the variable map, or step types here.
   module needs `okaya_mes` in the live `license.json` + `app.json` — a frozen install never reconciles, run
   `app/okaya_hvt/tools/enable_okaya_mes.ps1`. In frontend tests import MUI icons by path (`@mui/icons-material/Save`), never from
   the barrel: the barrel makes vitest collect for minutes.
+- **Tower light (`okaya_tower`, app-owned module)** — drives the `relay2` tower stack (`tl_green`/`tl_red`/`buzzer`;
+  no yellow on this bench) from the controller's run lifecycle, NOT from any recipe. `backend/modules/okaya_tower/`
+  subscribes to `event/#` and writes those signals via the bridge `variable.write` op: run-started → both lamps +
+  buzzer OFF (nothing lit while testing); run-finished PASS → green; run-finished non-PASS → red + buzzer for
+  `buzzer_duration_s` (if `buzzer_enabled`); run-aborted → red only, no buzzer. After a result the lamp holds
+  `result_hold_s` then clears to OFF (idle = all off). Every output write is a diag event (visible in a flight-recorder
+  bundle). The tower is advisory — a failed lamp/buzzer write is logged, never raised into a run (so a disconnected
+  `relay2` can't fail a test). Settings (enable, buzzer on/off + duration, lamp hold) are a db record edited via
+  `/okaya-tower/config` (admin, `SYSTEM.SETTINGS`); `app.json` supplies defaults; `/okaya-tower/test` drives one output
+  to check wiring. Enabled by default in the tracked example/release config; a frozen install needs
+  `app/okaya_hvt/tools/enable_okaya_tower.ps1` (adds it to the live `app.json` + `license.json`). `relay2` must be
+  configured + connected for the lamps to actually light (its connection params were still unconfirmed as of 2026-09).
 - **Local framework patches (NOT yet upstream)** — this fork deliberately carries edits to
   framework-owned files; expect merge conflicts there on the next framework tag and offer each
   upstream. FIVE remain: (3) `controller/controller/instruments/registry.py` `connect_all()` — an

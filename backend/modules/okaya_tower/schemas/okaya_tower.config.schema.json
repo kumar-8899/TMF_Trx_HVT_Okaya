@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmf:okaya_tower/okaya_tower.config.schema.json",
+  "title": "Okaya tower-light module config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "drive the tower from run state (editable on the Tower light settings)"
+    },
+    "buzzer_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "sound the buzzer on a non-PASS (FAIL) result"
+    },
+    "buzzer_duration_s": {
+      "type": "number",
+      "default": 5.0,
+      "minimum": 0,
+      "description": "how long the buzzer sounds on a non-PASS result"
+    },
+    "result_hold_s": {
+      "type": "number",
+      "default": 5.0,
+      "minimum": 0,
+      "description": "how long the result lamp (green/red) stays lit after a run before clearing to OFF"
+    },
+    "stations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["st1"],
+      "description": "stations whose tower this drives (only used to clear the tower OFF at startup)"
+    },
+    "signals": {
+      "type": "object",
+      "default": { "green": "tl_green", "red": "tl_red", "buzzer": "buzzer" },
+      "description": "variable-map signal names for the tower outputs {green, red, buzzer}"
+    }
+  }
+}

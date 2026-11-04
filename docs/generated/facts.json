@@ -1001,6 +1001,47 @@
       ]
     },
     {
+      "id": "okaya_tower",
+      "display_name": "Tower light",
+      "description": "Drives the relay2 tower stack (green/red lamps + buzzer) from run state: both lamps off while a test runs, green on PASS, red on a non-PASS result, buzzer on a non-PASS result for a configurable duration. App-owned; never part of a recipe.",
+      "version": "1.0.0",
+      "contract_version": 1,
+      "entitlement_key": "okaya_tower",
+      "variants": [
+        "default"
+      ],
+      "api_prefix": "",
+      "core_dependencies": [
+        "db",
+        "bridge",
+        "diagnostics",
+        "config",
+        "web"
+      ],
+      "contract_dependencies": [],
+      "permissions_used": [
+        "SYSTEM.SETTINGS"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/okaya-tower/config"
+        },
+        {
+          "method": "PUT",
+          "path": "/okaya-tower/config"
+        },
+        {
+          "method": "GET",
+          "path": "/okaya-tower/status"
+        },
+        {
+          "method": "POST",
+          "path": "/okaya-tower/test"
+        }
+      ]
+    },
+    {
       "id": "portal",
       "display_name": "User Portal",
       "description": "The customer-facing support surface that replaces the printed software manual: a searchable library of PDFs (hardware manuals, drawings) users upload or an app ships. Later: a troubleshooting assistant and case log. No MQTT — it reasons over stored data.",

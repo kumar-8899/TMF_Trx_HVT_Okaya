@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "module": {
+    "id": "okaya_tower",
+    "version": "1.0.0",
+    "contract_version": 1,
+    "display_name": "Tower light",
+    "description": "Drives the relay2 tower stack (green/red lamps + buzzer) from run state: both lamps off while a test runs, green on PASS, red on a non-PASS result, buzzer on a non-PASS result for a configurable duration. App-owned; never part of a recipe."
+  },
+  "entitlement_key": "okaya_tower",
+  "variants": [
+    "default"
+  ],
+  "core_dependencies": [
+    "db",
+    "bridge",
+    "diagnostics",
+    "config",
+    "web"
+  ],
+  "contract_dependencies": [],
+  "contributes": {
+    "api_prefix": "",
+    "mqtt_subscriptions": [
+      "event/#"
+    ],
+    "migrations": null,
+    "frontend_flags": []
+  },
+  "config_schema": "schemas/okaya_tower.config.schema.json"
+}
