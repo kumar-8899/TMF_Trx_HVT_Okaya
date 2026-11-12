@@ -47,11 +47,66 @@ parameters — the exact relay combination per test point is site wiring, kept a
 
 from __future__ import annotations
 
+import json
+import os
 import time
+from pathlib import Path
 
 from controller.context import StepAborted
 from controller.registry import register_step_type
 from controller.results import FAIL, Limits, Measurement, StepResult
+
+# ---- operator-editable global timing overrides --------------------------------------------------
+# The relay/HV settle times below are deliberately conservative and are NOT in the recipe form (so
+# one global set applies to every model, and editing them can never break a recipe's content hash).
+# They are read from a plain JSON file the operator hand-edits on the client:
+#     <TMF_STATE_DIR>/config/hipot_timing.json   (next to app.json; survives app updates)
+# or an explicit path in OKAYA_HIPOT_TIMING_FILE (dev/tests). The controller inherits TMF_STATE_DIR
+# from the backend. Keys: off_margin_s, settle_off_s, settle_s, verify_settle_s (seconds, >= 0).
+# A missing/invalid file leaves the built-in defaults in place — it can never fail a run.
+_TIMING_KEYS = ("off_margin_s", "settle_off_s", "settle_s", "verify_settle_s")
+_TIMING_CACHE: dict = {"path": None, "mtime": None, "values": {}}
+
+
+def _timing_file() -> Path | None:
+    override = os.environ.get("OKAYA_HIPOT_TIMING_FILE")
+    if override:
+        return Path(override)
+    state = os.environ.get("TMF_STATE_DIR")
+    if state:
+        return Path(state) / "config" / "hipot_timing.json"
+    return None
+
+
+def load_timing_overrides() -> dict:
+    """The global hipot timing overrides, cached by file mtime (so an edit-then-rerun is picked up
+    live). Returns only the keys actually present and valid; never raises."""
+    p = _timing_file()
+    if p is None:
+        return {}
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        _TIMING_CACHE.update(path=str(p), mtime=None, values={})
+        return {}
+    if _TIMING_CACHE["path"] == str(p) and _TIMING_CACHE["mtime"] == mtime:
+        return _TIMING_CACHE["values"]
+    values: dict = {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — unparseable file -> keep built-in defaults, never break a run
+        data = None
+    if isinstance(data, dict):
+        for k in _TIMING_KEYS:                   # per-key: one bad value never discards the others
+            if k in data:
+                try:
+                    v = float(data[k])
+                except (TypeError, ValueError):
+                    continue
+                if v >= 0:
+                    values[k] = v
+    _TIMING_CACHE.update(path=str(p), mtime=mtime, values=values)
+    return values
 
 
 @register_step_type(
@@ -78,10 +133,19 @@ class HipotAcw:
         step = int(params.get("step", 1))
         voltage = float(params["voltage"])
         test_time = float(params["test_time"])
-        settle_s = float(params.get("settle_s", 1.0))
-        settle_off_s = float(params.get("settle_off_s", 2.0))
-        off_margin_s = float(params.get("off_margin_s", 4.0))
-        verify_settle_s = float(params.get("verify_settle_s", 0.3))
+        # Timing precedence: an explicit recipe param wins, else the operator's global
+        # hipot_timing.json, else the built-in conservative default (see load_timing_overrides).
+        tcfg = load_timing_overrides()
+        def _timing(key, default):
+            if key in params:
+                return float(params[key])
+            if key in tcfg:
+                return float(tcfg[key])
+            return default
+        settle_s = _timing("settle_s", 1.0)
+        settle_off_s = _timing("settle_off_s", 2.0)
+        off_margin_s = _timing("off_margin_s", 4.0)
+        verify_settle_s = _timing("verify_settle_s", 0.3)
         verify_retries = int(params.get("verify_retries", 2))
         retries = int(params.get("retries", 1))         # re-run the whole test once more on FAIL
         name = params.get("name") or "leakage_current"

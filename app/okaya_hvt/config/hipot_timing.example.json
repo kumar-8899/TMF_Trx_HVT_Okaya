@@ -1,0 +1,7 @@
+{
+  "_comment": "Global hipot step timing, in SECONDS. Hand-edit this on the client at <install>/config/hipot_timing.json (next to app.json). Applies to ALL models, is NOT part of any recipe (so it never affects a recipe's content hash), and survives app updates (the config/ folder is preserved). A missing or invalid file falls back to the built-in SAFE defaults: off_margin_s 4.0, settle_off_s 2.0, settle_s 1.0, verify_settle_s 0.3. Changes take effect on the next run. Values below are the measured/optimized set (2.5 kV / 5 s on UT5310R+). See app/okaya_hvt/docs/CYCLE_TIME.md.",
+  "off_margin_s": 2.0,
+  "settle_off_s": 1.0,
+  "settle_s": 0.5,
+  "verify_settle_s": 0.15
+}

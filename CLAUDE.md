@@ -88,6 +88,14 @@ instruments, the variable map, or step types here.
     10 mA limit alone leaves a coarse range that reads small leakage as exactly 0.000 mA), reading both back;
     the tester also pushes an unsolicited result line at test end, so the VISA transport `drain()`s stale
     replies before the read-back (else the next test failed with `implausible reading '1,AC,...;'`).
+    The step's four settle times (`off_margin_s`/`settle_off_s`/`settle_s`/`verify_settle_s`) are
+    read at run time from an operator-editable global file `<TMF_STATE_DIR>/config/hipot_timing.json`
+    (handler `load_timing_overrides`; precedence recipe param > file > built-in default; missing/bad
+    file = defaults, never fails a run) — one set for all models, not in any recipe (so no content-hash
+    clash), survives app updates. Measured tester timing + the optimized values are in
+    [app/okaya_hvt/docs/CYCLE_TIME.md](app/okaya_hvt/docs/CYCLE_TIME.md); seed with
+    `app/okaya_hvt/tools/install_hipot_timing.ps1`. At 2.5 kV/5 s the real step is ~12.6 s (rise ~1.0
+    + dwell ~5.1 + fall ~0.7, result posts AFTER the fall, so `off_margin_s` can drop 4→2).
 - **Frontend**: `frontend/src/app/overrides/recipe-editor.tsx` and `recipe-detail.tsx` are thin
   registry shims pointing at `okaya_hvt/HipotRecipeEditor.tsx` / `HipotRecipeDetail.tsx` /
   `HipotRecipeForm.tsx` (replaced the earlier Variac-based Transformer* form 2026-09, which
